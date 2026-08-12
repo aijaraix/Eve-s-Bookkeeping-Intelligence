@@ -13,7 +13,14 @@ import {
   User
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+import rawFirebaseConfig from '../firebase-applet-config.json';
+
+const resolvedApiKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || (rawFirebaseConfig as any).apiKey || '';
+
+const firebaseConfig = {
+  ...rawFirebaseConfig,
+  apiKey: resolvedApiKey,
+};
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 

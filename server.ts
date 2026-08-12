@@ -17,6 +17,8 @@ import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
 import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
 import { DiagnosticsEngine } from "./server/diagnosticsEngine.js";
+import { createReviewerRouter } from "./server/reviewerRoutes.js";
+import { ReviewerEngine } from "./server/reviewerEngine.js";
 
 const fileRouter = new FileRouter();
 const anyDocParser = new AnyDocParser();
@@ -3842,7 +3844,7 @@ app.get("/api/diagnostics/overview", (req, res) => {
 app.get("/api/diagnostics/manifests", (req, res) => {
   const { documentId } = req.query;
   const docs = documentId ? db.documents.filter(d => d.id === documentId) : db.documents;
-  const allManifests = docs.flatMap(d => DiagnosticsEngine.generatePageManifest(d, db.facts || []));
+  const allManifests = docs.flatMap(d => DiagnosticsEngine.generatePageManifest(d, (db.facts as any) || []));
   res.json(allManifests);
 });
 
@@ -3850,7 +3852,7 @@ app.get("/api/diagnostics/manifests", (req, res) => {
 app.get("/api/diagnostics/source-blocks", (req, res) => {
   const { documentId } = req.query;
   const docs = documentId ? db.documents.filter(d => d.id === documentId) : db.documents;
-  const allBlocks = docs.flatMap(d => DiagnosticsEngine.generateSourceBlocks(d, db.facts || []));
+  const allBlocks = docs.flatMap(d => DiagnosticsEngine.generateSourceBlocks(d, (db.facts as any) || []));
   res.json(allBlocks);
 });
 
@@ -3858,7 +3860,7 @@ app.get("/api/diagnostics/source-blocks", (req, res) => {
 app.get("/api/diagnostics/tables", (req, res) => {
   const { documentId } = req.query;
   const docs = documentId ? db.documents.filter(d => d.id === documentId) : db.documents;
-  const allTables = docs.flatMap(d => DiagnosticsEngine.generateTableRecords(d, db.facts || []));
+  const allTables = docs.flatMap(d => DiagnosticsEngine.generateTableRecords(d, (db.facts as any) || []));
   res.json(allTables);
 });
 
@@ -3866,7 +3868,7 @@ app.get("/api/diagnostics/tables", (req, res) => {
 app.get("/api/diagnostics/derived-metrics", (req, res) => {
   const { workspaceId } = req.query;
   const targetWsId = (workspaceId as string) || (db.workspaces.length > 0 ? db.workspaces[0].id : "");
-  const metrics = DiagnosticsEngine.calculateDerivedMetrics(targetWsId, db.facts || []);
+  const metrics = DiagnosticsEngine.calculateDerivedMetrics(targetWsId, (db.facts as any) || []);
   res.json(metrics);
 });
 
@@ -3874,7 +3876,7 @@ app.get("/api/diagnostics/derived-metrics", (req, res) => {
 app.get("/api/diagnostics/validations", (req, res) => {
   const { workspaceId } = req.query;
   const targetWsId = (workspaceId as string) || (db.workspaces.length > 0 ? db.workspaces[0].id : "");
-  const validations = DiagnosticsEngine.runValidations(targetWsId, db.facts || []);
+  const validations = DiagnosticsEngine.runValidations(targetWsId, (db.facts as any) || []);
   res.json(validations);
 });
 
@@ -3882,7 +3884,7 @@ app.get("/api/diagnostics/validations", (req, res) => {
 app.get("/api/diagnostics/conflicts", (req, res) => {
   const { workspaceId } = req.query;
   const targetWsId = (workspaceId as string) || (db.workspaces.length > 0 ? db.workspaces[0].id : "");
-  const conflicts = DiagnosticsEngine.detectConflicts(targetWsId, db.facts || []);
+  const conflicts = DiagnosticsEngine.detectConflicts(targetWsId, (db.facts as any) || []);
   res.json(conflicts);
 });
 
@@ -3890,7 +3892,7 @@ app.get("/api/diagnostics/conflicts", (req, res) => {
 app.get("/api/diagnostics/opportunities", (req, res) => {
   const { documentId } = req.query;
   const docs = documentId ? db.documents.filter(d => d.id === documentId) : db.documents;
-  const opportunities = docs.flatMap(d => DiagnosticsEngine.scanAdditionalOpportunities(d, db.facts || []));
+  const opportunities = docs.flatMap(d => DiagnosticsEngine.scanAdditionalOpportunities(d, (db.facts as any) || []));
   res.json(opportunities);
 });
 
@@ -3985,6 +3987,25 @@ app.get("/api/diagnostics/export", (req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Content-Disposition", 'attachment; filename="system_diagnostics_bundle.json"');
   res.json(bundle);
+});
+
+// =========================================================================
+// REVIEWER MODE API & SERVER-READABLE HTML ROUTES (Requirement #26)
+// =========================================================================
+app.use("/api/review", createReviewerRouter(() => db));
+
+// Server-rendered HTML route for /review and /review/* for external review tools, cURL, & web readers
+app.get(["/review", "/review/*", "/system-review", "/system-review/*"], (req, res, next) => {
+  // If the request explicitly prefers JSON, redirect to the corresponding API endpoint
+  if (req.headers.accept?.includes("application/json")) {
+    const apiPath = req.path.replace("/review", "/api/review").replace("/system-review", "/api/review");
+    return res.redirect(apiPath === "/api/review" ? "/api/review/index" : apiPath);
+  }
+
+  // Generate server-rendered HTML response with embedded React container
+  const html = ReviewerEngine.renderServerHTMLPage(req.path, db);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
 });
 
 async function startServer() {

@@ -20,6 +20,7 @@ import {
   LifeBuoy,
   Settings,
   ShieldCheck,
+  Eye,
   Building,
   LogOut,
   Cpu,
@@ -158,6 +159,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { id: 'findings', label: 'Audit & Findings', icon: AlertTriangle },
     { id: 'reports', label: 'AI Deliverables', icon: FileSpreadsheet, badge: 'AI', badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
     { id: 'system-diagnostics', label: 'System Diagnostics', icon: ShieldCheck, badge: 'DIAG', badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+    { id: 'review', label: 'Reviewer Mode', icon: Eye, badge: 'REVIEW', badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
     { id: 'teams', label: 'Users & Teams', icon: Users },
     { id: 'activity', label: 'Activity Log', icon: Activity },
   ];

@@ -40,6 +40,7 @@ import { StagedHoldingModal } from './components/StagedHoldingModal';
 import { ExtractionProgressModal } from './components/ExtractionProgressModal';
 import { SystemGuideView } from './components/SystemGuideView';
 import { SystemDiagnosticsView } from './components/SystemDiagnosticsView';
+import { ReviewerModeView } from './components/ReviewerModeView';
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -716,7 +717,7 @@ export default function App() {
             />
           )}
 
-          {(currentView === 'findings' || currentView === 'review') && (
+          {currentView === 'findings' && (
             <AuditFindingsView
               facts={facts}
               documents={documents}
@@ -724,6 +725,13 @@ export default function App() {
               workspaces={workspaces}
               activeWorkspace={activeWorkspace}
               onUpdateStatus={handleUpdateFactStatus}
+              onNavigate={setCurrentView}
+            />
+          )}
+
+          {(currentView === 'review' || currentView === 'reviewer' || currentView.startsWith('review') || currentView.startsWith('system-review')) && (
+            <ReviewerModeView
+              activeWorkspace={activeWorkspace}
               onNavigate={setCurrentView}
             />
           )}

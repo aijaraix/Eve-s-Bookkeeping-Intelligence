@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import { parseValWithScale } from "./server";
 import { verifyUnileverReconciliation } from "./src/lib/unileverGoldenFixture";
+import { ReviewerEngine } from "./server/reviewerEngine";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -250,6 +251,51 @@ assert(
   compiled.assets === "70.47B",
   `Assets parsed incorrectly: ${compiled.assets}`,
   "Total Balance Sheet Assets correctly resolved to €70.47B."
+);
+
+// Test Case 3: Reviewer Mode & Observability Layer Verification
+console.log(`\n${colors.bold}[SUITE 3: REVIEWER MODE & OBSERVABILITY VERIFICATION]${colors.reset}`);
+
+const mockTestDb = {
+  workspaces: [{ id: "ws-unilever-2025", name: "Unilever PLC FY 2025 Test Workspace" }],
+  documents: [{ id: "doc-1", name: "Unilever_Annual_Report_2025.pdf", pageCount: 12 }],
+  facts: goldenUnileverFacts.map(f => ({
+    id: f.fact_id,
+    workspaceId: "ws-unilever-2025",
+    documentId: "doc-1",
+    labelOriginal: f.original_label,
+    labelNormalized: f.normalized_label,
+    canonicalMetric: f.canonicalMetric,
+    valueOriginal: f.original_value,
+    valueFunctional: f.normalized_value,
+    currency: "EUR",
+    scale: "Millions",
+    status: "VALIDATED"
+  }))
+};
+
+const revIndex = ReviewerEngine.getReviewIndex();
+assert(
+  "Reviewer Index Verification",
+  revIndex.build_version === "v2.4.0-auditable" && revIndex.review_routes.length >= 20,
+  "Reviewer index missing required build version or review routes!",
+  "Reviewer index correctly specifies build v2.4.0-auditable with 23 review routes."
+);
+
+const dashLineage = ReviewerEngine.getDashboardLineageReview(mockTestDb);
+assert(
+  "Dashboard Lineage Requirement (0 Untraceable Values)",
+  dashLineage.target_untraceable_requirement_met && dashLineage.untraceable_financial_values_count === 0,
+  "Untraceable financial values detected in dashboard lineage!",
+  "Dashboard lineage requirement met: UNTRACEABLE FINANCIAL VALUES = 0."
+);
+
+const serverHtml = ReviewerEngine.renderServerHTMLPage("/review", mockTestDb);
+assert(
+  "Server-Rendered Reviewer HTML Page",
+  serverHtml.includes("Reviewer Mode") && serverHtml.includes("Unilever PLC"),
+  "Server-rendered HTML page generation failed!",
+  "Server-rendered HTML page successfully generated for external reviewers & web readers."
 );
 
 
