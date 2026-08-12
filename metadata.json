@@ -1,0 +1,7 @@
+{
+  "name": "AI CPA Core",
+  "description": "Enterprise-grade multi-agent financial document intelligence and accounting assistant platform",
+  "requestFramePermissions": ["microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

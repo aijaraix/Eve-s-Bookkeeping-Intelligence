@@ -1,0 +1,28 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "Authenticated user profiles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "workspaces": {
+      "title": "Workspaces",
+      "description": "Financial entity workspaces",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    }
+  }
+}
