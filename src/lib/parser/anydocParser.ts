@@ -275,20 +275,9 @@ export class AnyDocParser implements DocumentParser {
     else detectedCurrency = 'USD';
 
     let entityName = 'Corporate Entity';
-    const lowerFilename = file.filename.toLowerCase();
-    const lowerRawText = rawText.toLowerCase();
-
-    if (lowerFilename.includes('rafael') || lowerRawText.includes('rafael')) entityName = 'Rafael Pharmaceuticals Inc.';
-    else if (lowerFilename.includes('unilever') || lowerRawText.includes('unilever')) entityName = 'Unilever PLC';
-    else if (lowerFilename.includes('nestle') || lowerRawText.includes('nestlé')) entityName = 'Nestlé S.A.';
-    else if (lowerFilename.includes('apple') || lowerRawText.includes('apple')) entityName = 'Apple Inc.';
-    else if (lowerFilename.includes('msft') || lowerFilename.includes('microsoft') || lowerRawText.includes('microsoft')) entityName = 'Microsoft Corp';
-    else {
-      // Clean filename
-      const baseName = (file.originalName || file.filename).split('.')[0].replace(/[-_]/g, ' ').trim();
-      if (baseName.length > 2) {
-        entityName = baseName.charAt(0).toUpperCase() + baseName.slice(1);
-      }
+    const baseName = (file.originalName || file.filename).split('.')[0].replace(/[-_]/g, ' ').replace(/(annual|financial|statement|report|audit|10k|2025|2026|fy2025|fy2026)/gi, '').trim();
+    if (baseName.length >= 3) {
+      entityName = baseName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     }
 
     return {

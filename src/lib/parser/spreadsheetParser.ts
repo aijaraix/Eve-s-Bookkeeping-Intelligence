@@ -116,7 +116,7 @@ export class SpreadsheetParser implements DocumentParser {
         pages: sheetNames.length,
         language: 'English',
         currency: 'EUR',
-        entityName: file.filename.toLowerCase().includes('nestle') ? 'Nestlé S.A.' : 'Corporate Entity',
+        entityName: file.filename.split('.')[0].replace(/[-_]/g, ' ').trim() || 'Corporate Entity',
         period: 'FY 2025',
         totalWords: allCells.length * 3
       },

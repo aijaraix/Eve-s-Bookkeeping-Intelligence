@@ -25,8 +25,13 @@ export class WebParser implements DocumentParser {
 
   public async parse(file: FileInput, inspection: FileInspectionResult): Promise<CanonicalDocumentModel> {
     const docId = `DOC-WEB-${Math.floor(1000 + Math.random() * 9000)}`;
-    const targetUrl = file.url || 'https://www.nestle.com/investors';
-    const isNestle = targetUrl.toLowerCase().includes('nestle');
+    const targetUrl = file.url || 'https://www.example.com/investors';
+    let hostName = 'Corporate Entity';
+    try {
+      const u = new URL(targetUrl);
+      const host = u.hostname.replace(/^www\./, '').split('.')[0];
+      if (host) hostName = host.charAt(0).toUpperCase() + host.slice(1);
+    } catch {}
 
     const sections: SectionModel[] = [
       {
@@ -38,29 +43,14 @@ export class WebParser implements DocumentParser {
       },
       {
         id: 'sec-web-2',
-        title: isNestle ? 'Nestlé S.A. Full-Year 2025 Financial Results & Statements' : 'Corporate Financial Results & Regulatory Disclosure',
+        title: `${hostName} Financial Results & Regulatory Disclosure`,
         level: 2,
-        text: isNestle
-          ? `Nestlé S.A. reported full-year 2025 sales of CHF 89,490 million. Organic growth reached 3.8% with underlying trading operating profit margin of 17.2%. Consolidated net profit stood at CHF 11,850 million.`
-          : `Corporate investor relations disclosure page acquired and normalized into Canonical Document Model.`,
+        text: `Corporate investor relations disclosure page acquired from ${targetUrl} and normalized into Canonical Document Model.`,
         pageNumber: 1
       }
     ];
 
-    const tables: TableModel[] = [
-      {
-        table_id: 'tbl-web-1',
-        name: isNestle ? 'Nestlé S.A. Consolidated Income Statement (2025)' : 'Acquired Web Financial Table',
-        pageNumber: 1,
-        headers: ['Line Item', 'FY 2025 (CHF Millions)', 'FY 2024 (CHF Millions)', 'Organic Change'],
-        rows: [
-          ['Sales / Revenue', '89,490', '91,375', '+3.8%'],
-          ['Underlying Trading Operating Profit', '15,392', '15,808', '+4.1%'],
-          ['Net Profit Attributable to Shareholders', '11,850', '11,200', '+5.8%'],
-          ['Free Cash Flow', '10,400', '9,900', '+5.1%']
-        ]
-      }
-    ];
+    const tables: TableModel[] = [];
 
     const markdown = `# Firecrawl Acquired Source Document\n\n` +
       `**Official Source URL:** ${targetUrl}\n` +
@@ -72,7 +62,7 @@ export class WebParser implements DocumentParser {
       document_id: docId,
       project_id: 'PRJ-CURRENT',
       source: {
-        filename: isNestle ? 'Nestle_Investor_Relations_FY2025.html' : 'Web_Acquisition_Report.html',
+        filename: `${hostName}_Web_Acquisition_Report.html`,
         originalName: targetUrl,
         format: 'html_web',
         hash: inspection.hash,
@@ -86,12 +76,12 @@ export class WebParser implements DocumentParser {
         confidence: 0.99
       },
       metadata: {
-        pages: 12,
+        pages: 1,
         language: 'English',
-        currency: isNestle ? 'CHF' : 'EUR',
-        entityName: isNestle ? 'Nestlé S.A.' : 'Corporate Entity',
+        currency: 'USD',
+        entityName: hostName,
         period: 'FY 2025',
-        totalWords: 1850
+        totalWords: 500
       },
       sections,
       tables,

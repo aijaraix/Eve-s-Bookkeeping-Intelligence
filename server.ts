@@ -662,15 +662,10 @@ function loadStorage() {
       db = JSON.parse(data);
       if (db && Array.isArray(db.facts)) {
         db.facts = db.facts.filter((f: any) => {
-          if (f.id?.startsWith("fct-uni-")) return false;
           if (String(f.valueOriginal).includes("59.60B") || String(f.valueFunctional).includes("59.60B")) return false;
           const valNum = parseFloat(String(f.valueFunctional || "0"));
           // Filter out concatenated multi-column corruption (quadrillions/trillions)
           if (valNum > 1e14 || valNum < -1e14) return false;
-          // Filter out false narrative matches for revenue/cash/gross profit
-          if (f.labelNormalized === "Revenue" && (valNum === 2025 || valNum === 2026)) return false;
-          if (f.labelNormalized === "Cash" && valNum === 100) return false;
-          if (f.labelNormalized === "Gross Profit" && valNum === 3.5) return false;
           return true;
         });
         saveStorage();
@@ -682,228 +677,6 @@ function loadStorage() {
 }
 
 loadStorage();
-
-// Seed Rafael Pharmaceuticals Inc. if not existing
-if (!db.workspaces.some(w => w.name.toLowerCase().includes("rafael"))) {
-  const rafaelWsId = "ws-rafael-pharma";
-  db.workspaces.push({
-    id: rafaelWsId,
-    name: "Rafael Pharmaceuticals Inc.",
-    code: "RFL",
-    currency: "USD",
-    country: "United States",
-    createdAt: new Date().toISOString()
-  });
-
-  const docId = "doc-rafael-10k-2025";
-  db.documents.push({
-    id: docId,
-    workspaceId: rafaelWsId,
-    filename: "Rafael_Pharmaceuticals_10K_2025.docx",
-    originalName: "Rafael_Pharmaceuticals_10K_2025.docx",
-    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    size: 245000,
-    sha256: "raf-sha256-2025-doc",
-    status: "PROCESSED",
-    category: "10-K Annual Report",
-    language: "en",
-    currency: "USD",
-    entityName: "Rafael Pharmaceuticals Inc.",
-    period: "FY 2025",
-    confidence: 0.98,
-    extractedFactsCount: 9,
-    reviewStatus: "PASSED",
-    createdAt: new Date().toISOString(),
-    summary: "Rafael Pharmaceuticals Inc. FY 2025 Consolidated Financial Statements and Disclosures."
-  });
-
-  db.facts.push(
-    {
-      id: "FCT-RAF-1",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Revenue",
-      labelOriginal: "Product & Licensing Revenue",
-      labelNormalized: "Revenue",
-      valueOriginal: "$412.5M",
-      currencyOriginal: "USD",
-      valueFunctional: "412500000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 12,
-      sourceText: "Total consolidated revenues from pharmaceutical products and patent licensing reached $412.5 million.",
-      confidence: 0.98,
-      status: "VALIDATED",
-      extractionMethod: "Mammoth DOCX Parser & Swarm Agent Pipeline",
-      verificationNotes: "Verified via 10-K audited income statement disclosures."
-    },
-    {
-      id: "FCT-RAF-2",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Cost of Sales",
-      labelOriginal: "Cost of Goods Sold & R&D",
-      labelNormalized: "Cost of Sales",
-      valueOriginal: "$128.3M",
-      currencyOriginal: "USD",
-      valueFunctional: "128300000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 13,
-      sourceText: "Cost of goods sold including pharmaceutical batch manufacturing was $128.3 million.",
-      confidence: 0.97,
-      status: "VALIDATED",
-      extractionMethod: "Mammoth DOCX Parser & Swarm Agent Pipeline"
-    },
-    {
-      id: "FCT-RAF-3",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Gross Profit",
-      labelOriginal: "Gross Profit",
-      labelNormalized: "Gross Profit",
-      valueOriginal: "$284.2M",
-      currencyOriginal: "USD",
-      valueFunctional: "284200000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 13,
-      sourceText: "Gross profit for FY 2025 was $284.2 million.",
-      confidence: 0.99,
-      status: "VALIDATED",
-      extractionMethod: "AUTONOMOUS_BACKFILL_ACCOUNTING_EQUATION",
-      verificationNotes: "Backfilled and verified via equation (Revenue $412.5M - Cost of Sales $128.3M)"
-    },
-    {
-      id: "FCT-RAF-4",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Operating Income",
-      labelOriginal: "Operating Profit",
-      labelNormalized: "Operating Income",
-      valueOriginal: "$145.8M",
-      currencyOriginal: "USD",
-      valueFunctional: "145800000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 14,
-      sourceText: "Operating income after clinical trial expenditures was $145.8 million.",
-      confidence: 0.98,
-      status: "VALIDATED",
-      extractionMethod: "Mammoth DOCX Parser & Swarm Agent Pipeline"
-    },
-    {
-      id: "FCT-RAF-5",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Net Income",
-      labelOriginal: "Net Profit for the Period",
-      labelNormalized: "Net Income",
-      valueOriginal: "$114.2M",
-      currencyOriginal: "USD",
-      valueFunctional: "114200000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 15,
-      sourceText: "Net profit after tax provision stood at $114.2 million.",
-      confidence: 0.98,
-      status: "VALIDATED",
-      extractionMethod: "Mammoth DOCX Parser & Swarm Agent Pipeline"
-    },
-    {
-      id: "FCT-RAF-6",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Total Assets",
-      labelOriginal: "Total Consolidated Assets",
-      labelNormalized: "Total Assets",
-      valueOriginal: "$892.4M",
-      currencyOriginal: "USD",
-      valueFunctional: "892400000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 22,
-      sourceText: "Total consolidated assets as of December 31, 2025 totaled $892.4 million.",
-      confidence: 0.99,
-      status: "VALIDATED",
-      extractionMethod: "Mammoth DOCX Parser & Swarm Agent Pipeline"
-    },
-    {
-      id: "FCT-RAF-7",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Total Liabilities",
-      labelOriginal: "Total Liabilities",
-      labelNormalized: "Total Liabilities",
-      valueOriginal: "$310.1M",
-      currencyOriginal: "USD",
-      valueFunctional: "310100000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 23,
-      sourceText: "Total current and non-current liabilities amounted to $310.1 million.",
-      confidence: 0.98,
-      status: "VALIDATED",
-      extractionMethod: "Mammoth DOCX Parser & Swarm Agent Pipeline"
-    },
-    {
-      id: "FCT-RAF-8",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Total Equity",
-      labelOriginal: "Shareholders' Equity",
-      labelNormalized: "Total Equity",
-      valueOriginal: "$582.3M",
-      currencyOriginal: "USD",
-      valueFunctional: "582300000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 24,
-      sourceText: "Total stockholders' equity reached $582.3 million.",
-      confidence: 0.99,
-      status: "VALIDATED",
-      extractionMethod: "AUTONOMOUS_BACKFILL_ACCOUNTING_EQUATION",
-      verificationNotes: "Backfilled and verified via equation (Total Assets $892.4M - Total Liabilities $310.1M)"
-    },
-    {
-      id: "FCT-RAF-9",
-      workspaceId: rafaelWsId,
-      documentId: docId,
-      factType: "Cash",
-      labelOriginal: "Cash and Cash Equivalents",
-      labelNormalized: "Cash",
-      valueOriginal: "$215.6M",
-      currencyOriginal: "USD",
-      valueFunctional: "215600000",
-      functionalCurrency: "USD",
-      exchangeRate: "1.0",
-      periodStart: "2025-01-01",
-      periodEnd: "2025-12-31",
-      pageNumber: 25,
-      sourceText: "Cash, cash equivalents, and short-term liquid treasury bill holdings stood at $215.6 million.",
-      confidence: 0.99,
-      status: "VALIDATED",
-      extractionMethod: "Mammoth DOCX Parser & Swarm Agent Pipeline"
-    }
-  );
-  saveStorage();
-}
 
 app.get("/api/ai/health", async (req, res) => {
   const force = req.query.force === "true";
@@ -2131,34 +1904,6 @@ CRITICAL INSTRUCTIONS:
     resolvedCurrency = "CHF";
   }
 
-  if (targetText.includes("sony")) {
-    return { name: "Sony Group Corporation", code: "SONY", currency: resolvedCurrency || "JPY", country: "Japan" };
-  }
-  if (targetText.includes("novartis")) {
-    return { name: "Novartis AG", code: "NOVN", currency: resolvedCurrency || "USD", country: "Switzerland" };
-  }
-  if (targetText.includes("nestle") || targetText.includes("nestlé")) {
-    return { name: "Nestlé Group", code: "NESN", currency: resolvedCurrency || "CHF", country: "Switzerland" };
-  }
-  if (targetText.includes("unilever")) {
-    return { name: "Unilever PLC", code: "ULVR", currency: resolvedCurrency || "EUR", country: "United Kingdom" };
-  }
-  if (targetText.includes("rafael") || targetText.includes("rafael pharmaceutical") || targetText.includes("rafael pharma")) {
-    return { name: "Rafael Pharmaceuticals Inc.", code: "RFL", currency: resolvedCurrency || "USD", country: "United States" };
-  }
-  if (targetText.includes("technofina")) {
-    return { name: "Technofina S.A.", code: "TECH", currency: resolvedCurrency || "EUR", country: "Spain" };
-  }
-  if (targetText.includes("telefonica") || targetText.includes("telefónica") || targetText.includes("telf")) {
-    return { name: "Telefónica S.A.", code: "TEF", currency: resolvedCurrency || "EUR", country: "Spain" };
-  }
-  if (targetText.includes("santander")) {
-    return { name: "Banco Santander S.A.", code: "SAN", currency: resolvedCurrency || "EUR", country: "Spain" };
-  }
-  if (targetText.includes("iberdrola")) {
-    return { name: "Iberdrola S.A.", code: "IBE", currency: resolvedCurrency || "EUR", country: "Spain" };
-  }
-
   // Expanded filter to strictly prevent document section titles from becoming company names
   const sectionWordsRegex = /(corp|governance|compensation|remuneration|financial|statements|report|annual|consolidated|individual|standalone|notes|auditor|review|overview)/gi;
 
@@ -2183,7 +1928,7 @@ CRITICAL INSTRUCTIONS:
   }
 
   if (!finalName || finalName.length < 3 || finalName.toLowerCase() === "review" || finalName.toLowerCase() === "review enterprise") {
-    finalName = "Technofina S.A.";
+    finalName = "Corporate Entity";
   }
 
   return {
@@ -2284,14 +2029,14 @@ app.post("/api/documents/upload", (req, res) => {
       // Robust Fallback: If no files and no drive URL, synthesize a working document from instructions or default financial paper
       if (!files || files.length === 0) {
         const cleanName = spokenInstruction.replace(/[^a-zA-Z0-9]/g, "_").replace(/^_+|_+$/g, "").slice(0, 25);
-        const fallbackFileName = cleanName.length >= 3 ? `${cleanName}_Audit.pdf` : "Technofina_Financial_Statement_2026.pdf";
+        const fallbackFileName = cleanName.length >= 3 ? `${cleanName}_Audit.pdf` : "Financial_Statement.pdf";
         
         files = [{
           fieldname: "files",
           originalname: fallbackFileName,
           encoding: "7bit",
           mimetype: "application/pdf",
-          buffer: Buffer.from(`Audit Working Paper Document: ${spokenInstruction || "Technofina S.A. Financial Audit & Working Papers"}`),
+          buffer: Buffer.from(`Audit Working Paper Document: ${spokenInstruction || "Financial Audit Working Papers"}`),
           size: 1024 * 1024
         } as Express.Multer.File];
       }
