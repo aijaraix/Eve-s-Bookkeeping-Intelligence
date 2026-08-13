@@ -111,6 +111,7 @@ export interface DocumentRecord {
   createdAt: string;
   summary: string;
   pageCount?: number;
+  filePath?: string;
   ingestionVersion?: string;
   isDuplicate?: boolean;
 }
@@ -251,6 +252,97 @@ export interface ExtractedFact {
   fxDetails?: FxConversionMeta;
   auditTrailId?: string;
   verificationNotes?: string;
+
+  // Stage 2: Corporate Group & Multilingual fields
+  entityId?: string;
+  entityName?: string;
+  entityScope?: 'Consolidated' | 'Parent Only' | 'Subsidiary' | string;
+  entity_scope?: string;
+  originalLanguage?: string;
+  detectedLanguage?: string;
+  translationQualityScore?: number;
+
+  // Stage 3: Unbounded Registry, Candidates, Second-Pass Disclosures & Multi-Stage Reconciliation
+  candidateState?: 'PROPOSED' | 'ACCEPTED' | 'REJECTED' | 'VERIFIED' | string;
+  isCandidate?: boolean;
+  candidateSource?: 'SECOND_PASS_NOTE' | 'BACKFILL_AGENT' | 'FIRST_PASS' | string;
+  isNoteDisclosure?: boolean;
+  noteReference?: string;
+  disclosureCategory?: 'Leases & Commitments' | 'Tax Disclosures' | 'Segment Reporting' | 'Contingencies' | 'Related Parties' | 'Accounting Policies' | 'General Disclosures' | string;
+  verificationStage?: 'UNVERIFIED' | 'PASS_1_MATH' | 'PASS_2_RECONCILED' | 'FLAGGED' | string;
+  reconciliationVariance?: number;
+  reconciliationRule?: string;
+}
+
+export interface FactCandidate {
+  id: string;
+  workspaceId: string;
+  documentId: string;
+  proposedLabel: string;
+  canonicalMetric: string;
+  proposedValue: number;
+  currency: string;
+  candidateState: 'PROPOSED' | 'ACCEPTED' | 'REJECTED';
+  candidateSource: 'SECOND_PASS_NOTE' | 'BACKFILL_AGENT' | 'FIRST_PASS';
+  noteReference?: string;
+  sourceSnippet: string;
+  pageNumber: number;
+  confidence: number;
+  reasoning: string;
+  createdAt: string;
+}
+
+export interface AccountingReconciliationRule {
+  id: string;
+  ruleCode: string;
+  ruleName: string;
+  statementA: string;
+  metricA: string;
+  statementB: string;
+  metricB: string;
+  tolerance: number;
+  status: 'BALANCED' | 'VARIANCE_DETECTED' | 'MISSING_DATA';
+  expectedEquation: string;
+  calculatedValueA: number;
+  calculatedValueB: number;
+  variance: number;
+  explanation: string;
+}
+
+export interface CorporateEntity {
+  id: string;
+  workspaceId: string;
+  name: string;
+  legalName: string;
+  jurisdiction: string;
+  reportingCurrency: string;
+  entityType: 'PARENT' | 'SUBSIDIARY' | 'JOINT_VENTURE' | 'AFFILIATE' | 'OPERATING_UNIT';
+  ownershipPercentage: number;
+  scope: 'Consolidated' | 'Parent Only' | 'Subsidiary';
+  taxId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface EntityRelationship {
+  id: string;
+  workspaceId: string;
+  parentEntityId: string;
+  childEntityId: string;
+  relationshipType: 'PARENT_OF' | 'SUBSIDIARY_OF' | 'OWNS' | 'JOINT_VENTURE';
+  ownershipPercentage: number;
+  effectiveDate?: string;
+  consolidationMethod: 'FULL' | 'EQUITY' | 'PROPORTIONAL' | 'NONE';
+}
+
+export interface FxRateRecord {
+  id: string;
+  sourceCurrency: string;
+  targetCurrency: string;
+  exchangeRate: number;
+  effectiveDate: string;
+  rateSource: 'ECB' | 'FED' | 'USER_OVERRIDE' | 'EXTRACTED_NOTES' | 'BOE' | 'BOJ';
+  lastUpdated: string;
 }
 
 export interface StatementCoverageStatus {
@@ -572,6 +664,100 @@ export interface ReportLineageItem {
   source_block_ids_used: string[];
   ai_claims: { claim: string; supporting_fact_ids: string[]; verified: boolean }[];
   source_citations: string[];
+}
+
+export interface TenantRolePermission {
+  role: 'ADMIN' | 'AUDITOR' | 'REVIEWER' | 'READ_ONLY';
+  canReadFacts: boolean;
+  canEditFacts: boolean;
+  canApproveCandidates: boolean;
+  canManageEntities: boolean;
+  canManageFxRates: boolean;
+  canRunRegressionSuite: boolean;
+}
+
+export interface TenantWorkspaceAccess {
+  userId: string;
+  userEmail: string;
+  workspaceId: string;
+  role: 'ADMIN' | 'AUDITOR' | 'REVIEWER' | 'READ_ONLY';
+  grantedAt: string;
+}
+
+export interface RegressionTestCase {
+  id: string;
+  name: string;
+  category: 'MULTI_DOC_INGESTION' | 'MULTILINGUAL_TRANSLATION' | 'MULTI_CURRENCY_FX' | 'CANDIDATE_BACKFILL' | 'RECONCILIATION_RULES';
+  inputSummary: string;
+  expectedOutcome: string;
+  actualOutcome: string;
+  status: 'PASSED' | 'FAILED' | 'SKIPPED';
+  executionTimeMs: number;
+  details: string;
+}
+
+export interface RegressionSuiteRun {
+  runId: string;
+  workspaceId: string;
+  executedAt: string;
+  totalTests: number;
+  passedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  passRatePercentage: number;
+  durationMs: number;
+  testCases: RegressionTestCase[];
+}
+
+export interface LeadScheduleRow {
+  factId: string;
+  labelOriginal: string;
+  labelNormalized: string;
+  canonicalMetric: string;
+  valueOriginal: string;
+  originalCurrency: string;
+  valueFunctional: string;
+  functionalCurrency: string;
+  pageNumber: number;
+  documentTitle: string;
+  sourceText: string;
+  fxRateApplied?: number;
+  verificationStatus: string;
+  candidateState: string;
+}
+
+export interface LeadScheduleSection {
+  sectionTitle: string;
+  statementType: 'BALANCE_SHEET' | 'INCOME_STATEMENT' | 'CASH_FLOW' | 'FOOTNOTE_DISCLOSURES';
+  rows: LeadScheduleRow[];
+  totalFunctionalValue: number;
+  currency: string;
+}
+
+export interface AuditMemorandum {
+  memoId: string;
+  workspaceId: string;
+  generatedAt: string;
+  preparedBy: string;
+  title: string;
+  executiveSummary: string;
+  entityStructureSummary: string;
+  currencyConversionSummary: string;
+  reconciliationStatusSummary: string;
+  materialDisclosuresSummary: string;
+  findingsAndNotes: string[];
+  signOffStatus: 'DRAFT' | 'REVIEWED' | 'APPROVED';
+}
+
+export interface DeliverablePackage {
+  packageId: string;
+  workspaceId: string;
+  createdAt: string;
+  leadSchedules: LeadScheduleSection[];
+  auditMemorandum: AuditMemorandum;
+  totalFactsCount: number;
+  totalDocumentsCount: number;
+  downloadUrl?: string;
 }
 
 export interface SystemHealthCheck {

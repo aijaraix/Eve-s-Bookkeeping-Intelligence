@@ -1,11 +1,16 @@
+import fs from "fs";
+import path from "path";
 import { executeSwarmPipeline } from "./swarm/SwarmOrchestrator.js";
 import { ExtractedFact, DiscrepancyItem, AgentExecutionLog, AuditTrailRecord } from "../src/types.js";
+
+const QUEUE_FILE = path.join(process.cwd(), "storage", "queue_jobs.json");
 
 export interface QueueJob {
   id: string;
   workspaceId: string;
   documentId: string;
   documentTitle: string;
+  filePath?: string;
   fileBuffer?: Buffer;
   textData: string;
   functionalCurrency: string;
@@ -14,6 +19,7 @@ export interface QueueJob {
   currentStage: string;
   chunksTotal: number;
   chunksCompleted: number;
+  attemptCount: number;
   subAgents: {
     alpha: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; pages: string; factsFound: number };
     beta: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; pages: string; factsFound: number };
@@ -36,12 +42,52 @@ class BackgroundIngestionQueue {
   private jobs: Map<string, QueueJob> = new Map();
   private isProcessingQueue = false;
 
+  constructor() {
+    this.loadQueueFromDisk();
+  }
+
+  private saveQueueToDisk() {
+    try {
+      const storageDir = path.dirname(QUEUE_FILE);
+      if (!fs.existsSync(storageDir)) {
+        fs.mkdirSync(storageDir, { recursive: true });
+      }
+      const serializableJobs = Array.from(this.jobs.values()).map(({ fileBuffer, ...rest }) => rest);
+      fs.writeFileSync(QUEUE_FILE, JSON.stringify(serializableJobs, null, 2));
+    } catch (err) {
+      console.error("[Hermes Queue] Failed to save queue to disk:", err);
+    }
+  }
+
+  private loadQueueFromDisk() {
+    try {
+      if (fs.existsSync(QUEUE_FILE)) {
+        const raw = fs.readFileSync(QUEUE_FILE, "utf-8");
+        const list: QueueJob[] = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach(job => {
+            if (job.status === "PROCESSING") {
+              job.status = "QUEUED";
+              job.currentStage = "Re-queued following server restart";
+            }
+            this.jobs.set(job.id, job);
+          });
+          console.log(`[Hermes Queue] Loaded ${list.length} jobs from disk storage.`);
+        }
+      }
+    } catch (err) {
+      console.error("[Hermes Queue] Failed to load queue from disk:", err);
+    }
+    setTimeout(() => this.processNextJob(), 100);
+  }
+
   public createJob(
     workspaceId: string,
     documentId: string,
     documentTitle: string,
     textData: string,
-    functionalCurrency = "EUR"
+    functionalCurrency = "EUR",
+    filePath?: string
   ): QueueJob {
     const jobId = `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     
@@ -54,6 +100,7 @@ class BackgroundIngestionQueue {
       workspaceId,
       documentId,
       documentTitle,
+      filePath,
       textData,
       functionalCurrency,
       status: "QUEUED",
@@ -61,6 +108,7 @@ class BackgroundIngestionQueue {
       currentStage: "Queued for Hermes Sub-Agent Chunked Ingestion",
       chunksTotal: Math.min(3, Math.max(1, Math.ceil(estimatedPages / 50))),
       chunksCompleted: 0,
+      attemptCount: 1,
       subAgents: {
         alpha: { status: "IDLE", pages: "Pages 1-50 (Strategic & Operating Review, Segment Revenue)", factsFound: 0 },
         beta: { status: "IDLE", pages: "Primary Financial Statements (Income Statement, Balance Sheet, Cash Flow)", factsFound: 0 },
@@ -72,6 +120,7 @@ class BackgroundIngestionQueue {
     };
 
     this.jobs.set(jobId, job);
+    this.saveQueueToDisk();
     
     // Trigger async non-blocking queue processing loop
     setTimeout(() => this.processNextJob(), 10);
@@ -103,6 +152,7 @@ class BackgroundIngestionQueue {
     queuedJob.progress = 10;
     queuedJob.currentStage = "Allocating document sections across parallel Hermes sub-agents...";
     queuedJob.updatedAt = new Date().toISOString();
+    this.saveQueueToDisk();
 
     try {
       const { textData, workspaceId, documentId, documentTitle, functionalCurrency } = queuedJob;
@@ -188,6 +238,7 @@ class BackgroundIngestionQueue {
       queuedJob.progress = 100;
       queuedJob.currentStage = `Completed! Extracted ${mergedFacts.length} verified facts across 3 parallel Hermes agents.`;
       queuedJob.updatedAt = new Date().toISOString();
+      this.saveQueueToDisk();
 
       console.log(`[Hermes Queue ${queuedJob.id}] Successfully completed job for ${documentTitle}`);
     } catch (err: any) {
@@ -196,6 +247,7 @@ class BackgroundIngestionQueue {
       queuedJob.error = err?.message || "Chunked Hermes processing error";
       queuedJob.currentStage = `Failed: ${queuedJob.error}`;
       queuedJob.updatedAt = new Date().toISOString();
+      this.saveQueueToDisk();
     } finally {
       this.isProcessingQueue = false;
       // Loop to pick up any remaining queued jobs

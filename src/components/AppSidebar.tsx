@@ -22,10 +22,12 @@ import {
   ShieldCheck,
   Eye,
   Building,
+  Database,
   LogOut,
   Cpu,
   HelpCircle,
-  BookOpen
+  BookOpen,
+  FileCheck
 } from 'lucide-react';
 import { Workspace, DocumentRecord } from '../types';
 import { EvesLogo } from './EvesLogo';
@@ -151,6 +153,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const mainNavItems: NavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'corporate', label: 'Corporate Group & Multi-FX', icon: Building, badge: 'STAGE-2', badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
+    { id: 'unbounded-registry', label: 'Fact Registry & Recon', icon: Database, badge: 'STAGE-3', badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+    { id: 'deliverables-stage', label: 'Deliverables & Lead Schedules', icon: FileCheck, badge: 'STAGE-4', badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+    { id: 'tenant-regression', label: 'Security & Integration Suite', icon: ShieldCheck, badge: 'STAGE-5', badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
     { id: 'projects', label: 'Projects', icon: FolderKanban, count: workspaces.length },
     { id: 'companies', label: 'Companies', icon: Building2 },
     { id: 'documents', label: 'Documents', icon: FileText },

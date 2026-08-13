@@ -41,6 +41,10 @@ import { ExtractionProgressModal } from './components/ExtractionProgressModal';
 import { SystemGuideView } from './components/SystemGuideView';
 import { SystemDiagnosticsView } from './components/SystemDiagnosticsView';
 import { ReviewerModeView } from './components/ReviewerModeView';
+import { CorporateGroupStageView } from './components/CorporateGroupStageView';
+import { UnboundedRegistryStageView } from './components/UnboundedRegistryStageView';
+import { DeliverablesStageView } from './components/DeliverablesStageView';
+import { TenantRegressionStageView } from './components/TenantRegressionStageView';
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -626,6 +630,30 @@ export default function App() {
               summary={summary}
               onNavigate={setCurrentView}
               onSelectWorkspace={handleSelectProject}
+            />
+          )}
+
+          {(currentView === 'corporate' || currentView === 'stage2' || currentView === 'entities') && (
+            <CorporateGroupStageView
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
+            />
+          )}
+
+          {(currentView === 'unbounded-registry' || currentView === 'stage3' || currentView === 'facts-registry') && (
+            <UnboundedRegistryStageView
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
+            />
+          )}
+
+          {(currentView === 'deliverables-stage' || currentView === 'stage4' || currentView === 'lead-schedules') && (
+            <DeliverablesStageView
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
+            />
+          )}
+
+          {(currentView === 'tenant-regression' || currentView === 'stage5' || currentView === 'security') && (
+            <TenantRegressionStageView
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
             />
           )}
 

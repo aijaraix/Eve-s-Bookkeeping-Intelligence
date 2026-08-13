@@ -96,6 +96,8 @@ export interface CanonicalDocumentModel {
   sections: SectionModel[];
   tables: TableModel[];
   assets: AssetModel[];
+  pageManifests?: any[];
+  sourceBlocks?: any[];
   markdown: string;
   warnings: string[];
   confidence: number;

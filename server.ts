@@ -19,6 +19,11 @@ import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
 import { DiagnosticsEngine } from "./server/diagnosticsEngine.js";
 import { createReviewerRouter } from "./server/reviewerRoutes.js";
 import { ReviewerEngine } from "./server/reviewerEngine.js";
+import { saveUploadedFile } from "./server/fileStorage.js";
+import { corporateGroupService } from "./server/corporateGroupService.js";
+import { unboundedRegistryEngine } from "./server/unboundedRegistryEngine.js";
+import { tenantRegressionService } from "./server/tenantRegressionService.js";
+import { deliverablesEngine } from "./server/deliverablesEngine.js";
 
 const fileRouter = new FileRouter();
 const anyDocParser = new AnyDocParser();
@@ -375,6 +380,7 @@ interface DocumentRecord {
   createdAt: string;
   summary: string;
   pageCount?: number;
+  filePath?: string;
   ingestionVersion?: string;
   isDuplicate?: boolean;
 }
@@ -402,9 +408,12 @@ interface ExtractedFact {
 
   // Semantic Sign Normalization & Provenance Attributes
   canonicalMetric?: string;
+  canonical_metric?: string;
   normalizedValue?: number;
   normalized_value?: number;
   rawValue?: string;
+  raw_value?: string;
+  raw_label?: string;
   rawText?: string;
   sourceDocument?: string;
   statementName?: string;
@@ -412,10 +421,31 @@ interface ExtractedFact {
   rowLabel?: string;
   columnLabel?: string;
   fiscalPeriod?: string;
-  sourcePresentationSign?: string;
+  sourcePresentationSign?: any;
   accountingRole?: string;
   normalizedSign?: 1 | -1;
   verificationStatus?: string;
+
+  // Stage 2: Corporate Group & Multilingual fields
+  entityId?: string;
+  entityName?: string;
+  entityScope?: string;
+  entity_scope?: string;
+  originalLanguage?: string;
+  detectedLanguage?: string;
+  translationQualityScore?: number;
+  fxDetails?: any;
+
+  // Stage 3: Unbounded Registry, Candidates, Second-Pass Disclosures & Multi-Stage Reconciliation
+  candidateState?: 'PROPOSED' | 'ACCEPTED' | 'REJECTED' | 'VERIFIED' | string;
+  isCandidate?: boolean;
+  candidateSource?: 'SECOND_PASS_NOTE' | 'BACKFILL_AGENT' | 'FIRST_PASS' | string;
+  isNoteDisclosure?: boolean;
+  noteReference?: string;
+  disclosureCategory?: string;
+  verificationStage?: 'UNVERIFIED' | 'PASS_1_MATH' | 'PASS_2_RECONCILED' | 'FLAGGED' | string;
+  reconciliationVariance?: number;
+  reconciliationRule?: string;
 }
 
 interface HermesFinding {
@@ -470,6 +500,8 @@ interface AppStorage {
   auditLogs?: any[];
   discrepancies?: any[];
   agentLogs?: any[];
+  pageManifests?: any[];
+  sourceBlocks?: any[];
 }
 
 let db: AppStorage = {
@@ -480,7 +512,9 @@ let db: AppStorage = {
   snapshots: [],
   auditLogs: [],
   discrepancies: [],
-  agentLogs: []
+  agentLogs: [],
+  pageManifests: [],
+  sourceBlocks: []
 };
 
 function saveStorage() {
@@ -2271,14 +2305,17 @@ Format each item as follows:
             }
           });
 
+          const storedFile = saveUploadedFile(file.buffer || Buffer.from(""), file.originalname || "document.pdf");
+
           const newDoc: DocumentRecord = {
             id: docId,
             workspaceId: ws.id,
             filename: file.originalname || "file",
             originalName: file.originalname || "file",
             mimeType: file.mimetype || inspection.mimeType || "application/pdf",
-            size: file.size || (file.buffer ? file.buffer.length : 0),
-            sha256: inspection.hash || crypto.createHash("sha256").update(file.buffer || Buffer.from("")).digest("hex"),
+            size: storedFile.size,
+            sha256: storedFile.sha256,
+            filePath: storedFile.filePath,
             status: "Completed",
             category: classification.category,
             language: canonicalDoc.metadata?.language || (ws.currency === "EUR" ? "es" : ws.currency === "JPY" ? "ja" : "en"),
@@ -2292,10 +2329,10 @@ Format each item as follows:
             summary: spokenInstruction ? `Instruction: ${spokenInstruction}. Verified via AnyDoc & Hermes Consensus.` : `Parsed via AnyDoc (${canonicalDoc.parser.engine}) & classified as ${classification.category}.`,
             pageCount: canonicalDoc.metadata?.pages || 1,
             ingestionVersion: "v2.0-immutable",
-            isDuplicate: inspection.isDuplicate || false
+            isDuplicate: storedFile.isDuplicate || inspection.isDuplicate || false
           };
 
-          return { success: true, newDoc, factsToAdd };
+          return { success: true, newDoc, factsToAdd, canonicalDoc, filePath: storedFile.filePath };
         } catch (err: any) {
           console.error(`Error processing file ${file.originalname}:`, err);
           return { success: false, error: err?.message || "File parsing failed" };
@@ -2305,46 +2342,83 @@ Format each item as follows:
       // Wait for all file parsing and Gemini extractions to complete in parallel
       const uploadResults = await Promise.all(uploadPromises);
 
-      // Save processed documents and facts sequentially to ensure clean array insertion
+      // Save processed documents, page manifests, source blocks, and facts sequentially
       for (const result of uploadResults) {
         if (!result.success || !result.newDoc) continue;
 
         db.documents.unshift(result.newDoc);
         newDocs.push(result.newDoc);
 
-        result.factsToAdd.forEach(f => {
-          const normLower = f.normalized_label.toLowerCase();
+        // Store Page Manifests
+        if (result.canonicalDoc?.pageManifests && Array.isArray(result.canonicalDoc.pageManifests)) {
+          if (!db.pageManifests) db.pageManifests = [];
+          db.pageManifests.push(...result.canonicalDoc.pageManifests.map((pm: any) => ({ ...pm, document_id: result.newDoc.id })));
+        }
+
+        // Store Source Blocks
+        if (result.canonicalDoc?.sourceBlocks && Array.isArray(result.canonicalDoc.sourceBlocks)) {
+          if (!db.sourceBlocks) db.sourceBlocks = [];
+          db.sourceBlocks.push(...result.canonicalDoc.sourceBlocks.map((sb: any) => ({ ...sb, document_id: result.newDoc.id })));
+        }
+
+        // Stage 2: Scope classification & entity resolution
+        const docTextSample = result.canonicalDoc?.markdown || "";
+        const scopeClassification = corporateGroupService.classifyDocumentScope(result.newDoc.originalName, docTextSample);
+        const wsEntities = corporateGroupService.getEntitiesForWorkspace(ws.id);
+        const matchingEntity = wsEntities.find(e => e.scope === scopeClassification.scope) || wsEntities[0];
+
+        result.factsToAdd.forEach((f: any) => {
+          const normLower = (f.normalized_label || f.original_label || "").toLowerCase();
           let fType = "general";
-          if (normLower.includes("revenue") || normLower.includes("sales") || normLower.includes("turnover")) fType = "revenue";
-          else if (normLower.includes("net income") || normLower.includes("net profit") || normLower.includes("profit for")) fType = "income";
-          else if (normLower.includes("operating expense") || normLower.includes("opex") || normLower.includes("selling, general") || normLower.includes("sg&a")) fType = "expense";
-          else if (normLower.includes("cost of sales") || normLower.includes("cost of revenue") || normLower.includes("cogs")) fType = "expense";
-          else if (normLower.includes("tax")) fType = "expense";
-          else if (normLower.includes("receivable")) fType = "asset";
-          else if (normLower.includes("payable")) fType = "liability";
-          else if (normLower.includes("asset") || normLower.includes("cash")) fType = "asset";
-          else if (normLower.includes("liabilit")) fType = "liability";
-          else if (normLower.includes("equity") || normLower.includes("capital")) fType = "equity";
+          if (normLower.includes("revenue") || normLower.includes("sales") || normLower.includes("turnover") || normLower.includes("ingresos")) fType = "revenue";
+          else if (normLower.includes("net income") || normLower.includes("net profit") || normLower.includes("resultado")) fType = "income";
+          else if (normLower.includes("operating expense") || normLower.includes("opex") || normLower.includes("coste")) fType = "expense";
+          else if (normLower.includes("cost of sales") || normLower.includes("cogs")) fType = "expense";
+          else if (normLower.includes("tax") || normLower.includes("impuestos")) fType = "expense";
+          else if (normLower.includes("receivable") || normLower.includes("activo")) fType = "asset";
+          else if (normLower.includes("payable") || normLower.includes("pasivo")) fType = "liability";
+          else if (normLower.includes("equity") || normLower.includes("patrimonio")) fType = "equity";
+
+          // Multilingual translation & metric mapping
+          const multiLang = corporateGroupService.processMultilingualLabel(f.original_label || f.normalized_label);
+
+          // Multi-currency conversion with FX provenance
+          const rawNum = typeof f.normalized_value === "number" ? f.normalized_value : parseFloat(f.normalized_value) || 0;
+          const currencyConv = corporateGroupService.convertCurrency(rawNum, f.currency || ws.currency, ws.currency);
 
           db.facts.unshift({
             id: f.fact_id,
             workspaceId: ws.id,
             documentId: result.newDoc.id,
             factType: fType,
-            labelOriginal: f.original_label,
-            labelNormalized: f.normalized_label,
+            labelOriginal: multiLang.labelOriginal,
+            raw_label: multiLang.labelOriginal,
+            labelNormalized: multiLang.labelNormalized,
+            canonicalMetric: multiLang.canonicalMetric || fType,
+            canonical_metric: multiLang.canonicalMetric || fType,
             valueOriginal: f.original_value,
-            currencyOriginal: f.currency,
-            valueFunctional: String(f.normalized_value),
-            functionalCurrency: f.currency,
-            exchangeRate: "1.0000",
+            raw_value: f.original_value,
+            currencyOriginal: f.currency || ws.currency,
+            valueFunctional: String(currencyConv.convertedAmount),
+            functionalCurrency: ws.currency,
+            exchangeRate: String(currencyConv.fxMeta.exchangeRate),
             periodStart: "2026-01-01",
             periodEnd: "2026-12-31",
             pageNumber: f.page || 1,
             sourceText: f.source_text,
             confidence: f.confidence,
             status: f.validation_status.toLowerCase(),
-            extractionMethod: f.extraction_method
+            extractionMethod: f.extraction_method,
+
+            // Stage 2 fields
+            entityId: matchingEntity?.id,
+            entityName: matchingEntity?.name || result.newDoc.entityName || "Parent Corp",
+            entityScope: scopeClassification.scope,
+            entity_scope: scopeClassification.scope,
+            originalLanguage: multiLang.detectedLanguage,
+            detectedLanguage: multiLang.detectedLanguage,
+            translationQualityScore: multiLang.translationQualityScore,
+            fxDetails: currencyConv.fxMeta
           });
         });
       }
@@ -2360,7 +2434,8 @@ Format each item as follows:
             docRec.id,
             docRec.filename,
             docText,
-            ws.currency
+            ws.currency,
+            docRec.filePath
           );
           createdQueueJobs.push(job);
         }
@@ -2514,6 +2589,302 @@ app.post("/api/deliverables/generate", (req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to generate deliverable report" });
   }
+});
+
+app.get("/api/documents/:id/page-manifests", (req, res) => {
+  const { id } = req.params;
+  const doc = db.documents.find(d => d.id === id);
+  if (!doc) return res.status(404).json({ error: "Document not found" });
+
+  const existing = (db.pageManifests || []).filter(pm => pm.document_id === id);
+  if (existing.length > 0) {
+    return res.json({ success: true, documentId: id, pageManifests: existing });
+  }
+
+  // Generate dynamic manifests if not stored
+  const facts = db.facts.filter(f => f.documentId === id);
+  const manifests = DiagnosticsEngine.generatePageManifest(doc as any, facts as any);
+  return res.json({ success: true, documentId: id, pageManifests: manifests });
+});
+
+app.get("/api/documents/:id/source-blocks", (req, res) => {
+  const { id } = req.params;
+  const doc = db.documents.find(d => d.id === id);
+  if (!doc) return res.status(404).json({ error: "Document not found" });
+
+  const existing = (db.sourceBlocks || []).filter(sb => sb.document_id === id);
+  if (existing.length > 0) {
+    return res.json({ success: true, documentId: id, sourceBlocks: existing });
+  }
+
+  // Generate dynamic source blocks if not stored
+  const facts = db.facts.filter(f => f.documentId === id);
+  const blocks = DiagnosticsEngine.generateSourceBlocks(doc as any, facts as any);
+  return res.json({ success: true, documentId: id, sourceBlocks: blocks });
+});
+
+// STAGE 2 API ENDPOINTS: Multi-Entity Corporate Group, FX & Multilingual
+app.get("/api/workspaces/:workspaceId/entities", (req, res) => {
+  const { workspaceId } = req.params;
+  const entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
+  return res.json({ success: true, workspaceId, entities });
+});
+
+app.post("/api/workspaces/:workspaceId/entities", (req, res) => {
+  const { workspaceId } = req.params;
+  const { name, legalName, jurisdiction, reportingCurrency, entityType, ownershipPercentage, scope, notes } = req.body;
+  const entity = corporateGroupService.createEntity({
+    workspaceId,
+    name: name || "New Subsidiary",
+    legalName: legalName || name || "New Subsidiary Ltd",
+    jurisdiction: jurisdiction || "Global",
+    reportingCurrency: reportingCurrency || "EUR",
+    entityType: entityType || "SUBSIDIARY",
+    ownershipPercentage: typeof ownershipPercentage === "number" ? ownershipPercentage : 100,
+    scope: scope || "Subsidiary",
+    notes
+  });
+  return res.json({ success: true, entity });
+});
+
+app.get("/api/workspaces/:workspaceId/relationships", (req, res) => {
+  const { workspaceId } = req.params;
+  const relationships = corporateGroupService.getRelationshipsForWorkspace(workspaceId);
+  return res.json({ success: true, workspaceId, relationships });
+});
+
+app.post("/api/workspaces/:workspaceId/relationships", (req, res) => {
+  const { workspaceId } = req.params;
+  const { parentEntityId, childEntityId, relationshipType, ownershipPercentage, consolidationMethod } = req.body;
+  const relationship = corporateGroupService.createRelationship({
+    workspaceId,
+    parentEntityId,
+    childEntityId,
+    relationshipType: relationshipType || "PARENT_OF",
+    ownershipPercentage: typeof ownershipPercentage === "number" ? ownershipPercentage : 100,
+    consolidationMethod: consolidationMethod || "FULL"
+  });
+  return res.json({ success: true, relationship });
+});
+
+app.get("/api/fx-rates", (req, res) => {
+  const fxRates = corporateGroupService.getFxRates();
+  return res.json({ success: true, fxRates });
+});
+
+app.put("/api/fx-rates/:id", (req, res) => {
+  const { id } = req.params;
+  const { exchangeRate, source } = req.body;
+  const updated = corporateGroupService.updateFxRate(id, parseFloat(exchangeRate), source || "USER_OVERRIDE");
+  if (!updated) return res.status(404).json({ error: "FX Rate record not found" });
+  return res.json({ success: true, fxRate: updated });
+});
+
+app.post("/api/fx-rates/convert", (req, res) => {
+  const { originalAmount, sourceCurrency, targetCurrency, effectiveDate, customRateSource } = req.body;
+  const result = corporateGroupService.convertCurrency(
+    parseFloat(originalAmount) || 0,
+    sourceCurrency,
+    targetCurrency,
+    effectiveDate,
+    customRateSource
+  );
+  return res.json({ success: true, ...result });
+});
+
+app.post("/api/multilingual/translate-label", (req, res) => {
+  const { rawLabel } = req.body;
+  const result = corporateGroupService.processMultilingualLabel(rawLabel || "");
+  return res.json({ success: true, ...result });
+});
+
+// STAGE 3 API ENDPOINTS: Unbounded Fact Registry, Second-Pass Disclosures & Candidate Verification
+app.get("/api/unbounded-facts", (req, res) => {
+  const { workspaceId, candidateState, disclosureCategory, verificationStage, searchQuery, page, limit } = req.query;
+  const result = unboundedRegistryEngine.queryFacts(db.facts, {
+    workspaceId: workspaceId as string,
+    candidateState: candidateState as string,
+    disclosureCategory: disclosureCategory as string,
+    verificationStage: verificationStage as string,
+    searchQuery: searchQuery as string,
+    page: page ? parseInt(page as string) : 1,
+    limit: limit ? parseInt(limit as string) : 50
+  });
+  return res.json({ success: true, ...result });
+});
+
+app.post("/api/facts/:id/candidate-state", (req, res) => {
+  const { id } = req.params;
+  const { candidateState, notes } = req.body;
+  const fact = db.facts.find(f => f.id === id);
+  if (!fact) return res.status(404).json({ error: "Fact not found" });
+
+  fact.candidateState = candidateState;
+  if (candidateState === 'ACCEPTED') {
+    fact.status = 'approved';
+    fact.verificationStage = 'PASS_1_MATH';
+  } else if (candidateState === 'REJECTED') {
+    fact.status = 'discrepancy';
+  }
+  if (notes) fact.verificationNotes = notes;
+
+  return res.json({ success: true, fact });
+});
+
+app.post("/api/backfill-candidates", (req, res) => {
+  const { workspaceId } = req.body;
+  const workspaceFacts = db.facts.filter(f => !workspaceId || f.workspaceId === workspaceId);
+  const candidates = unboundedRegistryEngine.generateBackfillCandidates(workspaceFacts, db.sourceBlocks);
+
+  // Append new candidates into db.facts as PROPOSED candidates
+  candidates.forEach(cand => {
+    db.facts.unshift({
+      id: cand.id,
+      workspaceId: cand.workspaceId,
+      documentId: cand.documentId,
+      factType: 'candidate',
+      labelOriginal: cand.proposedLabel,
+      labelNormalized: cand.proposedLabel,
+      valueOriginal: `${cand.proposedValue}`,
+      currencyOriginal: cand.currency,
+      valueFunctional: `${cand.proposedValue}`,
+      functionalCurrency: cand.currency,
+      pageNumber: cand.pageNumber,
+      sourceText: cand.sourceSnippet,
+      confidence: cand.confidence,
+      status: 'proposed',
+      extractionMethod: 'BackfillAgent Candidate Generator',
+      candidateState: 'PROPOSED',
+      isCandidate: true,
+      candidateSource: cand.candidateSource,
+      canonicalMetric: cand.canonicalMetric,
+      noteReference: cand.noteReference,
+      verificationStage: 'UNVERIFIED'
+    });
+  });
+
+  return res.json({ success: true, candidatesCreated: candidates.length, candidates });
+});
+
+app.post("/api/documents/:id/second-pass-notes", (req, res) => {
+  const { id } = req.params;
+  const doc = db.documents.find(d => d.id === id);
+  if (!doc) return res.status(404).json({ error: "Document not found" });
+
+  const docBlocks = db.sourceBlocks.filter(b => b.document_id === id);
+  const secondPassFacts = unboundedRegistryEngine.executeSecondPassNoteExtraction(docBlocks, doc.workspaceId || "ws-1", id);
+
+  db.facts.unshift(...secondPassFacts);
+  return res.json({ success: true, documentId: id, secondPassFactsCount: secondPassFacts.length, secondPassFacts });
+});
+
+app.get("/api/reconciliation-rules", (req, res) => {
+  const { workspaceId } = req.query;
+  const workspaceFacts = db.facts.filter(f => !workspaceId || f.workspaceId === workspaceId);
+  const rules = unboundedRegistryEngine.runAccountingReconciliation(workspaceFacts);
+  return res.json({ success: true, rules });
+});
+
+// STAGE 5 API ENDPOINTS: Tenant Isolation, Role Security & End-to-End Regression Validation
+app.get("/api/tenant/permissions", (req, res) => {
+  const role = (req.query.role as 'ADMIN' | 'AUDITOR' | 'REVIEWER' | 'READ_ONLY') || 'ADMIN';
+  const permissions = tenantRegressionService.getRolePermissions(role);
+  return res.json({ success: true, permissions });
+});
+
+app.post("/api/tenant/authorize-action", (req, res) => {
+  const { userId = 'user-admin-1', workspaceId = 'ws-1', action } = req.body;
+  const authResult = tenantRegressionService.authorizeWorkspaceAccess(userId, workspaceId, action);
+  return res.json({ success: true, ...authResult });
+});
+
+app.post("/api/test/regression-suite", (req, res) => {
+  const { workspaceId = 'ws-1' } = req.body;
+  const workspaceFacts = db.facts.filter(f => f.workspaceId === workspaceId || !workspaceId);
+  const workspaceDocs = db.documents.filter(d => d.workspaceId === workspaceId || !workspaceId);
+  const workspaceEntities = corporateGroupService.getEntities(workspaceId);
+  const fxRates = corporateGroupService.getFxRates();
+
+  const runResult = tenantRegressionService.executeFullRegressionSuite(
+    workspaceId,
+    workspaceFacts,
+    workspaceDocs,
+    fxRates,
+    workspaceEntities
+  );
+
+  return res.json({ success: true, runResult });
+});
+
+
+// STAGE 4 API ENDPOINTS: Deliverables, Lead Schedules, Audit Memo & Working Paper Exports
+app.get("/api/deliverables/lead-schedules", (req, res) => {
+  const { workspaceId = 'ws-1' } = req.query;
+  const workspaceFacts = db.facts.filter(f => f.workspaceId === workspaceId || !workspaceId);
+  const workspaceDocs = db.documents.filter(d => d.workspaceId === workspaceId || !workspaceId);
+  const leadSchedules = deliverablesEngine.generateLeadSchedules(workspaceFacts, workspaceDocs);
+  return res.json({ success: true, leadSchedules });
+});
+
+app.get("/api/deliverables/audit-memorandum", (req, res) => {
+  const { workspaceId = 'ws-1' } = req.query;
+  const workspaceFacts = db.facts.filter(f => f.workspaceId === workspaceId || !workspaceId);
+  const workspaceDocs = db.documents.filter(d => d.workspaceId === workspaceId || !workspaceId);
+  const workspaceEntities = corporateGroupService.getEntities(workspaceId as string);
+  const fxRates = corporateGroupService.getFxRates();
+  const reconciliationRules = unboundedRegistryEngine.runAccountingReconciliation(workspaceFacts);
+
+  const memo = deliverablesEngine.generateAuditMemorandum(
+    workspaceId as string,
+    workspaceFacts,
+    workspaceDocs,
+    workspaceEntities,
+    fxRates,
+    reconciliationRules
+  );
+  return res.json({ success: true, memo });
+});
+
+app.get("/api/deliverables/package", (req, res) => {
+  const { workspaceId = 'ws-1' } = req.query;
+  const workspaceFacts = db.facts.filter(f => f.workspaceId === workspaceId || !workspaceId);
+  const workspaceDocs = db.documents.filter(d => d.workspaceId === workspaceId || !workspaceId);
+  const workspaceEntities = corporateGroupService.getEntities(workspaceId as string);
+  const fxRates = corporateGroupService.getFxRates();
+  const reconciliationRules = unboundedRegistryEngine.runAccountingReconciliation(workspaceFacts);
+
+  const pkg = deliverablesEngine.createDeliverablePackage(
+    workspaceId as string,
+    workspaceFacts,
+    workspaceDocs,
+    workspaceEntities,
+    fxRates,
+    reconciliationRules
+  );
+  return res.json({ success: true, package: pkg });
+});
+
+app.get("/api/deliverables/download/:workspaceId", (req, res) => {
+  const { workspaceId } = req.params;
+  const workspaceFacts = db.facts.filter(f => f.workspaceId === workspaceId || !workspaceId);
+  const workspaceDocs = db.documents.filter(d => d.workspaceId === workspaceId || !workspaceId);
+  const workspaceEntities = corporateGroupService.getEntities(workspaceId as string);
+  const fxRates = corporateGroupService.getFxRates();
+  const reconciliationRules = unboundedRegistryEngine.runAccountingReconciliation(workspaceFacts);
+
+  const pkg = deliverablesEngine.createDeliverablePackage(
+    workspaceId,
+    workspaceFacts,
+    workspaceDocs,
+    workspaceEntities,
+    fxRates,
+    reconciliationRules
+  );
+
+  // Return formatted JSON downloadable attachment
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="audit_working_papers_${workspaceId}.json"`);
+  return res.send(JSON.stringify(pkg, null, 2));
 });
 
 app.get("/api/facts", (req, res) => {
