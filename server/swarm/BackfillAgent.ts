@@ -37,13 +37,12 @@ export async function runBackfillAgent(
 
   const presentLabels = new Set(updatedFacts.map(f => f.labelNormalized.toLowerCase()));
 
-  // 1. Check which core fields are missing
+  // Check which core fields are missing
   const missingFields = coreFields.filter(f => !Array.from(presentLabels).some(pl => pl.includes(f.label.toLowerCase()) || f.label.toLowerCase().includes(pl)));
 
   if (missingFields.length > 0) {
     findings.push(`Autonomous Backfill Agent triggered for ${missingFields.length} missing fields: ${missingFields.map(m => m.label).join(", ")}`);
 
-    // Pass A: Rescan document text lines with broader pattern matching
     const lines = documentText.split("\n");
     for (const field of missingFields) {
       if (presentLabels.has(field.label.toLowerCase())) continue;
@@ -52,8 +51,7 @@ export async function runBackfillAgent(
         const lineLower = line.toLowerCase();
         const matchesKw = field.keywords.some(kw => lineLower.includes(kw));
         if (matchesKw) {
-          // Find numerical currency pattern in line
-          const numMatch = line.match(/(?:€|\$|£|CHF|JPY)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]+)?)\s*(billion|million|thousand|b|m|k)?/i);
+          const numMatch = line.match(/(?:€|\$|£|CHF|JPY|zł)?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]+)?)\s*(billion|million|thousand|b|m|k)?/i);
           if (numMatch) {
             let rawVal = numMatch[0];
             let cleanNum = parseFloat(numMatch[1].replace(/,/g, ''));
@@ -79,13 +77,16 @@ export async function runBackfillAgent(
                 periodEnd: "2025-12-31",
                 pageNumber: 1,
                 sourceText: line.trim(),
-                confidence: 0.96,
-                status: "VALIDATED",
+                confidence: 0.90,
+                // MANDATORY REGULATORY RULE: Backfill creates ONLY PROPOSED candidates, NEVER VALIDATED/VERIFIED
+                status: "PROPOSED",
+                candidateState: "PROPOSED",
+                verificationStatus: "UNVERIFIED",
                 extractionMethod: "AUTONOMOUS_BACKFILL_AGENT_RESCAN"
               };
               updatedFacts.push(newFact);
               presentLabels.add(field.label.toLowerCase());
-              findings.push(`Rescanned document text and recovered missing field ${field.label}: ${rawVal} (${cleanNum})`);
+              findings.push(`Rescanned document text and proposed candidate for ${field.label}: ${rawVal} (${cleanNum})`);
               break;
             }
           }
@@ -93,7 +94,7 @@ export async function runBackfillAgent(
       }
     }
 
-    // Pass B: Derived Accounting Identity Equations
+    // Derived Accounting Equations -> Created ONLY as Derived Candidates / DerivedMetrics
     const getVal = (normLabel: string) => {
       const f = updatedFacts.find(fact => fact.labelNormalized.toLowerCase().includes(normLabel.toLowerCase()));
       return f ? parseFloat(f.valueFunctional) || 0 : 0;
@@ -102,22 +103,17 @@ export async function runBackfillAgent(
     const rev = getVal("Revenue");
     const cogs = getVal("Cost of Sales");
     let gross = getVal("Gross Profit");
-    const opex = getVal("Operating Expenses");
-    let opInc = getVal("Operating Income");
-    let assets = getVal("Total Assets");
-    let liab = getVal("Total Liabilities");
-    let equity = getVal("Total Equity");
 
-    // Derive Gross Profit = Revenue - Cost of Sales
+    // Derive Gross Profit = Revenue - Cost of Sales (as derived metric candidate)
     if (!presentLabels.has("gross profit") && rev > 0 && cogs > 0) {
       gross = rev - cogs;
       updatedFacts.push({
         id: `FCT-BACKFILL-EQ-${Date.now()}-gp`,
         workspaceId,
         documentId,
-        factType: "Gross Profit",
-        labelOriginal: "Derived Gross Profit",
-        labelNormalized: "Gross Profit",
+        factType: "DerivedMetric",
+        labelOriginal: "gross_profit_calculated",
+        labelNormalized: "gross_profit_calculated",
         valueOriginal: `${functionalCurrency} ${gross.toLocaleString()}`,
         currencyOriginal: functionalCurrency,
         valueFunctional: String(gross),
@@ -126,85 +122,29 @@ export async function runBackfillAgent(
         periodStart: "2025-01-01",
         periodEnd: "2025-12-31",
         pageNumber: 1,
-        sourceText: `Derived via Accounting Equation: Gross Profit (${rev}) - Cost of Sales (${cogs})`,
-        confidence: 0.99,
-        status: "VALIDATED",
+        sourceText: `Calculated Derived Metric: Revenue (${rev}) - Cost of Sales (${cogs})`,
+        confidence: 0.95,
+        status: "PROPOSED",
+        candidateState: "PROPOSED",
+        verificationStatus: "UNVERIFIED",
         extractionMethod: "AUTONOMOUS_BACKFILL_ACCOUNTING_EQUATION"
       });
       backfilledCount++;
       presentLabels.add("gross profit");
-      findings.push(`Derived missing field Gross Profit: ${gross} via (Revenue - COGS)`);
+      findings.push(`Created DerivedMetric candidate gross_profit_calculated: ${gross} via (Revenue - COGS)`);
     }
-
-    // Derive Operating Income = Gross Profit - Operating Expenses
-    if (!presentLabels.has("operating income") && gross > 0 && opex > 0) {
-      opInc = gross - opex;
-      updatedFacts.push({
-        id: `FCT-BACKFILL-EQ-${Date.now()}-op`,
-        workspaceId,
-        documentId,
-        factType: "Operating Income",
-        labelOriginal: "Derived Operating Income",
-        labelNormalized: "Operating Income",
-        valueOriginal: `${functionalCurrency} ${opInc.toLocaleString()}`,
-        currencyOriginal: functionalCurrency,
-        valueFunctional: String(opInc),
-        functionalCurrency,
-        exchangeRate: "1.0",
-        periodStart: "2025-01-01",
-        periodEnd: "2025-12-31",
-        pageNumber: 1,
-        sourceText: `Derived via Accounting Equation: Gross Profit (${gross}) - OpEx (${opex})`,
-        confidence: 0.99,
-        status: "VALIDATED",
-        extractionMethod: "AUTONOMOUS_BACKFILL_ACCOUNTING_EQUATION"
-      });
-      backfilledCount++;
-      presentLabels.add("operating income");
-      findings.push(`Derived missing field Operating Income: ${opInc} via (Gross Profit - OpEx)`);
-    }
-
-    // Derive Total Liabilities = Total Assets - Total Equity
-    if (!presentLabels.has("total liabilities") && assets > 0 && equity > 0) {
-      liab = assets - equity;
-      updatedFacts.push({
-        id: `FCT-BACKFILL-EQ-${Date.now()}-liab`,
-        workspaceId,
-        documentId,
-        factType: "Total Liabilities",
-        labelOriginal: "Derived Total Liabilities",
-        labelNormalized: "Total Liabilities",
-        valueOriginal: `${functionalCurrency} ${liab.toLocaleString()}`,
-        currencyOriginal: functionalCurrency,
-        valueFunctional: String(liab),
-        functionalCurrency,
-        exchangeRate: "1.0",
-        periodStart: "2025-01-01",
-        periodEnd: "2025-12-31",
-        pageNumber: 1,
-        sourceText: `Derived via Accounting Equation: Total Assets (${assets}) - Total Equity (${equity})`,
-        confidence: 0.99,
-        status: "VALIDATED",
-        extractionMethod: "AUTONOMOUS_BACKFILL_ACCOUNTING_EQUATION"
-      });
-      backfilledCount++;
-      presentLabels.add("total liabilities");
-      findings.push(`Derived missing field Total Liabilities: ${liab} via (Total Assets - Total Equity)`);
-    }
-  } else {
-    findings.push("All core financial statement metrics are fully present. No backfill needed.");
   }
 
   const executionLog: AgentExecutionLog = {
     agentId: `AGENT-BACKFILL-${Date.now()}`,
-    agentRole: "BACKFILL_AGENT",
+    agentRole: "BACKFILL",
     timestamp: new Date().toISOString(),
-    modelUsed: "hermes-autonomous-backfill-engine",
+    modelUsed: "deterministic-rescan-engine",
     status: "SUCCESS",
-    inputSummary: `Evaluated ${existingFacts.length} input facts against 13 core accounting required metrics`,
+    inputSummary: `Evaluated ${missingFields.length} missing fields across ${existingFacts.length} existing facts`,
     findings,
     discrepanciesFound: 0,
-    executionTimeMs: Date.now() - startTime
+    executionTimeMs: Date.now() - startTime,
   };
 
   return { facts: updatedFacts, backfilledCount, executionLog };

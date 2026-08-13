@@ -7,8 +7,9 @@ export interface InspectorAgentResult {
 }
 
 /**
- * InspectorAgent uses Claude 3.7 Sonnet to perform deep forensic scanning of documents,
+ * InspectorAgent performs forensic scanning of documents/units,
  * extracting exact line-item facts along with spatial/textual provenance coordinates.
+ * Operates on bounded processing units WITHOUT 12k truncation or hardcoded company values.
  */
 export async function runInspectorAgent(
   workspaceId: string,
@@ -25,26 +26,27 @@ Your job is to read financial documents (10-K, annual reports, earnings releases
 
 CRITICAL INSTRUCTIONS:
 1. Extract key financial figures: Revenue / Turnover, Operating Profit, Net Income, Total Assets, Total Liabilities, Cash & Cash Equivalents, Gross Profit, Free Cash Flow, Debt.
-2. NEVER mix up currency symbols. Inspect every number for explicit currency (€, $, £, CHF, JPY) or written currency name.
+2. NEVER mix up currency symbols. Inspect every number for explicit currency (€, $, £, CHF, JPY, PLN) or written currency name.
 3. Preserve the exact raw text snippet where the number appears (provenance).
 4. Extract scale hints (e.g., "in millions", "in billions", "€m", "$b"). Calculate both the original formatted value and the functional numeric value.
 5. Provide exact page number or estimated section title where the figure was found.
 6. Return JSON ONLY matching the requested structure.`;
 
-  const prompt = `Inspect the following financial document text for workspace "${workspaceId}" (Doc ID: "${documentId}", Title: "${documentTitle}"):
+  // NO TRUNCATION: send full unit text provided
+  const prompt = `Inspect the following financial document text unit for workspace "${workspaceId}" (Doc ID: "${documentId}", Title: "${documentTitle}"):
 
---- DOCUMENT START ---
-${documentText.slice(0, 12000)}
---- DOCUMENT END ---
+--- DOCUMENT TEXT START ---
+${documentText}
+--- DOCUMENT TEXT END ---
 
 Return a JSON object with a key "extractedFacts" containing an array of items:
 [
   {
-    "labelOriginal": "Turnover" or "Revenue",
+    "labelOriginal": "Turnover" or "Revenue" or "Przychody ze sprzedaży",
     "labelNormalized": "Revenue" | "Operating Profit" | "Net Income" | "Total Assets" | "Total Liabilities" | "Cash" | "Gross Profit" | "Free Cash Flow" | "Total Debt",
     "valueOriginal": "€50.50B" or "$12.4M",
     "valueFunctional": 50500000000,
-    "currencyOriginal": "EUR" | "USD" | "GBP" | "CHF" | "JPY",
+    "currencyOriginal": "EUR" | "USD" | "GBP" | "CHF" | "JPY" | "PLN",
     "period": "FY 2025" | "FY 2024" | "Q4 2025",
     "confidence": 0.98,
     "pageNumber": 1,
@@ -118,13 +120,13 @@ Return a JSON object with a key "extractedFacts" containing an array of items:
     findings.push("Applying deterministic high-precision financial text parser fallback...");
     const textLines = documentText.split("\n");
     const patterns = [
-      { normalized: "Revenue", regex: /(?:Total Net Sales|Total Revenue|Net Revenue|Revenue|Turnover)[^$\d]*([$€£]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
-      { normalized: "Operating Profit", regex: /(?:Operating Income|Operating Profit)[^$\d]*([$€£]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
-      { normalized: "Net Income", regex: /(?:Net Income|Net Profit)[^$\d]*([$€£]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
-      { normalized: "Gross Profit", regex: /(?:Gross Profit|Gross Margin)[^$\d]*([$€£]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
-      { normalized: "Cash", regex: /(?:Cash and Cash Equivalents|Cash & Cash Equivalents)[^$\d]*([$€£]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
-      { normalized: "Total Assets", regex: /(?:Total Assets)[^$\d]*([$€£]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
-      { normalized: "Total Liabilities", regex: /(?:Total Liabilities)[^$\d]*([$€£]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i }
+      { normalized: "Revenue", regex: /(?:Total Net Sales|Total Revenue|Net Revenue|Revenue|Turnover|Przychody ze sprzedaży|Przychody|Umsatzerlöse)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
+      { normalized: "Operating Profit", regex: /(?:Operating Income|Operating Profit|Zysk operacyjny|Betriebsergebnis)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
+      { normalized: "Net Income", regex: /(?:Net Income|Net Profit|Zysk netto|Jahresüberschuss)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
+      { normalized: "Gross Profit", regex: /(?:Gross Profit|Gross Margin|Zysk brutto|Bruttoergebnis)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
+      { normalized: "Cash", regex: /(?:Cash and Cash Equivalents|Cash & Cash Equivalents|Środki pieniężne)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
+      { normalized: "Total Assets", regex: /(?:Total Assets|Aktywa razem|Bilanzsumme)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
+      { normalized: "Total Liabilities", regex: /(?:Total Liabilities|Zobowiązania|Verbindlichkeiten)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i }
     ];
 
     patterns.forEach((p, pIdx) => {
@@ -133,28 +135,12 @@ Return a JSON object with a key "extractedFacts" containing an array of items:
         const match = line.match(p.regex);
         if (match) {
           const rawVal = match[1] || match[0];
-          let numVal = 0;
-          if (rawVal.includes("416,200,000,000") || rawVal.includes("416.20B")) numVal = 416200000000;
-          else if (rawVal.includes("281,700,000,000") || rawVal.includes("281.70B")) numVal = 281700000000;
-          else if (rawVal.includes("123,200,000,000") || rawVal.includes("123.20B")) numVal = 123200000000;
-          else if (rawVal.includes("128,500,000,000") || rawVal.includes("128.50B")) numVal = 128500000000;
-          else if (rawVal.includes("112,000,000,000") || rawVal.includes("112.00B")) numVal = 112000000000;
-          else if (rawVal.includes("101,832,000,000") || rawVal.includes("101.832B")) numVal = 101832000000;
-          else if (rawVal.includes("331,233,000,000") || rawVal.includes("331.233B")) numVal = 331233000000;
-          else if (rawVal.includes("619,003,000,000") || rawVal.includes("619.003B")) numVal = 619003000000;
-          else if (rawVal.includes("264,437,000,000") || rawVal.includes("264.437B")) numVal = 264437000000;
-          else if (rawVal.includes("275,524,000,000") || rawVal.includes("275.524B")) numVal = 275524000000;
-          else if (rawVal.includes("29,943,000,000") || rawVal.includes("29.943B")) numVal = 29943000000;
-          else if (rawVal.includes("34,700,000,000") || rawVal.includes("34.700B")) numVal = 34700000000;
-          else if (rawVal.includes("180,680,000,000") || rawVal.includes("180.68B")) numVal = 180680000000;
-          else {
-            const cleanStr = rawVal.replace(/[^0-9.]/g, "");
-            let baseNum = parseFloat(cleanStr) || 0;
-            if (/b|billion/i.test(rawVal) && baseNum < 1000) baseNum *= 1000000000;
-            else if (/m|million/i.test(rawVal) && baseNum < 1000000) baseNum *= 1000000;
-            else if (/k|thousand/i.test(rawVal) && baseNum < 100000) baseNum *= 1000;
-            numVal = baseNum;
-          }
+          // Pure generic scale parser - NO hardcoded company value matches!
+          const cleanStr = rawVal.replace(/[^0-9.]/g, "");
+          let baseNum = parseFloat(cleanStr) || 0;
+          if (/b|billion/i.test(rawVal) && baseNum < 1000) baseNum *= 1000000000;
+          else if (/m|million/i.test(rawVal) && baseNum < 1000000) baseNum *= 1000000;
+          else if (/k|thousand/i.test(rawVal) && baseNum < 100000) baseNum *= 1000;
 
           extractedFacts.push({
             id: `FCT-INSP-${Date.now()}-${pIdx}`,
@@ -164,9 +150,9 @@ Return a JSON object with a key "extractedFacts" containing an array of items:
             labelOriginal: p.normalized,
             labelNormalized: p.normalized,
             valueOriginal: rawVal,
-            currencyOriginal: line.includes("$") ? "USD" : line.includes("€") ? "EUR" : "USD",
-            valueFunctional: String(numVal),
-            functionalCurrency: line.includes("$") ? "USD" : line.includes("€") ? "EUR" : "USD",
+            currencyOriginal: line.includes("$") ? "USD" : line.includes("€") ? "EUR" : line.includes("zł") || line.includes("PLN") ? "PLN" : "EUR",
+            valueFunctional: String(baseNum),
+            functionalCurrency: line.includes("$") ? "USD" : line.includes("€") ? "EUR" : line.includes("zł") || line.includes("PLN") ? "PLN" : "EUR",
             exchangeRate: "1.0",
             periodStart: "2025-01-01",
             periodEnd: "2025-12-31",
@@ -179,7 +165,7 @@ Return a JSON object with a key "extractedFacts" containing an array of items:
               pageNumber: 1,
               rawSnippet: line.trim(),
               contextSentence: line.trim(),
-              sectionTitle: "Financial Highlights Statement"
+              sectionTitle: "Financial Statement Unit"
             }
           });
           break;

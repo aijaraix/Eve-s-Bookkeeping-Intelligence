@@ -68,7 +68,19 @@ export class ReviewerEngine {
     const docs: DocumentRecord[] = db.documents || [];
     const facts: ExtractedFact[] = db.facts || [];
     const totalPages = docs.reduce((acc, d) => acc + (d.pageCount || 1), 0);
-    const verifiedFacts = facts.filter(f => f.status === "VALIDATED" || f.status === "APPROVED" || f.verificationStatus === "VERIFIED").length;
+    const verifiedFacts = facts.filter(f => f.status === "VALIDATED" || f.status === "APPROVED" || f.verificationStatus === "VERIFIED" || f.status === "approved" || f.status === "validated").length;
+    const unverifiedFacts = facts.length - verifiedFacts;
+    const failedDocs = docs.filter(d => d.status === "Failed" || d.status === "FAILED").length;
+    const discrepancies = (db.discrepancies || []).length;
+
+    let healthSummary = "HEALTHY";
+    if (failedDocs > 0) {
+      healthSummary = "FAILED_DOCUMENTS_DETECTED";
+    } else if (discrepancies > 0) {
+      healthSummary = "VARIANCE_DETECTED";
+    } else if (unverifiedFacts > 0) {
+      healthSummary = "REVIEW_REQUIRED";
+    }
 
     return {
       application_name: "Eve's Bookkeeping Intelligence",
@@ -84,7 +96,7 @@ export class ReviewerEngine {
         period: "FY 2025",
         currency: "EUR"
       },
-      health_summary: "100% HEALTHY",
+      health_summary: healthSummary,
       counts: {
         workspaces: db.workspaces?.length || 1,
         documents: docs.length,
@@ -93,8 +105,9 @@ export class ReviewerEngine {
         tables_extracted: docs.length * 4,
         facts_extracted: facts.length,
         facts_verified: verifiedFacts,
+        facts_unverified: unverifiedFacts,
         untraceable_dashboard_values: 0,
-        accounting_identity_status: "PASS"
+        accounting_identity_status: discrepancies > 0 ? "VARIANCE_DETECTED" : unverifiedFacts > 0 ? "REVIEW_REQUIRED" : "BALANCED"
       },
       architecture_pipeline_flow: [
         "Upload (Direct / Resumable)",

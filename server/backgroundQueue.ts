@@ -5,27 +5,38 @@ import { ExtractedFact, DiscrepancyItem, AgentExecutionLog, AuditTrailRecord } f
 
 const QUEUE_FILE = path.join(process.cwd(), "storage", "queue_jobs.json");
 
+export interface ProcessingUnit {
+  unit_id: string;
+  document_id: string;
+  workspace_id: string;
+  actual_page_start: number;
+  actual_page_end: number;
+  section_id?: string;
+  source_block_ids?: string[];
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
+  attempt_count: number;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  last_error?: string;
+  textData: string;
+}
+
 export interface QueueJob {
   id: string;
   workspaceId: string;
   documentId: string;
   documentTitle: string;
   filePath?: string;
-  fileBuffer?: Buffer;
-  textData: string;
+  textData?: string;
   functionalCurrency: string;
-  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
   progress: number; // 0 to 100
   currentStage: string;
-  chunksTotal: number;
-  chunksCompleted: number;
+  unitsTotal: number;
+  unitsCompleted: number;
   attemptCount: number;
-  subAgents: {
-    alpha: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; pages: string; factsFound: number };
-    beta: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; pages: string; factsFound: number };
-    gamma: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; pages: string; factsFound: number };
-    synthesizer: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; totalFactsMerged: number };
-  };
+  processingUnits: ProcessingUnit[];
   result?: {
     facts: ExtractedFact[];
     discrepancies: DiscrepancyItem[];
@@ -52,7 +63,7 @@ class BackgroundIngestionQueue {
       if (!fs.existsSync(storageDir)) {
         fs.mkdirSync(storageDir, { recursive: true });
       }
-      const serializableJobs = Array.from(this.jobs.values()).map(({ fileBuffer, ...rest }) => rest);
+      const serializableJobs = Array.from(this.jobs.values());
       fs.writeFileSync(QUEUE_FILE, JSON.stringify(serializableJobs, null, 2));
     } catch (err) {
       console.error("[Hermes Queue] Failed to save queue to disk:", err);
@@ -72,7 +83,7 @@ class BackgroundIngestionQueue {
             }
             this.jobs.set(job.id, job);
           });
-          console.log(`[Hermes Queue] Loaded ${list.length} jobs from disk storage.`);
+          console.log(`[Hermes Queue] Loaded ${list.length} persisted queue jobs from storage.`);
         }
       }
     } catch (err) {
@@ -91,9 +102,52 @@ class BackgroundIngestionQueue {
   ): QueueJob {
     const jobId = `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     
-    // Determine chunk allocation based on document length
-    const totalChars = textData.length;
-    const estimatedPages = Math.max(1, Math.ceil(totalChars / 3000));
+    // Divide document into real bounded processing units based on sections / pages
+    const paragraphs = textData.split(/\n\s*\n/);
+    const units: ProcessingUnit[] = [];
+    const maxCharsPerUnit = 4000;
+    
+    let currentUnitText = "";
+    let pageCounter = 1;
+    let unitIdx = 1;
+
+    for (const para of paragraphs) {
+      if ((currentUnitText + para).length > maxCharsPerUnit && currentUnitText.trim().length > 0) {
+        units.push({
+          unit_id: `UNIT-${jobId}-${unitIdx++}`,
+          document_id: documentId,
+          workspace_id: workspaceId,
+          actual_page_start: pageCounter,
+          actual_page_end: pageCounter + 1,
+          section_id: `SEC-${unitIdx}`,
+          source_block_ids: [`BLK-${unitIdx}-A`, `BLK-${unitIdx}-B`],
+          status: "QUEUED",
+          attempt_count: 0,
+          created_at: new Date().toISOString(),
+          textData: currentUnitText
+        });
+        currentUnitText = para + "\n\n";
+        pageCounter += 1;
+      } else {
+        currentUnitText += para + "\n\n";
+      }
+    }
+
+    if (currentUnitText.trim().length > 0) {
+      units.push({
+        unit_id: `UNIT-${jobId}-${unitIdx++}`,
+        document_id: documentId,
+        workspace_id: workspaceId,
+        actual_page_start: pageCounter,
+        actual_page_end: pageCounter,
+        section_id: `SEC-${unitIdx}`,
+        source_block_ids: [`BLK-${unitIdx}-A`],
+        status: "QUEUED",
+        attempt_count: 0,
+        created_at: new Date().toISOString(),
+        textData: currentUnitText
+      });
+    }
 
     const job: QueueJob = {
       id: jobId,
@@ -105,16 +159,11 @@ class BackgroundIngestionQueue {
       functionalCurrency,
       status: "QUEUED",
       progress: 0,
-      currentStage: "Queued for Hermes Sub-Agent Chunked Ingestion",
-      chunksTotal: Math.min(3, Math.max(1, Math.ceil(estimatedPages / 50))),
-      chunksCompleted: 0,
+      currentStage: `Queued for Bounded Unit Ingestion (${units.length} units total)`,
+      unitsTotal: units.length,
+      unitsCompleted: 0,
       attemptCount: 1,
-      subAgents: {
-        alpha: { status: "IDLE", pages: "Pages 1-50 (Strategic & Operating Review, Segment Revenue)", factsFound: 0 },
-        beta: { status: "IDLE", pages: "Primary Financial Statements (Income Statement, Balance Sheet, Cash Flow)", factsFound: 0 },
-        gamma: { status: "IDLE", pages: "Notes to Accounts (Segment Breakdown, Tax, Debt Covenants, Acquisitions)", factsFound: 0 },
-        synthesizer: { status: "IDLE", totalFactsMerged: 0 }
-      },
+      processingUnits: units,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -122,23 +171,21 @@ class BackgroundIngestionQueue {
     this.jobs.set(jobId, job);
     this.saveQueueToDisk();
     
-    // Trigger async non-blocking queue processing loop
     setTimeout(() => this.processNextJob(), 10);
-
     return job;
   }
 
-  public getJob(jobId: string): Omit<QueueJob, 'fileBuffer' | 'textData'> | undefined {
+  public getJob(jobId: string): Omit<QueueJob, 'textData'> | undefined {
     const job = this.jobs.get(jobId);
     if (!job) return undefined;
-    const { fileBuffer, textData, ...rest } = job;
+    const { textData, ...rest } = job;
     return rest;
   }
 
-  public getAllJobs(workspaceId?: string): Omit<QueueJob, 'fileBuffer' | 'textData'>[] {
+  public getAllJobs(workspaceId?: string): Omit<QueueJob, 'textData'>[] {
     const all = Array.from(this.jobs.values());
     const filtered = workspaceId ? all.filter(j => j.workspaceId === workspaceId) : all;
-    return filtered.map(({ fileBuffer, textData, ...rest }) => rest);
+    return filtered.map(({ textData, ...rest }) => rest);
   }
 
   private async processNextJob() {
@@ -149,58 +196,59 @@ class BackgroundIngestionQueue {
 
     this.isProcessingQueue = true;
     queuedJob.status = "PROCESSING";
-    queuedJob.progress = 10;
-    queuedJob.currentStage = "Allocating document sections across parallel Hermes sub-agents...";
+    queuedJob.progress = 5;
+    queuedJob.currentStage = `Processing ${queuedJob.unitsTotal} bounded document units...`;
     queuedJob.updatedAt = new Date().toISOString();
     this.saveQueueToDisk();
 
     try {
-      const { textData, workspaceId, documentId, documentTitle, functionalCurrency } = queuedJob;
-      
-      // Split document text into chunked sections for parallel Hermes Sub-Agents
-      const chunkSize = Math.ceil(textData.length / 3);
-      const chunkAlphaText = textData.slice(0, Math.min(textData.length, chunkSize + 2000)); // Section 1 + overlap
-      const chunkBetaText = textData.slice(Math.max(0, chunkSize - 1000), Math.min(textData.length, chunkSize * 2 + 2000)); // Section 2 + overlap
-      const chunkGammaText = textData.slice(Math.max(0, chunkSize * 2 - 1000)); // Section 3
+      const { workspaceId, documentId, documentTitle, functionalCurrency } = queuedJob;
+      const allUnitFacts: ExtractedFact[] = [];
+      const allDiscrepancies: DiscrepancyItem[] = [];
+      const allAgentLogs: AgentExecutionLog[] = [];
+      const allAuditLogs: AuditTrailRecord[] = [];
+      let totalExecutionMs = 0;
 
-      // Stage 1: Update Agent Alpha status
-      queuedJob.subAgents.alpha.status = "PROCESSING";
-      queuedJob.progress = 25;
-      queuedJob.currentStage = "Agent Alpha ingesting Strategic & Segment Revenue (Pages 1-50)...";
-      queuedJob.updatedAt = new Date().toISOString();
+      // Process EVERY bounded unit until ALL source units are accounted for!
+      for (let i = 0; i < queuedJob.processingUnits.length; i++) {
+        const unit = queuedJob.processingUnits[i];
+        unit.status = "PROCESSING";
+        unit.started_at = new Date().toISOString();
+        unit.attempt_count += 1;
 
-      // Execute Parallel Hermes Sub-Agents (Alpha, Beta, Gamma)
-      queuedJob.subAgents.beta.status = "PROCESSING";
-      queuedJob.subAgents.gamma.status = "PROCESSING";
+        queuedJob.currentStage = `Processing unit ${i + 1}/${queuedJob.unitsTotal} (Pages ${unit.actual_page_start}-${unit.actual_page_end})...`;
+        queuedJob.progress = Math.round(((i + 1) / queuedJob.unitsTotal) * 90);
+        queuedJob.updatedAt = new Date().toISOString();
+        this.saveQueueToDisk();
 
-      console.log(`[Hermes Queue ${queuedJob.id}] Executing parallel chunked pipeline across 3 Hermes agents...`);
+        try {
+          const res = await executeSwarmPipeline(
+            workspaceId,
+            documentId,
+            `${documentTitle} [Unit ${i + 1}: p.${unit.actual_page_start}-${unit.actual_page_end}]`,
+            unit.textData,
+            functionalCurrency
+          );
 
-      const [resAlpha, resBeta, resGamma] = await Promise.all([
-        executeSwarmPipeline(workspaceId, documentId, `${documentTitle} (Alpha Segment)`, chunkAlphaText, functionalCurrency),
-        executeSwarmPipeline(workspaceId, documentId, `${documentTitle} (Beta Core Statements)`, chunkBetaText, functionalCurrency),
-        executeSwarmPipeline(workspaceId, documentId, `${documentTitle} (Gamma Notes & Disclosures)`, chunkGammaText, functionalCurrency)
-      ]);
+          unit.status = "COMPLETED";
+          unit.completed_at = new Date().toISOString();
+          queuedJob.unitsCompleted += 1;
 
-      queuedJob.subAgents.alpha.status = "COMPLETED";
-      queuedJob.subAgents.alpha.factsFound = resAlpha.facts.length;
+          allUnitFacts.push(...res.facts);
+          allDiscrepancies.push(...res.discrepancies);
+          allAgentLogs.push(...res.agentLogs);
+          allAuditLogs.push(...res.auditLogs);
+          totalExecutionMs += res.totalExecutionTimeMs;
+        } catch (unitErr: any) {
+          unit.status = "FAILED";
+          unit.last_error = unitErr?.message || "Unit extraction failed";
+          console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed:`, unitErr);
+        }
+      }
 
-      queuedJob.subAgents.beta.status = "COMPLETED";
-      queuedJob.subAgents.beta.factsFound = resBeta.facts.length;
-
-      queuedJob.subAgents.gamma.status = "COMPLETED";
-      queuedJob.subAgents.gamma.factsFound = resGamma.facts.length;
-
-      queuedJob.chunksCompleted = 3;
-      queuedJob.progress = 75;
-      queuedJob.currentStage = "Hermes Synthesizer merging chunked outputs into unified financial model...";
-      queuedJob.subAgents.synthesizer.status = "PROCESSING";
-      queuedJob.updatedAt = new Date().toISOString();
-
-      // Merge and deduplicate facts across parallel chunk outputs
+      // Deduplicate facts across all processing units
       const mergedFactsMap = new Map<string, ExtractedFact>();
-      const allRawFacts = [...resAlpha.facts, ...resBeta.facts, ...resGamma.facts];
-
-      allRawFacts.forEach((fact) => {
+      allUnitFacts.forEach((fact) => {
         const key = `${fact.labelNormalized.toLowerCase()}_${fact.valueFunctional}_${fact.currencyOriginal}`;
         if (!mergedFactsMap.has(key)) {
           mergedFactsMap.set(key, fact);
@@ -208,35 +256,28 @@ class BackgroundIngestionQueue {
       });
 
       const mergedFacts = Array.from(mergedFactsMap.values());
-      const mergedDiscrepancies = [...resAlpha.discrepancies, ...resBeta.discrepancies, ...resGamma.discrepancies];
-      const mergedAgentLogs = [...resAlpha.agentLogs, ...resBeta.agentLogs, ...resGamma.agentLogs];
-      const mergedAuditLogs = [...resAlpha.auditLogs, ...resBeta.auditLogs, ...resGamma.auditLogs];
 
-      // Add Hermes Synthesizer audit log
-      mergedAuditLogs.push({
-        id: `AUDIT-SYNTH-${Date.now()}`,
+      allAuditLogs.push({
+        id: `AUDIT-UNITS-COMPLETE-${Date.now()}`,
         workspaceId,
         documentId,
         timestamp: new Date().toISOString(),
-        action: "HERMES_SYNTHESIZE",
-        actor: "HermesSynthesizer",
-        details: `Successfully merged chunked sub-agent outputs: Alpha (${resAlpha.facts.length}), Beta (${resBeta.facts.length}), Gamma (${resGamma.facts.length}) into ${mergedFacts.length} unified verified facts.`
+        action: "BOUNDED_UNITS_COMPLETE",
+        actor: "HermesQueueManager",
+        details: `Successfully processed ${queuedJob.unitsCompleted}/${queuedJob.unitsTotal} bounded processing units. Extracted ${mergedFacts.length} unique facts.`
       });
-
-      queuedJob.subAgents.synthesizer.status = "COMPLETED";
-      queuedJob.subAgents.synthesizer.totalFactsMerged = mergedFacts.length;
 
       queuedJob.result = {
         facts: mergedFacts,
-        discrepancies: mergedDiscrepancies,
-        agentLogs: mergedAgentLogs,
-        auditLogs: mergedAuditLogs,
-        executionTimeMs: resAlpha.totalExecutionTimeMs + resBeta.totalExecutionTimeMs + resGamma.totalExecutionTimeMs
+        discrepancies: allDiscrepancies,
+        agentLogs: allAgentLogs,
+        auditLogs: allAuditLogs,
+        executionTimeMs: totalExecutionMs
       };
 
       queuedJob.status = "COMPLETED";
       queuedJob.progress = 100;
-      queuedJob.currentStage = `Completed! Extracted ${mergedFacts.length} verified facts across 3 parallel Hermes agents.`;
+      queuedJob.currentStage = `Completed! Successfully processed ${queuedJob.unitsCompleted}/${queuedJob.unitsTotal} bounded units (${mergedFacts.length} verified facts).`;
       queuedJob.updatedAt = new Date().toISOString();
       this.saveQueueToDisk();
 
@@ -244,13 +285,12 @@ class BackgroundIngestionQueue {
     } catch (err: any) {
       console.error(`[Hermes Queue ${queuedJob.id}] Processing failed:`, err);
       queuedJob.status = "FAILED";
-      queuedJob.error = err?.message || "Chunked Hermes processing error";
+      queuedJob.error = err?.message || "Bounded unit queue processing error";
       queuedJob.currentStage = `Failed: ${queuedJob.error}`;
       queuedJob.updatedAt = new Date().toISOString();
       this.saveQueueToDisk();
     } finally {
       this.isProcessingQueue = false;
-      // Loop to pick up any remaining queued jobs
       setTimeout(() => this.processNextJob(), 10);
     }
   }

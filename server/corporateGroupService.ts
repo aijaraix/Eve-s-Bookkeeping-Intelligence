@@ -1,7 +1,7 @@
 import { CorporateEntity, EntityRelationship, FxRateRecord, FxConversionMeta, ExtractedFact } from "../src/types.js";
 
-// Standard historical exchange rates relative to EUR (as base 1.0)
-const DEFAULT_FX_RATES: Record<string, number> = {
+// Standard historical reference exchange rates relative to EUR (as base 1.0)
+const REFERENCE_FX_RATES: Record<string, number> = {
   EUR: 1.0,
   USD: 1.085,
   GBP: 0.855,
@@ -14,7 +14,8 @@ const DEFAULT_FX_RATES: Record<string, number> = {
   HKD: 8.480,
   CNY: 7.820,
   INR: 90.45,
-  MXN: 20.15
+  MXN: 20.15,
+  PLN: 4.285
 };
 
 // Multilingual financial terms mapping dictionary
@@ -43,6 +44,22 @@ const MULTILINGUAL_DICTIONARY: Record<string, { english: string; canonicalMetric
   "bilanzsumme": { english: "Total Assets", canonicalMetric: "total_assets", statementType: "balance_sheet" },
   "eigenkapital": { english: "Total Equity", canonicalMetric: "total_equity", statementType: "balance_sheet" },
   "verbindlichkeiten": { english: "Total Liabilities", canonicalMetric: "total_liabilities", statementType: "balance_sheet" },
+
+  // Polish (Required Scenario)
+  "przychody ze sprzedaży": { english: "Revenue", canonicalMetric: "revenue", statementType: "income_statement" },
+  "przychody": { english: "Revenue", canonicalMetric: "revenue", statementType: "income_statement" },
+  "koszt własny sprzedaży": { english: "Cost of Sales", canonicalMetric: "cost_of_sales", statementType: "income_statement" },
+  "zysk brutto": { english: "Gross Profit", canonicalMetric: "gross_profit", statementType: "income_statement" },
+  "zysk operacyjny": { english: "Operating Profit", canonicalMetric: "operating_profit", statementType: "income_statement" },
+  "zysk netto": { english: "Net Income", canonicalMetric: "net_income", statementType: "income_statement" },
+  "aktywa razem": { english: "Total Assets", canonicalMetric: "total_assets", statementType: "balance_sheet" },
+  "aktywa trwałe": { english: "Non-current Assets", canonicalMetric: "total_assets", statementType: "balance_sheet" },
+  "aktywa obrotowe": { english: "Current Assets", canonicalMetric: "total_assets", statementType: "balance_sheet" },
+  "zobowiązania": { english: "Total Liabilities", canonicalMetric: "total_liabilities", statementType: "balance_sheet" },
+  "zobowiązania krótkoterminowe": { english: "Current Liabilities", canonicalMetric: "total_liabilities", statementType: "balance_sheet" },
+  "zobowiązania długoterminowe": { english: "Non-current Liabilities", canonicalMetric: "total_liabilities", statementType: "balance_sheet" },
+  "kapitał własny": { english: "Total Equity", canonicalMetric: "total_equity", statementType: "balance_sheet" },
+  "środki pieniężne": { english: "Cash & Cash Equivalents", canonicalMetric: "cash", statementType: "balance_sheet" },
 
   // French
   "chiffre d'affaires": { english: "Revenue", canonicalMetric: "revenue", statementType: "income_statement" },
@@ -76,7 +93,7 @@ export class CorporateGroupService {
 
   private seedDefaultFxRates() {
     const today = new Date().toISOString().split('T')[0];
-    Object.entries(DEFAULT_FX_RATES).forEach(([curr, rate]) => {
+    Object.entries(REFERENCE_FX_RATES).forEach(([curr, rate]) => {
       const id = `FX-EUR-${curr}`;
       this.fxRates.set(id, {
         id,
@@ -84,13 +101,14 @@ export class CorporateGroupService {
         targetCurrency: curr,
         exchangeRate: rate,
         effectiveDate: today,
-        rateSource: "ECB",
+        // MANDATORY REGULATORY RULE: Label fallback rates as REFERENCE_RATE_NOT_FOR_REPORTING, NOT ECB
+        rateSource: "REFERENCE_RATE_NOT_FOR_REPORTING",
         lastUpdated: new Date().toISOString()
       });
     });
   }
 
-  // 2.1 Entity & Relationship Registry
+  // Entity & Relationship Registry
   public createEntity(entity: Omit<CorporateEntity, "id" | "createdAt">): CorporateEntity {
     const id = `ENT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newEntity: CorporateEntity = {
@@ -104,64 +122,7 @@ export class CorporateGroupService {
 
   public getEntitiesForWorkspace(workspaceId: string): CorporateEntity[] {
     const list = Array.from(this.entities.values()).filter(e => e.workspaceId === workspaceId);
-    if (list.length === 0) {
-      // Seed initial parent and subsidiary for workspace
-      const parent = this.createEntity({
-        workspaceId,
-        name: "Group Holding Parent Corp",
-        legalName: "Group Holding Parent Corporation S.A.",
-        jurisdiction: "EU / Global",
-        reportingCurrency: "EUR",
-        entityType: "PARENT",
-        ownershipPercentage: 100,
-        scope: "Consolidated",
-        notes: "Ultimate consolidating parent entity"
-      });
-
-      const sub1 = this.createEntity({
-        workspaceId,
-        name: "Operating Subsidiary UK",
-        legalName: "Operating Subsidiary UK Ltd",
-        jurisdiction: "United Kingdom",
-        reportingCurrency: "GBP",
-        entityType: "SUBSIDIARY",
-        ownershipPercentage: 100,
-        scope: "Subsidiary",
-        notes: "100% owned operating subsidiary"
-      });
-
-      const sub2 = this.createEntity({
-        workspaceId,
-        name: "Operating Subsidiary US",
-        legalName: "Operating Subsidiary US LLC",
-        jurisdiction: "United States",
-        reportingCurrency: "USD",
-        entityType: "SUBSIDIARY",
-        ownershipPercentage: 100,
-        scope: "Subsidiary",
-        notes: "100% owned operating subsidiary"
-      });
-
-      this.createRelationship({
-        workspaceId,
-        parentEntityId: parent.id,
-        childEntityId: sub1.id,
-        relationshipType: "PARENT_OF",
-        ownershipPercentage: 100,
-        consolidationMethod: "FULL"
-      });
-
-      this.createRelationship({
-        workspaceId,
-        parentEntityId: parent.id,
-        childEntityId: sub2.id,
-        relationshipType: "PARENT_OF",
-        ownershipPercentage: 100,
-        consolidationMethod: "FULL"
-      });
-
-      return Array.from(this.entities.values()).filter(e => e.workspaceId === workspaceId);
-    }
+    // MANDATORY REGULATORY RULE: NO FAKE ENTITY CREATION. Return empty list if no entities discovered.
     return list;
   }
 
@@ -176,10 +137,10 @@ export class CorporateGroupService {
     return Array.from(this.relationships.values()).filter(r => r.workspaceId === workspaceId);
   }
 
-  // 2.2 Entity Scope Tagging
+  // Entity Scope Tagging
   public classifyDocumentScope(docTitle: string, docText: string): {
-    scope: 'Consolidated' | 'Parent Only' | 'Subsidiary';
-    entityType: 'PARENT' | 'SUBSIDIARY';
+    scope: 'Consolidated' | 'Parent Only' | 'Subsidiary' | 'UNKNOWN';
+    entityType: 'PARENT' | 'SUBSIDIARY' | 'UNKNOWN';
   } {
     const combined = `${docTitle} ${docText.substring(0, 1000)}`.toLowerCase();
     if (combined.includes("consolidated") || combined.includes("consolidado") || combined.includes("konsolidiert") || combined.includes("group financial statements")) {
@@ -188,16 +149,58 @@ export class CorporateGroupService {
     if (combined.includes("parent company") || combined.includes("standalone") || combined.includes("sociedad matriz") || combined.includes("muttergesellschaft")) {
       return { scope: "Parent Only", entityType: "PARENT" };
     }
-    return { scope: "Subsidiary", entityType: "SUBSIDIARY" };
+    if (combined.includes("subsidiary") || combined.includes("filial")) {
+      return { scope: "Subsidiary", entityType: "SUBSIDIARY" };
+    }
+    // MANDATORY REGULATORY RULE: Return UNKNOWN when uncertain, NOT Subsidiary.
+    return { scope: "UNKNOWN", entityType: "UNKNOWN" };
   }
 
-  // 2.3 Multi-Currency Conversion Layer with FX Provenance
+  public processMultilingualLabel(label: string): {
+    labelOriginal: string;
+    labelNormalized: string;
+    canonicalMetric: string;
+    statementType: string;
+    detectedLanguage: string;
+    translationQualityScore: number;
+  } {
+    if (!label) return {
+      labelOriginal: "Metric",
+      labelNormalized: "Metric",
+      canonicalMetric: "unknown_metric",
+      statementType: "general",
+      detectedLanguage: "en",
+      translationQualityScore: 0.8
+    };
+    const lower = label.trim().toLowerCase();
+    const entry = MULTILINGUAL_DICTIONARY[lower];
+    if (entry) {
+      return {
+        labelOriginal: label,
+        labelNormalized: entry.english,
+        canonicalMetric: entry.canonicalMetric,
+        statementType: entry.statementType,
+        detectedLanguage: "auto",
+        translationQualityScore: 0.98
+      };
+    }
+    return {
+      labelOriginal: label,
+      labelNormalized: label,
+      canonicalMetric: label.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+      statementType: "general",
+      detectedLanguage: "en",
+      translationQualityScore: 0.95
+    };
+  }
+
+  // Multi-Currency Conversion Layer with FX Provenance
   public convertCurrency(
     originalAmount: number,
     sourceCurrency: string,
     targetCurrency: string,
     effectiveDate: string = new Date().toISOString().split('T')[0],
-    customRateSource?: 'ECB' | 'FED' | 'USER_OVERRIDE' | 'EXTRACTED_NOTES'
+    customRateSource?: 'ECB' | 'FED' | 'USER_OVERRIDE' | 'EXTRACTED_NOTES' | 'REFERENCE_RATE_NOT_FOR_REPORTING'
   ): { convertedAmount: number; fxMeta: FxConversionMeta } {
     const src = (sourceCurrency || "EUR").toUpperCase();
     const tgt = (targetCurrency || "EUR").toUpperCase();
@@ -210,19 +213,16 @@ export class CorporateGroupService {
           targetCurrency: tgt,
           exchangeRate: 1.0,
           effectiveDate,
-          rateSource: customRateSource || "ECB",
+          rateSource: customRateSource || "REFERENCE_RATE_NOT_FOR_REPORTING",
           originalAmount,
           functionalAmount: originalAmount
         }
       };
     }
 
-    const srcRateToEur = DEFAULT_FX_RATES[src] || 1.0;
-    const tgtRateToEur = DEFAULT_FX_RATES[tgt] || 1.0;
+    const srcRateToEur = REFERENCE_FX_RATES[src] || 1.0;
+    const tgtRateToEur = REFERENCE_FX_RATES[tgt] || 1.0;
 
-    // Convert via EUR base cross rate
-    // Amount in EUR = originalAmount / srcRateToEur
-    // Amount in Target = (originalAmount / srcRateToEur) * tgtRateToEur
     const crossRate = tgtRateToEur / srcRateToEur;
     const convertedAmount = Math.round(originalAmount * crossRate * 100) / 100;
 
@@ -233,7 +233,7 @@ export class CorporateGroupService {
         targetCurrency: tgt,
         exchangeRate: Math.round(crossRate * 100000) / 100000,
         effectiveDate,
-        rateSource: customRateSource || "ECB",
+        rateSource: customRateSource || "REFERENCE_RATE_NOT_FOR_REPORTING",
         originalAmount,
         functionalAmount: convertedAmount
       }
@@ -256,54 +256,6 @@ export class CorporateGroupService {
     rec.rateSource = source;
     rec.lastUpdated = new Date().toISOString();
     return rec;
-  }
-
-  // 2.4 Multilingual Detection & Label Preservation
-  public processMultilingualLabel(rawLabel: string): {
-    labelOriginal: string;
-    labelNormalized: string;
-    detectedLanguage: string;
-    canonicalMetric?: string;
-    statementType?: string;
-    translationQualityScore: number;
-  } {
-    const cleanRaw = (rawLabel || "").trim();
-    const lowerRaw = cleanRaw.toLowerCase();
-
-    // Check exact dictionary match
-    if (MULTILINGUAL_DICTIONARY[lowerRaw]) {
-      const match = MULTILINGUAL_DICTIONARY[lowerRaw];
-      return {
-        labelOriginal: cleanRaw,
-        labelNormalized: match.english,
-        detectedLanguage: lowerRaw.includes("ingresos") || lowerRaw.includes("ventas") ? "es" : lowerRaw.includes("umsatz") ? "de" : lowerRaw.includes("chiffre") ? "fr" : "ja",
-        canonicalMetric: match.canonicalMetric,
-        statementType: match.statementType,
-        translationQualityScore: 0.98
-      };
-    }
-
-    // Check partial key phrase match
-    for (const [key, val] of Object.entries(MULTILINGUAL_DICTIONARY)) {
-      if (lowerRaw.includes(key)) {
-        return {
-          labelOriginal: cleanRaw,
-          labelNormalized: val.english,
-          detectedLanguage: key.includes("ingresos") ? "es" : key.includes("umsatz") ? "de" : "fr",
-          canonicalMetric: val.canonicalMetric,
-          statementType: val.statementType,
-          translationQualityScore: 0.92
-        };
-      }
-    }
-
-    // Default English or unknown preservation
-    return {
-      labelOriginal: cleanRaw,
-      labelNormalized: cleanRaw,
-      detectedLanguage: "en",
-      translationQualityScore: 1.0
-    };
   }
 }
 

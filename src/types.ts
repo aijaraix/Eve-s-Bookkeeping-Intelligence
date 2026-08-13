@@ -138,7 +138,7 @@ export interface FxConversionMeta {
   targetCurrency: string;
   exchangeRate: number;
   effectiveDate: string;
-  rateSource: 'ECB' | 'FED' | 'USER_OVERRIDE' | 'EXTRACTED_NOTES';
+  rateSource: 'ECB' | 'FED' | 'USER_OVERRIDE' | 'EXTRACTED_NOTES' | 'REFERENCE_RATE_NOT_FOR_REPORTING' | string;
   originalAmount: number;
   functionalAmount: number;
 }
@@ -214,6 +214,9 @@ export interface ExtractedFact {
   fiscalPeriod?: string;
   periodType?: 'annual' | 'quarterly' | 'ltm' | 'restated' | string;
   period_type?: string;
+  periodOriginal?: string;
+  consolidationScope?: string;
+  isRestated?: boolean;
 
   // Accounting Standards & Operations
   gaapOrNonGaap?: 'gaap' | 'non_gaap' | 'ifrs' | string;
@@ -301,7 +304,7 @@ export interface AccountingReconciliationRule {
   statementB: string;
   metricB: string;
   tolerance: number;
-  status: 'BALANCED' | 'VARIANCE_DETECTED' | 'MISSING_DATA';
+  status: 'BALANCED' | 'VARIANCE_DETECTED' | 'MISSING_DATA' | 'INCOMPLETE_BRIDGE';
   expectedEquation: string;
   calculatedValueA: number;
   calculatedValueB: number;
@@ -341,7 +344,7 @@ export interface FxRateRecord {
   targetCurrency: string;
   exchangeRate: number;
   effectiveDate: string;
-  rateSource: 'ECB' | 'FED' | 'USER_OVERRIDE' | 'EXTRACTED_NOTES' | 'BOE' | 'BOJ';
+  rateSource: 'ECB' | 'FED' | 'USER_OVERRIDE' | 'EXTRACTED_NOTES' | 'BOE' | 'BOJ' | 'REFERENCE_RATE_NOT_FOR_REPORTING';
   lastUpdated: string;
 }
 
@@ -687,7 +690,7 @@ export interface TenantWorkspaceAccess {
 export interface RegressionTestCase {
   id: string;
   name: string;
-  category: 'MULTI_DOC_INGESTION' | 'MULTILINGUAL_TRANSLATION' | 'MULTI_CURRENCY_FX' | 'CANDIDATE_BACKFILL' | 'RECONCILIATION_RULES';
+  category: 'MULTI_DOC_INGESTION' | 'MULTILINGUAL_TRANSLATION' | 'MULTI_CURRENCY_FX' | 'CANDIDATE_BACKFILL' | 'RECONCILIATION_RULES' | 'SECURITY_ISOLATION';
   inputSummary: string;
   expectedOutcome: string;
   actualOutcome: string;
