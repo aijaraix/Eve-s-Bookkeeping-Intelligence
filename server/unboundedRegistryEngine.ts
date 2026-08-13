@@ -134,10 +134,12 @@ export class UnboundedRegistryEngine {
           factType: hasNum ? 'disclosure' : 'QUALITATIVE_DISCLOSURE',
           labelOriginal: text.substring(0, 60) + '...',
           labelNormalized: 'Operating Lease & Contractual Commitment',
-          valueOriginal: hasNum ? `${val}` : 'Qualitative Note',
-          currencyOriginal: 'EUR',
-          valueFunctional: `${val}`,
-          functionalCurrency: 'EUR',
+          valueOriginal: hasNum ? `${val}` : (null as any),
+          currencyOriginal: hasNum ? 'EUR' : (null as any),
+          valueFunctional: hasNum ? `${val}` : (null as any),
+          functionalCurrency: hasNum ? 'EUR' : (null as any),
+          unitScale: hasNum ? 'Units' : (null as any),
+          scale: hasNum ? 'Units' : (null as any),
           pageNumber: block.page_number || 1,
           sourceText: text,
           confidence: 0.91,
@@ -167,10 +169,12 @@ export class UnboundedRegistryEngine {
           factType: hasPct ? 'disclosure' : 'QUALITATIVE_DISCLOSURE',
           labelOriginal: text.substring(0, 60) + '...',
           labelNormalized: 'Effective Corporate Tax Rate & Tax Note',
-          valueOriginal: hasPct ? `${valPct}%` : 'Qualitative Tax Disclosure',
-          currencyOriginal: '%',
-          valueFunctional: valPct,
-          functionalCurrency: '%',
+          valueOriginal: hasPct ? `${valPct}%` : (null as any),
+          currencyOriginal: hasPct ? '%' : (null as any),
+          valueFunctional: hasPct ? valPct : (null as any),
+          functionalCurrency: hasPct ? '%' : (null as any),
+          unitScale: hasPct ? 'Units' : (null as any),
+          scale: hasPct ? 'Units' : (null as any),
           pageNumber: block.page_number || 1,
           sourceText: text,
           confidence: 0.93,
@@ -193,17 +197,19 @@ export class UnboundedRegistryEngine {
           id: `sp-seg-${Date.now()}-${idx}`,
           workspaceId,
           documentId,
-          factType: 'disclosure',
+          factType: 'QUALITATIVE_DISCLOSURE',
           labelOriginal: text.substring(0, 60) + '...',
           labelNormalized: 'Segment Financial Disclosure',
-          valueOriginal: 'Included in Note',
-          currencyOriginal: 'EUR',
-          valueFunctional: '0',
-          functionalCurrency: 'EUR',
+          valueOriginal: (null as any),
+          currencyOriginal: (null as any),
+          valueFunctional: (null as any),
+          functionalCurrency: (null as any),
+          unitScale: (null as any),
+          scale: (null as any),
           pageNumber: block.page_number || 1,
           sourceText: text,
           confidence: 0.89,
-          status: 'proposed',
+          status: 'PROPOSED',
           extractionMethod: 'Second-Pass Narrative Parser',
           candidateState: 'PROPOSED',
           isCandidate: true,
@@ -276,13 +282,19 @@ export class UnboundedRegistryEngine {
     const nonControllingInterest = getMetricValue('non_controlling_interest').val;
     const treasuryStock = getMetricValue('treasury_shares').val;
 
-    type RuleStatus = 'BALANCED' | 'VARIANCE_DETECTED' | 'MISSING_DATA' | 'INCOMPLETE_BRIDGE';
+    type RuleStatus = 'BALANCED' | 'VARIANCE_DETECTED' | 'MISSING_DATA' | 'INCOMPLETE_BRIDGE' | 'INSUFFICIENT_DIMENSIONALLY_MATCHED_DATA';
     let bsExplanation = '';
     let bsStatus: RuleStatus = 'BALANCED';
 
     if (totalAssets === 0 && totalLiabilities === 0 && totalEquity === 0) {
       bsStatus = 'MISSING_DATA';
       bsExplanation = 'Incomplete balance sheet extraction in current dataset. Total Assets, Liabilities, and Equity missing.';
+    } else if (
+      (totalAssetsObj.fact && totalLiabilitiesObj.fact && !this.areFactsDimensionallyMatched(totalAssetsObj.fact, totalLiabilitiesObj.fact)) ||
+      (totalAssetsObj.fact && totalEquityObj.fact && !this.areFactsDimensionallyMatched(totalAssetsObj.fact, totalEquityObj.fact))
+    ) {
+      bsStatus = 'INSUFFICIENT_DIMENSIONALLY_MATCHED_DATA';
+      bsExplanation = 'Incompatible fact dimensions detected across entity, period, currency, or scope. Balance sheet reconciliation halted.';
     } else if (bsDiff <= bsTolerance) {
       bsStatus = 'BALANCED';
       bsExplanation = `Balance sheet accounting equation holds within dynamic scale-aware tolerance (${bsTolerance.toLocaleString()} EUR threshold).`;

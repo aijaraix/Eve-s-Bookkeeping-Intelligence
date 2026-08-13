@@ -2318,10 +2318,10 @@ Format each item as follows:
             filePath: storedFile.filePath,
             status: "Completed",
             category: classification.category,
-            language: canonicalDoc.metadata?.language || (ws.currency === "EUR" ? "es" : ws.currency === "JPY" ? "ja" : "en"),
+            language: canonicalDoc.metadata?.language || "UNKNOWN",
             currency: classification.reportingCurrency || ws.currency,
             entityName: classification.entityName || ws.name,
-            period: classification.reportingPeriod || "2026-Q2",
+            period: classification.reportingPeriod || undefined,
             confidence: canonicalDoc.confidence || 0.98,
             extractedFactsCount: factsToAdd.length,
             reviewStatus: "approved",
@@ -2435,7 +2435,9 @@ Format each item as follows:
             docRec.filename,
             docText,
             ws.currency,
-            docRec.filePath
+            docRec.filePath,
+            p.canonicalDoc?.pageManifests,
+            p.canonicalDoc?.sourceBlocks
           );
           createdQueueJobs.push(job);
         }

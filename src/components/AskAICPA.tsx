@@ -26,30 +26,17 @@ export const AskAICPA: React.FC<AskAICPAProps> = ({ activeWorkspace }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: `Hello. I am **Ask AI CPA**, your Lead Deloitte Partner AI Auditor powered by Hermes consensus agents and Gemini AI.\n\nMy audit context is strictly locked to **${wsName}** to prevent cross-client data bleed. I can perform live calculations, explain line-item variances, trace facts to exact source pages, and render inline spreadsheet snapshots directly in our chat conversation.\n\n> *Preliminary, unaudited output generated from uploaded source documents. Review by a qualified accounting professional is required before reliance.*`,
-      citations: [
-        { documentName: '01_Telefonica_Consolidated_Annual_Report_2025.pdf', pageNumber: 14, excerpt: 'Verified entity financial facts under IFRS 15 / EU-GAAP.' }
-      ],
-      tableSnapshot: {
-        title: `${wsName} Baseline Financial Snapshot`,
-        headers: ['Financial Line Item', 'Reported Amount', 'Source Document', 'Page #', 'Status'],
-        rows: [
-          ['Consolidated Revenue', '€10,250,000,000.00', '01_Consolidated_Annual_Report.pdf', 'Page 14', 'Approved'],
-          ['Operating Income Before D&A (OIBDA)', '€3,454,000,000.00', '03_Q4_Results_English.pdf', 'Page 10', 'Approved'],
-          ['Net Financial Debt', '€27,340,000,000.00', '05_CNMV_Spanish.pdf', 'Page 6', 'Reconciled'],
-          ['Free Cash Flow Generation', '€1,240,000,000.00', '05_CNMV_Spanish.pdf', 'Page 11', 'Approved']
-        ]
-      }
+      content: `Hello. I am **Ask AI CPA**, your Lead Deloitte Partner AI Auditor powered by Hermes consensus agents and Gemini AI.\n\nMy audit context is strictly locked to **${wsName}** to prevent cross-client data bleed. I can perform live calculations, explain line-item variances, trace facts to exact source pages, and render inline spreadsheet snapshots directly in our chat conversation.\n\n> *Preliminary, unaudited output generated from uploaded source documents. Review by a qualified accounting professional is required before reliance.*`
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const samplePrompts = [
-    `Break down ${wsName}'s Net Debt & leverage ratio`,
-    'Show segment revenue spreadsheet for Spain, Germany & Vivo Brazil',
-    `What is ${wsName}'s OIBDA margin and CapEx intensity?`,
-    'Reconcile Consolidated Report vs CNMV Filing revenue'
+    `Summarize ${wsName}'s key financial statement figures`,
+    'Check balance sheet equation (Assets = Liabilities + Equity)',
+    `What is ${wsName}'s reported revenue and gross profit?`,
+    'Reconcile extracted facts across uploaded documents'
   ];
 
   const handleSend = async (textToSend?: string) => {

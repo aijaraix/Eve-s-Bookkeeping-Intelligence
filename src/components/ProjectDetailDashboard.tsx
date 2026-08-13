@@ -97,126 +97,27 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
 
   // Dynamic chart variables will be declared below based on workspace context
 
-  // Engagements / Projects List
-  const companyProjects = [
-    {
-      id: 'p-1',
-      title: 'FY 2023 Statutory Financial Audit',
-      type: 'Annual Audit',
-      status: 'In Progress',
-      partner: 'Jane Smith (Partner)',
-      manager: 'Michael Brown (Senior Mgr)',
-      completion: 87,
-      budget: '€450,000',
-      risk: 'Low',
-      startDate: 'Jan 15, 2024',
-      endDate: 'Jun 30, 2024',
-      findings: 3,
-      tasksRemaining: 4,
-    },
-    {
-      id: 'p-2',
-      title: 'Q1 2024 Interim Financial Review',
-      type: 'Quarterly Review',
-      status: 'Completed',
-      partner: 'Jane Smith (Partner)',
-      manager: 'Sarah Johnson (Audit Mgr)',
-      completion: 100,
-      budget: '€120,000',
-      risk: 'Low',
-      startDate: 'Apr 1, 2024',
-      endDate: 'May 10, 2024',
-      findings: 0,
-      tasksRemaining: 0,
-    },
-    {
-      id: 'p-3',
-      title: 'IFRS 16 Lease & Asset Valuation Review',
-      type: 'Internal Controls / Technical',
-      status: 'In Progress',
-      partner: 'David Wilson (Partner)',
-      manager: 'Emily Davis (Senior Ass.)',
-      completion: 64,
-      budget: '€180,000',
-      risk: 'Medium',
-      startDate: 'Feb 1, 2024',
-      endDate: 'Jul 15, 2024',
-      findings: 2,
-      tasksRemaining: 7,
-    },
-    {
-      id: 'p-4',
-      title: 'Corporate Tax & Transfer Pricing Review',
-      type: 'Tax Projects',
-      status: 'Planning',
-      partner: 'Carlos Mendez (Tax Partner)',
-      manager: 'Jessica Lee (Tax Mgr)',
-      completion: 20,
-      budget: '€210,000',
-      risk: 'Medium',
-      startDate: 'May 1, 2024',
-      endDate: 'Aug 30, 2024',
-      findings: 1,
-      tasksRemaining: 12,
-    },
-  ];
+  // Engagements / Projects List - Only real records
+  const companyProjects: any[] = [];
 
-  // Dynamic Subsidiaries Data based on Workspace Entity
+  // Dynamic Subsidiaries Data based on Entity Registry (No hardcoded Apple/Microsoft/Unilever)
   const getDynamicSubs = () => {
-    const wName = workspace?.name || 'Corporate Workspace';
-    const wLower = wName.toLowerCase();
-    if (wLower.includes('apple')) {
-      return [
-        { name: 'Apple Operations International', country: 'Ireland', ownership: '100%', rev: '$120.4B', role: 'Holding & Global Operations Sub' },
-        { name: 'Apple Sales International Ltd', country: 'Ireland', ownership: '100%', rev: '$85.2B', role: 'Global Sales & Distribution Unit' },
-        { name: 'Apple Retail UK Ltd', country: 'United Kingdom', ownership: '100%', rev: '£4.1B', role: 'Retail Store Operations' },
-        { name: 'Apple Japan Inc.', country: 'Japan', ownership: '100%', rev: '¥3.2T', role: 'Regional APAC Operating Sub' }
-      ];
-    } else if (wLower.includes('microsoft')) {
-      return [
-        { name: 'Microsoft Ireland Operations Ltd', country: 'Ireland', ownership: '100%', rev: '$52.0B', role: 'EMEA Regional Operations Sub' },
-        { name: 'LinkedIn Corporation', country: 'United States', ownership: '100%', rev: '$15.2B', role: 'Professional Platform Unit' },
-        { name: 'GitHub Inc.', country: 'United States', ownership: '100%', rev: '$1.2B', role: 'Developer Ecosystem Unit' }
-      ];
-    } else if (wLower.includes('unilever')) {
-      return [
-        { name: 'Unilever NV / BV', country: 'Netherlands', ownership: '100%', rev: '€22.4B', role: 'European Operating Division' },
-        { name: 'Unilever United States Inc.', country: 'United States', ownership: '100%', rev: '$12.8B', role: 'North America Operating Sub' },
-        { name: 'Hindustan Unilever Ltd', country: 'India', ownership: '61.9%', rev: '₹590B', role: 'Listed Operating Subsidiary' }
-      ];
-    }
-    const c = workspace?.country || 'United States';
-    const curr = workspace?.currency || 'USD';
-    return [
-      { name: `${wName} Primary Operations Unit`, country: c, ownership: '100%', rev: `${curr} - Ingested`, role: 'Wholly Owned Operating Sub' },
-      { name: `${wName} Commercial Division`, country: 'United Kingdom', ownership: '100%', rev: `${curr} - Ingested`, role: 'Commercialization Unit' },
-      { name: `${wName} R&D Division`, country: c, ownership: '100%', rev: `${curr} - Ingested`, role: 'Research & Intellectual Property Unit' }
-    ];
+    return [];
   };
 
   const subsidiariesList = getDynamicSubs();
 
-  // Dynamic Client Contacts
+  // Dynamic Client Contacts - Only real extracted or user-entered records
   const getDynamicContactsList = () => {
-    const wName = workspace?.name || 'Corporate Workspace';
-    const domain = wName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'client';
-    return [
-      { name: `Chief Executive Officer (${wName})`, title: 'Chief Executive Officer', role: 'CEO', email: `executive@${domain}.com`, phone: '+1 (555) 019-2831' },
-      { name: `Chief Financial Officer (${wName})`, title: 'Chief Financial Officer', role: 'CFO', email: `finance@${domain}.com`, phone: '+1 (555) 019-2832' },
-      { name: `Group Controller (${wName})`, title: 'Chief Accounting Officer & Controller', role: 'Controller', email: `accounting@${domain}.com`, phone: '+1 (555) 019-2833' },
-      { name: `General Counsel (${wName})`, title: 'Chief Legal Officer & General Counsel', role: 'Legal Counsel', email: `legal@${domain}.com`, phone: '+1 (555) 019-2834' }
-    ];
+    return [];
   };
 
   const clientContacts = getDynamicContactsList();
 
   // Activity Feed
-  const activityLogs = [
-    { id: 'act-1', text: 'Document uploaded & verified', user: 'User', time: '12 mins ago', type: 'doc' },
-    { id: 'act-2', text: 'Eve AI executed automated canonical check', user: 'Eve AI Agent', time: '5 hours ago', type: 'ai' },
-  ];
+  const activityLogs: any[] = [];
 
-  // Intelligent company-specific fallback parameters to avoid data bleeding
+  // Intelligent company-specific fallback parameters
   const fallbackRevenue = '—';
   const fallbackNetIncome = '—';
   const fallbackAssets = '—';
@@ -224,25 +125,10 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
   const fallbackEquity = '—';
   const fallbackOperatingIncome = '—';
 
-  // Dynamic visual charts data mapping
-  const businessSegmentsData = [
-    { name: 'Core Division A', value: 50.0, color: '#1e3a8a', rev: '—' },
-    { name: 'Core Division B', value: 30.0, color: '#3b82f6', rev: '—' },
-    { name: 'Other Operations', value: 20.0, color: '#94a3b8', rev: '—' },
-  ];
-
-  const geographicRegions = [
-    { region: 'Primary Market', pct: 70, rev: '—', color: 'bg-blue-600' },
-    { region: 'Secondary Market', pct: 30, rev: '—', color: 'bg-indigo-600' },
-  ];
-
-  const fiveYearTrendData = summary?.hasValidatedFacts ? [
-    { year: '2025', Revenue: summary.revenueRaw ? summary.revenueRaw / 1_000_000_000 : 0, NetIncome: summary.netIncomeRaw ? summary.netIncomeRaw / 1_000_000_000 : 0, EBITDA: summary.operatingIncomeRaw ? summary.operatingIncomeRaw / 1_000_000_000 : 0 },
-  ] : [
-    { year: '2023', Revenue: 0, NetIncome: 0, EBITDA: 0 },
-    { year: '2024', Revenue: 0, NetIncome: 0, EBITDA: 0 },
-    { year: '2025', Revenue: 0, NetIncome: 0, EBITDA: 0 },
-  ];
+  // Dynamic visual charts data mapping - No fake decorative series
+  const businessSegmentsData: any[] = [];
+  const geographicRegions: any[] = [];
+  const fiveYearTrendData: any[] = [];
 
   // Dynamic company details block
   const companyDocs = documents.filter(d => d.workspaceId === workspace.id);
@@ -253,37 +139,37 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
     listing: 'Corporate Client',
     industry: 'Financial & Corporate Entity',
     country: workspace.country || 'Global',
-    hq: 'Global Office',
+    hq: '—',
     fiscalYearEnd: 'December 31',
     reportingCurrency: workspace.currency || 'EUR',
     accountingStandard: 'IFRS / GAAP',
     healthScore: companyDocs.length > 0 ? 90 : 0,
-    riskScore: 'Low Risk',
-    auditReadiness: 94,
-    dataCompleteness: 100,
+    riskScore: 'Not Assessed',
+    auditReadiness: summary?.hasValidatedFacts ? 100 : 0,
+    dataCompleteness: companyDocs.length > 0 ? 100 : 0,
     annualRevenue: summary?.revenue && summary.revenue !== '—' ? summary.revenue : fallbackRevenue,
     netIncome: summary?.netIncome && summary.netIncome !== '—' ? summary.netIncome : fallbackNetIncome,
     totalAssets: summary?.assets && summary.assets !== '—' ? summary.assets : fallbackAssets,
     totalLiabilities: summary?.liabilities && summary.liabilities !== '—' ? summary.liabilities : fallbackLiabilities,
     equity: summary?.equity && summary.equity !== '—' ? summary.equity : fallbackEquity,
-    cashBalance: '€8.91B',
-    marketCap: '€24.60B',
-    enterpriseValue: '€32.40B',
-    employees: '115,000',
-    operatingCountries: '12 Markets',
-    taxId: 'ES-B89283472',
-    regNumber: 'REG-982348',
-    dateIncorporated: 'May 15, 2008',
-    website: 'https://client-portal.com',
+    cashBalance: '—',
+    marketCap: '—',
+    enterpriseValue: '—',
+    employees: '—',
+    operatingCountries: '—',
+    taxId: 'Not Available',
+    regNumber: 'Not Available',
+    dateIncorporated: 'Not Available',
+    website: 'Not Available',
     auditor: 'Hermes CPA AI System',
-    legalCounsel: 'Corporate Counsel Team',
-    bankingPartners: 'Primary Interbank Syndicate',
-    ownership: 'Corporate Consortium',
+    legalCounsel: '—',
+    bankingPartners: '—',
+    ownership: '—',
     documentsCount: companyDocs.length,
     lastUpdated: 'Just now'
   };
 
-  const handleSendAiChat = (e: React.FormEvent) => {
+  const handleSendAiChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiChatMessage.trim()) return;
 
@@ -291,15 +177,21 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
     setAiChatHistory((prev) => [...prev, { sender: 'user', text: userText }]);
     setAiChatMessage('');
 
-    setTimeout(() => {
-      setAiChatHistory((prev) => [
-        ...prev,
-        {
-          sender: 'ai',
-          text: `Based on ${workspace.name}'s FY 2025 financial statements and current project records: Revenue is reported at ${companyDetails.annualRevenue} with EBITDA margin of 32.0%. All primary financial statements are verified and reconciled. Zero material fraud indicators were flagged.`,
-        },
-      ]);
-    }, 600);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userText, workspaceId: workspace.id, workspaceName: workspace.name })
+      });
+      const data = await res.json();
+      if (data && data.answer) {
+        setAiChatHistory((prev) => [...prev, { sender: 'ai', text: data.answer }]);
+      } else {
+        setAiChatHistory((prev) => [...prev, { sender: 'ai', text: 'Analysis unavailable. No accounting conclusion has been made.' }]);
+      }
+    } catch (err) {
+      setAiChatHistory((prev) => [...prev, { sender: 'ai', text: 'Analysis unavailable. No accounting conclusion has been made.' }]);
+    }
   };
 
   // Traced Metric Provenance Drawer Modal State

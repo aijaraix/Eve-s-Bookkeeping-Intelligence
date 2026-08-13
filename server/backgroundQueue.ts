@@ -9,6 +9,7 @@ export interface ProcessingUnit {
   unit_id: string;
   document_id: string;
   workspace_id: string;
+  source_type: "PDF_PAGE" | "PDF_PAGE_RANGE" | "TABLE" | "NOTE" | "DOCX_SECTION" | "SPREADSHEET_RANGE" | "CSV_BATCH" | "IMAGE_PAGE";
   actual_page_start: number;
   actual_page_end: number;
   section_id?: string;
@@ -20,6 +21,7 @@ export interface ProcessingUnit {
   completed_at?: string;
   last_error?: string;
   textData: string;
+  unit_text?: string;
 }
 
 export interface QueueJob {
@@ -98,55 +100,86 @@ class BackgroundIngestionQueue {
     documentTitle: string,
     textData: string,
     functionalCurrency = "EUR",
-    filePath?: string
+    filePath?: string,
+    pageManifests?: any[],
+    sourceBlocks?: any[]
   ): QueueJob {
     const jobId = `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    
-    // Divide document into real bounded processing units based on sections / pages
-    const paragraphs = textData.split(/\n\s*\n/);
     const units: ProcessingUnit[] = [];
-    const maxCharsPerUnit = 4000;
-    
-    let currentUnitText = "";
-    let pageCounter = 1;
-    let unitIdx = 1;
 
-    for (const para of paragraphs) {
-      if ((currentUnitText + para).length > maxCharsPerUnit && currentUnitText.trim().length > 0) {
+    if (pageManifests && pageManifests.length > 0) {
+      // Create processing units directly from real PDF page objects
+      pageManifests.forEach((pm, idx) => {
+        const pageNum = pm.page_number || idx + 1;
+        const pageBlocks = sourceBlocks ? sourceBlocks.filter(sb => sb.page_number === pageNum || sb.pageNumber === pageNum) : [];
+        const blockIds = pageBlocks.map(sb => sb.source_block_id || sb.id).filter(Boolean);
+        const pageText = pageBlocks.map(sb => sb.raw_text || sb.text_content || "").join("\n") || textData;
+
         units.push({
-          unit_id: `UNIT-${jobId}-${unitIdx++}`,
+          unit_id: `UNIT-${jobId}-P${pageNum}`,
           document_id: documentId,
           workspace_id: workspaceId,
-          actual_page_start: pageCounter,
-          actual_page_end: pageCounter + 1,
-          section_id: `SEC-${unitIdx}`,
-          source_block_ids: [`BLK-${unitIdx}-A`, `BLK-${unitIdx}-B`],
+          source_type: "PDF_PAGE",
+          actual_page_start: pageNum,
+          actual_page_end: pageNum,
+          section_id: `SEC-P${pageNum}`,
+          source_block_ids: blockIds.length > 0 ? blockIds : undefined,
           status: "QUEUED",
           attempt_count: 0,
           created_at: new Date().toISOString(),
-          textData: currentUnitText
+          textData: pageText,
+          unit_text: pageText
         });
-        currentUnitText = para + "\n\n";
-        pageCounter += 1;
-      } else {
-        currentUnitText += para + "\n\n";
-      }
-    }
-
-    if (currentUnitText.trim().length > 0) {
-      units.push({
-        unit_id: `UNIT-${jobId}-${unitIdx++}`,
-        document_id: documentId,
-        workspace_id: workspaceId,
-        actual_page_start: pageCounter,
-        actual_page_end: pageCounter,
-        section_id: `SEC-${unitIdx}`,
-        source_block_ids: [`BLK-${unitIdx}-A`],
-        status: "QUEUED",
-        attempt_count: 0,
-        created_at: new Date().toISOString(),
-        textData: currentUnitText
       });
+    } else {
+      // Divide document into real bounded processing units based on actual sections / pages
+      const paragraphs = textData.split(/\n\s*\n/);
+      const maxCharsPerUnit = 4000;
+      
+      let currentUnitText = "";
+      let pageCounter = 1;
+      let unitIdx = 1;
+
+      for (const para of paragraphs) {
+        if ((currentUnitText + para).length > maxCharsPerUnit && currentUnitText.trim().length > 0) {
+          units.push({
+            unit_id: `UNIT-${jobId}-${unitIdx}`,
+            document_id: documentId,
+            workspace_id: workspaceId,
+            source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "DOCX_SECTION",
+            actual_page_start: pageCounter,
+            actual_page_end: pageCounter,
+            section_id: `SEC-${unitIdx}`,
+            status: "QUEUED",
+            attempt_count: 0,
+            created_at: new Date().toISOString(),
+            textData: currentUnitText,
+            unit_text: currentUnitText
+          });
+          unitIdx++;
+          currentUnitText = para + "\n\n";
+          pageCounter += 1;
+        } else {
+          currentUnitText += para + "\n\n";
+        }
+      }
+
+      if (currentUnitText.trim().length > 0) {
+        units.push({
+          unit_id: `UNIT-${jobId}-${unitIdx}`,
+          document_id: documentId,
+          workspace_id: workspaceId,
+          source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "DOCX_SECTION",
+          actual_page_start: pageCounter,
+          actual_page_end: pageCounter,
+          section_id: `SEC-${unitIdx}`,
+          status: "QUEUED",
+          attempt_count: 0,
+          created_at: new Date().toISOString(),
+          textData: currentUnitText,
+          unit_text: currentUnitText
+        });
+      }
     }
 
     const job: QueueJob = {

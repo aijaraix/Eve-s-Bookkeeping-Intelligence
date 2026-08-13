@@ -304,7 +304,7 @@ export interface AccountingReconciliationRule {
   statementB: string;
   metricB: string;
   tolerance: number;
-  status: 'BALANCED' | 'VARIANCE_DETECTED' | 'MISSING_DATA' | 'INCOMPLETE_BRIDGE';
+  status: 'BALANCED' | 'VARIANCE_DETECTED' | 'MISSING_DATA' | 'INCOMPLETE_BRIDGE' | 'INSUFFICIENT_DIMENSIONALLY_MATCHED_DATA';
   expectedEquation: string;
   calculatedValueA: number;
   calculatedValueB: number;
