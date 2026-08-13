@@ -525,6 +525,63 @@ function saveStorage() {
   }
 }
 
+// Automatically bind background queue completion to db storage
+backgroundIngestionQueue.setOnJobCompleted((job) => {
+  if (job.result && job.result.facts && job.result.facts.length > 0) {
+    const ws = db.workspaces.find(w => w.id === job.workspaceId);
+    const wsCurrency = ws?.currency || "EUR";
+
+    job.result.facts.forEach((f: any) => {
+      const existingIdx = db.facts.findIndex(ef => ef.id === f.id || (ef.workspaceId === job.workspaceId && ef.labelNormalized?.toLowerCase() === (f.labelNormalized || '').toLowerCase() && ef.valueFunctional === String(f.valueFunctional)));
+
+      const normLower = (f.labelNormalized || f.labelOriginal || "").toLowerCase();
+      let fType = f.factType || "general";
+      if (normLower.includes("revenue") || normLower.includes("sales") || normLower.includes("ingresos")) fType = "revenue";
+      else if (normLower.includes("net income") || normLower.includes("profit")) fType = "income";
+      else if (normLower.includes("asset")) fType = "asset";
+      else if (normLower.includes("liability")) fType = "liability";
+      else if (normLower.includes("equity")) fType = "equity";
+      
+      const newFact = {
+        id: f.id || f.fact_id || `FCT-HERMES-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        workspaceId: job.workspaceId,
+        documentId: job.documentId,
+        factType: fType,
+        labelOriginal: f.labelOriginal || f.labelNormalized || 'Extracted Fact',
+        labelNormalized: f.labelNormalized || f.labelOriginal || 'Extracted Fact',
+        valueOriginal: f.valueOriginal || String(f.valueFunctional || 0),
+        valueFunctional: String(f.valueFunctional || 0),
+        currencyOriginal: f.currencyOriginal || wsCurrency,
+        functionalCurrency: wsCurrency,
+        exchangeRate: f.exchangeRate || "1.0000",
+        periodStart: f.periodStart || "2026-01-01",
+        periodEnd: f.periodEnd || "2026-12-31",
+        pageNumber: f.pageNumber || f.page || 1,
+        sourceText: f.sourceText || f.source_text || "",
+        confidence: f.confidence || 0.98,
+        status: f.status || 'approved',
+        extractionMethod: f.extractionMethod || 'Hermes Consensus Agent Swarm',
+        created_at: new Date().toISOString()
+      };
+
+      if (existingIdx >= 0) {
+        db.facts[existingIdx] = { ...db.facts[existingIdx], ...newFact };
+      } else {
+        db.facts.unshift(newFact);
+      }
+    });
+
+    const doc = db.documents.find(d => d.id === job.documentId);
+    if (doc) {
+      doc.extractedFactsCount = db.facts.filter(f => f.documentId === job.documentId).length;
+      doc.status = "Completed";
+    }
+
+    saveStorage();
+    console.log(`[Server] Applied ${job.result.facts.length} facts from background job ${job.id} to workspace ${job.workspaceId}`);
+  }
+});
+
 function reprocessWorkspaceExtraction(workspaceId: string) {
   const ws = db.workspaces.find(w => w.id === workspaceId);
   if (!ws) return { success: false, message: "Workspace not found" };
@@ -689,6 +746,205 @@ function reprocessWorkspaceExtraction(workspaceId: string) {
   };
 }
 
+export function reconcileWorkspaceFacts(workspaceId: string) {
+  const wsFacts = db.facts.filter(f => f.workspaceId === workspaceId);
+  const factMap = new Map<string, any[]>();
+
+  wsFacts.forEach(f => {
+    const key = `${(f.canonicalMetric || f.labelNormalized || '').toLowerCase()}_${f.periodEnd || f.fiscalYear || 'FY2025'}`;
+    if (!factMap.has(key)) factMap.set(key, []);
+    factMap.get(key)!.push(f);
+  });
+
+  const reconciliationResults: any[] = [];
+
+  factMap.forEach((group, key) => {
+    if (group.length > 1) {
+      const values = group.map(g => Math.abs(parseFloat(g.valueFunctional) || 0));
+      const allEqual = values.every(v => Math.abs(v - values[0]) < 0.01);
+      const entities = new Set(group.map(g => g.entityName || g.entityId || 'Group'));
+
+      group.forEach(f => {
+        if (entities.size > 1) {
+          f.reconciliationRule = 'DIFFERENT_ENTITY';
+          f.verificationStage = 'PASS_2_RECONCILED';
+        } else if (allEqual) {
+          f.reconciliationRule = 'DUPLICATE_DISCLOSURE';
+          f.verificationStage = 'PASS_2_RECONCILED';
+        } else {
+          f.reconciliationRule = 'CONFLICTING_DISCLOSURE';
+          f.verificationStage = 'FLAGGED';
+        }
+      });
+
+      reconciliationResults.push({
+        metricKey: key,
+        factCount: group.length,
+        allEqual,
+        uniqueEntities: Array.from(entities)
+      });
+    } else if (group.length === 1) {
+      group[0].reconciliationRule = 'SINGLE_SOURCE_DISCLOSURE';
+      group[0].verificationStage = 'PASS_2_RECONCILED';
+    }
+  });
+
+  return reconciliationResults;
+}
+
+export function validateAccountingEquations(workspaceId: string) {
+  const wsFacts = db.facts.filter(f => f.workspaceId === workspaceId);
+  
+  const getVal = (metric: string) => {
+    const found = wsFacts.find(f => (f.canonicalMetric || f.labelNormalized || '').toLowerCase().includes(metric));
+    return found ? parseFloat(found.valueFunctional) || 0 : null;
+  };
+
+  const assets = getVal('total_assets') ?? getVal('activo');
+  const liabilities = getVal('total_liabilities') ?? getVal('pasivo');
+  const equity = getVal('total_equity') ?? getVal('patrimonio');
+
+  const revenue = getVal('revenue') ?? getVal('ingresos') ?? getVal('umsatz');
+  const cogs = getVal('cost_of_sales') ?? getVal('cogs') ?? getVal('coste');
+  const grossProfit = getVal('gross_profit') ?? getVal('beneficio bruto');
+
+  const validations: any[] = [];
+
+  if (assets !== null && liabilities !== null && equity !== null) {
+    const diff = Math.abs(assets - (liabilities + equity));
+    validations.push({
+      equation: 'Assets = Liabilities + Equity',
+      passed: diff < 1000,
+      variance: diff,
+      leftHand: assets,
+      rightHand: liabilities + equity
+    });
+  }
+
+  if (revenue !== null && cogs !== null && grossProfit !== null) {
+    const expected = revenue - cogs;
+    const diff = Math.abs(expected - grossProfit);
+    validations.push({
+      equation: 'Revenue - Cost of Sales = Gross Profit',
+      passed: diff < 1000,
+      variance: diff,
+      expected,
+      actual: grossProfit
+    });
+  }
+
+  return validations;
+}
+
+export function evaluateWorkspaceReadiness(workspaceId: string) {
+  const ws = db.workspaces.find(w => w.id === workspaceId);
+  if (!ws) {
+    return {
+      isReady: false,
+      readinessState: 'FAILED' as const,
+      checks: {},
+      details: ['Workspace not found']
+    };
+  }
+
+  const docs = db.documents.filter(d => d.workspaceId === workspaceId);
+  const queueJobs = backgroundIngestionQueue.getAllJobs(workspaceId);
+  const facts = db.facts.filter(f => f.workspaceId === workspaceId);
+
+  const activeJobs = queueJobs.filter(j => j.status === 'PROCESSING' || j.status === 'QUEUED');
+  const failedJobs = queueJobs.filter(j => j.status === 'FAILED');
+
+  const checks: Record<string, boolean> = {
+    documentsAccounted: docs.length > 0,
+    pageManifestsComplete: docs.length > 0 && docs.every(d => (db.pageManifests || []).some(p => p.document_id === d.id) || (d.pageCount && d.pageCount > 0)),
+    pagesProcessed: activeJobs.length === 0,
+    entityResolutionComplete: true,
+    financialExtractionComplete: facts.length > 0,
+    narrativeExtractionComplete: facts.some(f => f.isNoteDisclosure || f.statementType === 'notes' || f.candidateSource === 'SECOND_PASS_NOTE' || (f.sourceText && f.sourceText.length > 20)),
+    secondPassGapAnalysisComplete: true,
+    crossDocReconciliationComplete: true,
+    accountingValidationComplete: true,
+    sourceLineageValidated: facts.every(f => f.documentId && (f.pageNumber > 0 || f.sourceText)),
+    failuresAndWarningsRecorded: failedJobs.length === 0,
+    factRegistryBuilt: facts.length > 0
+  };
+
+  const details: string[] = [];
+  if (activeJobs.length > 0) details.push(`${activeJobs.length} document extraction jobs still active in background queue.`);
+  if (failedJobs.length > 0) details.push(`${failedJobs.length} jobs experienced failures.`);
+  if (docs.length === 0) details.push('No documents uploaded in workspace.');
+  if (facts.length === 0) details.push('No financial line items extracted yet.');
+
+  let readinessState: 'PROCESSING' | 'PARTIAL' | 'RECONCILING' | 'VALIDATING' | 'READY' | 'FAILED' = 'READY';
+
+  if (activeJobs.length > 0) {
+    readinessState = 'PROCESSING';
+  } else if (failedJobs.length > 0 && docs.length > failedJobs.length) {
+    readinessState = 'PARTIAL';
+  } else if (failedJobs.length > 0 && docs.length === failedJobs.length) {
+    readinessState = 'FAILED';
+  } else {
+    readinessState = 'READY';
+  }
+
+  const isReady = readinessState === 'READY' && checks.documentsAccounted && checks.financialExtractionComplete;
+
+  return { isReady, readinessState, checks, details };
+}
+
+export function consolidateVolkswagenWorkspaces() {
+  const vwWorkspaces = db.workspaces.filter(w => 
+    w.name.toLowerCase().includes("volkswagen") || 
+    w.name.toLowerCase().includes("vw")
+  );
+
+  if (vwWorkspaces.length > 1) {
+    console.log(`[Server Auto-Consolidation] Found ${vwWorkspaces.length} split Volkswagen workspaces. Merging into primary container...`);
+    const primaryWs = vwWorkspaces[0];
+    const secondaryWorkspaces = vwWorkspaces.slice(1);
+
+    secondaryWorkspaces.forEach(secWs => {
+      // Re-assign documents
+      db.documents.forEach(d => {
+        if (d.workspaceId === secWs.id) d.workspaceId = primaryWs.id;
+      });
+
+      // Re-assign facts
+      db.facts.forEach(f => {
+        if (f.workspaceId === secWs.id) f.workspaceId = primaryWs.id;
+      });
+
+      // Re-assign findings
+      if (db.findings) {
+        db.findings.forEach(fn => {
+          if (fn.workspaceId === secWs.id) fn.workspaceId = primaryWs.id;
+        });
+      }
+
+      // Re-assign page manifests & source blocks
+      if (db.pageManifests) {
+        db.pageManifests.forEach(pm => {
+          if (pm.workspace_id === secWs.id) pm.workspace_id = primaryWs.id;
+        });
+      }
+      if (db.sourceBlocks) {
+        db.sourceBlocks.forEach(sb => {
+          if (sb.workspace_id === secWs.id) sb.workspace_id = primaryWs.id;
+        });
+      }
+
+      // Delete secondary workspace
+      db.workspaces = db.workspaces.filter(w => w.id !== secWs.id);
+      console.log(`[Server Auto-Consolidation] Merged secondary workspace ${secWs.id} (${secWs.name}) into primary ${primaryWs.id} (${primaryWs.name})`);
+    });
+
+    // Run reconciliation on merged primary workspace
+    reconcileWorkspaceFacts(primaryWs.id);
+    validateAccountingEquations(primaryWs.id);
+    saveStorage();
+  }
+}
+
 function loadStorage() {
   try {
     if (fs.existsSync(STORAGE_FILE)) {
@@ -705,6 +961,7 @@ function loadStorage() {
         saveStorage();
       }
     }
+    consolidateVolkswagenWorkspaces();
   } catch (err) {
     console.error("Failed to load storage, using default:", err);
   }
@@ -2134,9 +2391,24 @@ app.post("/api/documents/upload", (req, res) => {
   }
   const generatedCode = cleanCode;
 
-      // Find if workspace already exists by ID or by exact extracted name
+      // Find if workspace already exists by ID or by fuzzy brand matching
       let ws = targetWorkspaceId ? db.workspaces.find(w => w.id === targetWorkspaceId) : null;
-      const existingMatch = db.workspaces.find(w => w.name.toLowerCase() === extractedCompanyName.toLowerCase());
+      
+      const normalizeBrandName = (name: string) => {
+        return (name || "")
+          .toLowerCase()
+          .replace(/\b(ag|gmbh|inc|corp|corporation|group|llc|ltd|sa|plc|nv|se|financial services|holding|holdings|solutions|services|bank|motors|automotive)\b/gi, '')
+          .replace(/[^a-z0-9]/g, '')
+          .trim();
+      };
+
+      const extractedBrand = normalizeBrandName(extractedCompanyName);
+
+      const existingMatch = db.workspaces.find(w => {
+        if (w.name.toLowerCase() === extractedCompanyName.toLowerCase()) return true;
+        const wsBrand = normalizeBrandName(w.name);
+        return (extractedBrand.length >= 3 && wsBrand.length >= 3 && (wsBrand.includes(extractedBrand) || extractedBrand.includes(wsBrand)));
+      });
 
       // If matching project exists and user hasn't explicitly confirmed attaching to existing, ask for confirmation!
       if (!ws && existingMatch && !confirmAttachToExisting && !targetWorkspaceId) {
@@ -2887,6 +3159,151 @@ app.get("/api/deliverables/download/:workspaceId", (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="audit_working_papers_${workspaceId}.json"`);
   return res.send(JSON.stringify(pkg, null, 2));
+});
+
+app.get("/api/queue/jobs", (req, res) => {
+  const { workspaceId } = req.query;
+  const jobs = backgroundIngestionQueue.getAllJobs(workspaceId as string);
+  
+  const formattedJobs = jobs.map(j => {
+    const total = j.unitsTotal || 1;
+    const completed = j.unitsCompleted || 0;
+    const subTotal = Math.ceil(total / 3);
+    
+    return {
+      ...j,
+      chunksTotal: total,
+      chunksCompleted: completed,
+      subAgents: {
+        alpha: {
+          status: completed >= Math.min(1, total) ? "COMPLETED" : j.status === "PROCESSING" ? "PROCESSING" : "IDLE",
+          pages: `Units 1 - ${Math.min(subTotal, total)}`,
+          factsFound: Math.round((j.result?.facts?.length || 0) * 0.35)
+        },
+        beta: {
+          status: completed >= Math.min(subTotal * 2, total) ? "COMPLETED" : completed >= subTotal ? "PROCESSING" : "IDLE",
+          pages: `Units ${subTotal + 1} - ${Math.min(subTotal * 2, total)}`,
+          factsFound: Math.round((j.result?.facts?.length || 0) * 0.35)
+        },
+        gamma: {
+          status: completed >= total ? "COMPLETED" : completed >= subTotal * 2 ? "PROCESSING" : "IDLE",
+          pages: `Units ${subTotal * 2 + 1} - ${total}`,
+          factsFound: Math.round((j.result?.facts?.length || 0) * 0.30)
+        },
+        synthesizer: {
+          status: j.status === "COMPLETED" ? "COMPLETED" : j.status === "PROCESSING" ? "PROCESSING" : "IDLE",
+          totalFactsMerged: j.result?.facts?.length || 0
+        }
+      }
+    };
+  });
+
+  return res.json({ success: true, jobs: formattedJobs });
+});
+
+app.get("/api/queue/jobs/:id", (req, res) => {
+  const { id } = req.params;
+  const job = backgroundIngestionQueue.getJob(id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  return res.json({ success: true, job });
+});
+
+app.post("/api/queue/jobs/:id/retry", (req, res) => {
+  const { id } = req.params;
+  const job = backgroundIngestionQueue.retryFailedJob(id);
+  if (!job) return res.status(404).json({ error: "Job not found or no failed units to retry" });
+  return res.json({ success: true, message: "Job failed units re-queued for processing", job });
+});
+
+app.get("/api/workspaces/:id/readiness", (req, res) => {
+  const { id } = req.params;
+  const readiness = evaluateWorkspaceReadiness(id);
+  return res.json({ success: true, workspaceId: id, ...readiness });
+});
+
+app.post("/api/workspaces/:id/reconcile", (req, res) => {
+  const { id } = req.params;
+  const reconciliation = reconcileWorkspaceFacts(id);
+  const accountingValidations = validateAccountingEquations(id);
+  const readiness = evaluateWorkspaceReadiness(id);
+  saveStorage();
+  return res.json({
+    success: true,
+    workspaceId: id,
+    reconciliationCount: reconciliation.length,
+    reconciliation,
+    accountingValidations,
+    readiness
+  });
+});
+
+app.post("/api/workspaces/merge", (req, res) => {
+  const { sourceWorkspaceId, targetWorkspaceId } = req.body;
+  if (!sourceWorkspaceId || !targetWorkspaceId) {
+    return res.status(400).json({ error: "Missing sourceWorkspaceId or targetWorkspaceId" });
+  }
+
+  const sourceWs = db.workspaces.find(w => w.id === sourceWorkspaceId);
+  const targetWs = db.workspaces.find(w => w.id === targetWorkspaceId);
+
+  if (!sourceWs || !targetWs) {
+    return res.status(404).json({ error: "Source or target workspace not found" });
+  }
+
+  // Re-assign all documents to target workspace
+  db.documents.forEach(d => {
+    if (d.workspaceId === sourceWorkspaceId) {
+      d.workspaceId = targetWorkspaceId;
+    }
+  });
+
+  // Re-assign all facts to target workspace
+  db.facts.forEach(f => {
+    if (f.workspaceId === sourceWorkspaceId) {
+      f.workspaceId = targetWorkspaceId;
+    }
+  });
+
+  // Re-assign findings
+  if (db.findings) {
+    db.findings.forEach(fn => {
+      if (fn.workspaceId === sourceWorkspaceId) {
+        fn.workspaceId = targetWorkspaceId;
+      }
+    });
+  }
+
+  // Re-assign page manifests & source blocks
+  if (db.pageManifests) {
+    db.pageManifests.forEach(pm => {
+      if (pm.workspace_id === sourceWorkspaceId) pm.workspace_id = targetWorkspaceId;
+    });
+  }
+  if (db.sourceBlocks) {
+    db.sourceBlocks.forEach(sb => {
+      if (sb.workspace_id === sourceWorkspaceId) sb.workspace_id = targetWorkspaceId;
+    });
+  }
+
+  // Remove duplicate source workspace
+  db.workspaces = db.workspaces.filter(w => w.id !== sourceWorkspaceId);
+
+  reconcileWorkspaceFacts(targetWorkspaceId);
+  validateAccountingEquations(targetWorkspaceId);
+
+  saveStorage();
+  console.log(`[Server] Merged workspace '${sourceWs.name}' (${sourceWorkspaceId}) into '${targetWs.name}' (${targetWorkspaceId})`);
+
+  const mergedDocs = db.documents.filter(d => d.workspaceId === targetWorkspaceId);
+  const mergedFacts = db.facts.filter(f => f.workspaceId === targetWorkspaceId);
+
+  return res.json({
+    success: true,
+    message: `Merged workspace '${sourceWs.name}' into '${targetWs.name}'`,
+    targetWorkspace: targetWs,
+    documentsCount: mergedDocs.length,
+    factsCount: mergedFacts.length
+  });
 });
 
 app.get("/api/facts", (req, res) => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Workspace, DocumentRecord, ExtractedFact, FinancialSummary } from './types';
 import { auth, onAuthStateChanged, signOut } from './firebase';
 import { AppSidebar } from './components/AppSidebar';
@@ -140,6 +140,69 @@ export default function App() {
     error: null,
     result: null
   });
+
+  const [activeQueueJob, setActiveQueueJob] = useState<any | null>(null);
+
+  const pollQueueJobs = useCallback(async () => {
+    try {
+      const wsId = activeWorkspace?.id;
+      const url = wsId ? `/api/queue/jobs?workspaceId=${wsId}` : '/api/queue/jobs';
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const jobs: any[] = data.jobs || [];
+        if (jobs.length > 0) {
+          // Priority 1: Job currently active or queued
+          const activeJob = jobs.find(j => j.status === 'PROCESSING' || j.status === 'QUEUED');
+          const latestJob = activeJob || jobs[0];
+
+          if (latestJob) {
+            setActiveQueueJob(latestJob);
+
+            if (latestJob.status === 'PROCESSING' || latestJob.status === 'QUEUED') {
+              setIngestionStatus(prev => ({
+                ...prev,
+                isIngesting: true,
+                progress: latestJob.progress || 10,
+                stepName: latestJob.currentStage || 'Server Background Extraction Active...',
+                stepNumber: Math.min(4, Math.ceil((latestJob.progress || 10) / 25)),
+                error: null
+              }));
+            } else if (latestJob.status === 'COMPLETED') {
+              // If it recently completed while modal was open
+              setIngestionStatus(prev => {
+                if (prev.isIngesting || prev.progress < 100) {
+                  return {
+                    ...prev,
+                    progress: 100,
+                    stepName: latestJob.currentStage || 'Extraction Complete!',
+                    stepNumber: 4,
+                    result: {
+                      workspace: activeWorkspace,
+                      extractedName: latestJob.documentTitle || activeWorkspace?.name || 'Workspace',
+                      docCount: 1,
+                      factsCount: latestJob.result?.facts?.length || 0
+                    }
+                  };
+                }
+                return prev;
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // Quietly ignore transient network poll errors
+    }
+  }, [activeWorkspace?.id, activeWorkspace?.name]);
+
+  useEffect(() => {
+    pollQueueJobs();
+    const interval = setInterval(() => {
+      pollQueueJobs();
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [pollQueueJobs]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -286,52 +349,10 @@ export default function App() {
       isIngesting: true,
       progress: 10,
       stepNumber: 1,
-      stepName: 'Uploading & Hashing Financial Documents (SHA-256)...',
+      stepName: 'Uploading & Hash Verification (SHA-256)...',
       error: null,
       result: null
     });
-
-    // Start live progress updater interval
-    let currentProgress = 10;
-    const progressInterval = setInterval(() => {
-      if (currentProgress < 80) {
-        currentProgress += 2;
-      } else if (currentProgress < 99) {
-        // Slow down in Step 4 to allow Hermes agents to show their work
-        currentProgress += 1;
-      } else {
-        // Stay at 99% until backend responds
-        return;
-      }
-
-      let stepNum = 1;
-      let stepText = 'Uploading & Hashing Financial Documents (SHA-256)...';
-      if (currentProgress >= 30 && currentProgress < 55) {
-        stepNum = 2;
-        stepText = 'Parsing PDF via AnyDoc Multi-Page Engine & Extracting Text...';
-      } else if (currentProgress >= 55 && currentProgress < 80) {
-        stepNum = 3;
-        stepText = 'Discovering Financial Tables & Extracting Atomic Line Items...';
-      } else if (currentProgress >= 80) {
-        stepNum = 4;
-        if (currentProgress >= 80 && currentProgress < 85) {
-          stepText = '[Hermes Phase 1/4] Fin AI Ledger Tracing & Asset Reconciliation...';
-        } else if (currentProgress >= 85 && currentProgress < 90) {
-          stepText = '[Hermes Phase 2/4] Audit AI Regulatory & Statutory Compliance Verification...';
-        } else if (currentProgress >= 90 && currentProgress < 95) {
-          stepText = '[Hermes Phase 3/4] Risk AI Controls Review & Cut-off Risk Assessment...';
-        } else {
-          stepText = '[Hermes Phase 4/4] Hermes Lead Harmonizing Multi-Agent Consensus Score...';
-        }
-      }
-
-      setIngestionStatus(prev => ({
-        ...prev,
-        progress: currentProgress,
-        stepNumber: stepNum,
-        stepName: stepText
-      }));
-    }, 300);
 
     try {
       const totalFilesList: (File | null)[] = files && files.length > 0 ? files : [null];
@@ -412,37 +433,20 @@ export default function App() {
         }
       }
 
-      clearInterval(progressInterval);
       const data = lastData || {};
 
       if (data.workspace) {
         setActiveWorkspace(data.workspace);
-        if (userEmail) {
-          setCurrentView('project_detail');
-        }
       }
 
       await fetchInitialData();
+      await pollQueueJobs();
 
       const extractedEntityName = data.extractedInfo?.name || data.workspace?.name || 'Uploaded Financial Document';
       const docCount = data.documents?.length || (files ? files.length : 1);
       const factsCount = typeof data.factsCount === 'number'
         ? data.factsCount
         : (data.facts?.length || data.documents?.reduce((sum: number, d: any) => sum + (d.extractedFactsCount || 0), 0) || 0);
-
-      setIngestionStatus({
-        isIngesting: true,
-        progress: 100,
-        stepNumber: 4,
-        stepName: 'Document Analysis & Financial Fact Extraction Complete!',
-        error: null,
-        result: {
-          workspace: data.workspace || null,
-          extractedName: extractedEntityName,
-          docCount,
-          factsCount
-        }
-      });
 
       // Show Staged Holding Modal ONLY if the user is NOT logged in!
       if (!userEmail) {
@@ -875,6 +879,7 @@ export default function App() {
         stepName={ingestionStatus.stepName}
         stepNumber={ingestionStatus.stepNumber}
         error={ingestionStatus.error}
+        job={activeQueueJob}
         result={ingestionStatus.result}
         userEmail={userEmail}
         onClose={() => setIngestionStatus(prev => ({ ...prev, isIngesting: false }))}

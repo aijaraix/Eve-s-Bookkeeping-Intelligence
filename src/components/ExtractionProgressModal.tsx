@@ -1,6 +1,33 @@
 import React, { useEffect, useState } from 'react';
-import { Sparkles, CheckCircle2, Loader2, ArrowRight, Building2, ShieldCheck, X, AlertCircle, FileText, Database } from 'lucide-react';
+import { Sparkles, CheckCircle2, Loader2, ArrowRight, Building2, ShieldCheck, X, AlertCircle, FileText, Database, Clock, Zap, Check, Cloud } from 'lucide-react';
 import { Workspace } from '../types';
+
+export interface ServerQueueJob {
+  id: string;
+  workspaceId: string;
+  documentId: string;
+  documentTitle: string;
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
+  progress: number;
+  currentStage: string;
+  unitsTotal: number;
+  unitsCompleted: number;
+  processingUnits?: Array<{
+    unit_id: string;
+    actual_page_start: number;
+    actual_page_end: number;
+    status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
+    last_error?: string;
+  }>;
+  result?: {
+    facts?: any[];
+    discrepancies?: any[];
+    agentLogs?: any[];
+  };
+  error?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 interface ExtractionProgressModalProps {
   isOpen: boolean;
@@ -8,6 +35,7 @@ interface ExtractionProgressModalProps {
   stepName: string;
   stepNumber: number;
   error: string | null;
+  job?: ServerQueueJob | null;
   result?: {
     workspace: Workspace | null;
     extractedName: string;
@@ -26,13 +54,18 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
   stepName,
   stepNumber,
   error,
+  job,
   result,
   userEmail,
   onClose,
   onViewProject,
   onOpenSignIn,
 }) => {
-  const isComplete = progress === 100 && !error;
+  const activeProgress = job?.progress !== undefined ? job.progress : progress;
+  const activeStage = job?.currentStage || stepName;
+  const activeError = job?.error || error;
+  const isComplete = (job?.status === 'COMPLETED' || activeProgress === 100) && !activeError;
+
   const [countdown, setCountdown] = useState<number>(1);
 
   useEffect(() => {
@@ -57,10 +90,12 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
   if (!isOpen) return null;
 
   const steps = [
-    { num: 1, label: 'Uploading & SHA-256 Hash Verification' },
-    { num: 2, label: 'AnyDoc & Spreadsheet Multi-Page Parsing' },
-    { num: 3, label: 'Financial Fact Extraction & Line Item Normalization' },
-    { num: 4, label: 'Hermes 4-Agent Consensus Audit' }
+    { num: 1, label: 'SHA-256 Verification & File Validation' },
+    { num: 2, label: 'Page Inventory & Bounded Unit Structure Parsing' },
+    { num: 3, label: 'Multilingual Detection & Legal Entity Resolution' },
+    { num: 4, label: 'Table & Narrative Fact Line-Item Extraction' },
+    { num: 5, label: 'Second-Pass Gap Analysis & Disclosure Discovery' },
+    { num: 6, label: 'Cross-Document Reconciliation & Readiness Gate' }
   ];
 
   const handleCloseClick = () => {
@@ -69,6 +104,10 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
       onViewProject(result?.workspace || null);
     }
   };
+
+  const units = job?.processingUnits || [];
+  const unitsTotal = job?.unitsTotal || units.length || 0;
+  const unitsCompleted = job?.unitsCompleted || units.filter(u => u.status === 'COMPLETED').length || 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn overflow-y-auto">
@@ -84,7 +123,7 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             ) : (
               <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
             )}
-            <span>{isComplete ? 'Extraction Complete' : 'Processing Document'}</span>
+            <span>{isComplete ? 'Extraction Complete' : 'Server Extraction Active'}</span>
           </div>
 
           <button
@@ -107,22 +146,39 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             <p className="text-[11px] sm:text-xs text-neutral-500 font-medium leading-relaxed">
               {isComplete
                 ? 'All financial statements and line items have been parsed and reconciled into the Fact Registry.'
-                : stepName || 'Parsing documents and running multi-agent consensus verification...'}
+                : activeStage || 'Parsing documents and running multi-agent consensus verification...'}
             </p>
           </div>
+
+          {/* Background Worker Notification Badge */}
+          {!isComplete && (
+            <div className="bg-blue-50/80 border border-blue-200/80 rounded-xl p-2.5 flex items-start gap-2.5 text-blue-900 shadow-xs">
+              <Cloud className="w-4 h-4 text-blue-600 shrink-0 mt-0.5 animate-pulse" />
+              <div className="space-y-0.5 text-[11px]">
+                <span className="font-extrabold block text-blue-950 flex items-center gap-1">
+                  Server Background Pipeline Active
+                </span>
+                <p className="text-blue-800/90 leading-snug">
+                  You do not need to stay on this page. Refreshing or closing your browser will <strong>not</strong> stop processing.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Progress Bar */}
           <div className="space-y-1">
             <div className="flex items-center justify-between text-[11px] sm:text-xs font-extrabold">
-              <span className="text-neutral-700 font-mono">Progress Stage</span>
-              <span className={`${isComplete ? 'text-emerald-600' : 'text-blue-600'} font-mono`}>{progress}%</span>
+              <span className="text-neutral-700 font-mono">
+                {unitsTotal > 0 ? `Units Processed (${unitsCompleted}/${unitsTotal})` : 'Progress Stage'}
+              </span>
+              <span className={`${isComplete ? 'text-emerald-600' : 'text-blue-600'} font-mono`}>{activeProgress}%</span>
             </div>
             <div className="w-full bg-neutral-100 rounded-full h-2 overflow-hidden border border-neutral-200 p-0.5">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   isComplete ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-blue-600 to-indigo-600'
                 }`}
-                style={{ width: `${Math.max(5, progress)}%` }}
+                style={{ width: `${Math.max(5, activeProgress)}%` }}
               />
             </div>
           </div>
@@ -144,14 +200,46 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             </div>
           )}
 
+          {/* Real Bounded Page Units Breakdown (if job active) */}
+          {units.length > 0 && !isComplete && (
+            <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2.5 space-y-1.5">
+              <span className="text-[10px] font-extrabold text-neutral-500 uppercase tracking-wider block">
+                Document Page Units ({unitsCompleted}/{unitsTotal})
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-32 overflow-y-auto pr-1">
+                {units.map((u, i) => (
+                  <div
+                    key={u.unit_id || i}
+                    className={`p-1.5 rounded-lg border text-[10.5px] font-medium flex items-center justify-between ${
+                      u.status === 'COMPLETED'
+                        ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+                        : u.status === 'PROCESSING'
+                        ? 'bg-blue-50 border-blue-300 text-blue-900 font-bold animate-pulse'
+                        : 'bg-white border-neutral-200 text-neutral-500'
+                    }`}
+                  >
+                    <span className="truncate">Page {u.actual_page_start}</span>
+                    {u.status === 'COMPLETED' ? (
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                    ) : u.status === 'PROCESSING' ? (
+                      <Loader2 className="w-3 h-3 text-blue-600 animate-spin shrink-0" />
+                    ) : (
+                      <Clock className="w-3 h-3 text-neutral-400 shrink-0" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Pipeline Execution Checklist */}
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2.5 sm:p-3.5 space-y-1.5">
             <span className="text-[10px] font-extrabold text-neutral-500 uppercase tracking-wider block mb-0.5">
               Pipeline Execution Checklist
             </span>
             {steps.map((s) => {
-              const stepDone = progress >= s.num * 25 || isComplete;
-              const stepCurrent = !isComplete && progress >= (s.num - 1) * 25 && progress < s.num * 25;
+              const stepDone = activeProgress >= s.num * 25 || isComplete;
+              const stepCurrent = !isComplete && activeProgress >= (s.num - 1) * 25 && activeProgress < s.num * 25;
 
               return (
                 <div key={s.num} className="space-y-0.5">
@@ -181,7 +269,7 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                     )}
                   </div>
 
-                  {s.num === 4 && (progress >= 80 || isComplete) && (
+                  {s.num === 4 && (activeProgress >= 80 || isComplete) && (
                     <div className="ml-4 sm:ml-6 pl-2 border-l border-neutral-200 space-y-0.5 py-0.5">
                       {[
                         { id: 'fin', label: 'Fin AI (Ledger Tracing)', activeRange: [80, 84] },
@@ -189,8 +277,8 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                         { id: 'risk', label: 'Risk AI (Cut-off Review)', activeRange: [90, 94] },
                         { id: 'lead', label: 'Hermes Lead (Consensus Verification)', activeRange: [95, 100] },
                       ].map(agent => {
-                        const agentDone = progress > agent.activeRange[1] || isComplete;
-                        const agentActive = !isComplete && progress >= agent.activeRange[0] && progress <= agent.activeRange[1];
+                        const agentDone = activeProgress > agent.activeRange[1] || isComplete;
+                        const agentActive = !isComplete && activeProgress >= agent.activeRange[0] && activeProgress <= agent.activeRange[1];
                         return (
                           <div key={agent.id} className="flex items-center space-x-1.5 text-[9.5px] sm:text-[10px]">
                             {agentDone ? (
@@ -214,18 +302,18 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
           </div>
 
           {/* Error State */}
-          {error && (
+          {activeError && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-2.5 flex items-start space-x-2 text-red-800 text-[11px] sm:text-xs">
               <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold block">Extraction Error</span>
-                <p className="text-red-700 text-[10.5px] mt-0.5">{error}</p>
+                <span className="font-bold block">Extraction Notice</span>
+                <p className="text-red-700 text-[10.5px] mt-0.5">{activeError}</p>
               </div>
             </div>
           )}
 
           {/* Extraction Result Summary Box (When Complete) - Dynamic Facts Counter */}
-          {isComplete && result && (
+          {isComplete && (
             <div className="bg-gradient-to-br from-slate-900 to-[#0c1838] p-3 sm:p-3.5 rounded-xl border border-slate-800 text-white space-y-2 shadow-md">
               <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
                 <div className="flex items-center space-x-2">
@@ -234,7 +322,7 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                   </div>
                   <div>
                     <span className="text-[8.5px] uppercase tracking-wider font-extrabold text-slate-400 block">Extracted Entity</span>
-                    <span className="text-xs sm:text-sm font-extrabold text-white font-sans">{result.extractedName}</span>
+                    <span className="text-xs sm:text-sm font-extrabold text-white font-sans">{result?.extractedName || job?.documentTitle || 'Financial Workspace'}</span>
                   </div>
                 </div>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[8.5px] sm:text-[9.5px] font-bold border border-emerald-500/30 flex items-center gap-1">
@@ -248,14 +336,14 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                   <FileText className="w-3 h-3 text-blue-400 shrink-0" />
                   <div>
                     <span className="text-[8.5px] text-slate-400 block font-semibold">Processed Documents</span>
-                    <span className="font-extrabold text-white text-[11px] block">{result.docCount} Document File</span>
+                    <span className="font-extrabold text-white text-[11px] block">{result?.docCount || 1} Document File</span>
                   </div>
                 </div>
                 <div className="bg-slate-800/60 p-2 rounded-lg border border-slate-700/50 flex items-center gap-1.5">
                   <Database className="w-3 h-3 text-emerald-400 shrink-0" />
                   <div>
                     <span className="text-[8.5px] text-slate-400 block font-semibold">Extracted Line Items</span>
-                    <span className="font-extrabold text-emerald-400 text-[11px] block">{result.factsCount} Financial Facts</span>
+                    <span className="font-extrabold text-emerald-400 text-[11px] block">{job?.result?.facts?.length || result?.factsCount || 0} Financial Facts</span>
                   </div>
                 </div>
               </div>
@@ -266,38 +354,14 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
         {/* Action Button Footer */}
         {isComplete && (
           <div className="space-y-1.5 pt-1.5 border-t border-neutral-100 shrink-0">
-            {userEmail ? (
-              <button
-                type="button"
-                onClick={handleCloseClick}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 sm:py-2.5 px-3 rounded-xl transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer text-xs"
-              >
-                <span>View Extracted Workspace & Financials</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            ) : (
-              <div className="space-y-1">
-                <button
-                  type="button"
-                  onClick={handleCloseClick}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 sm:py-2.5 px-3 rounded-xl transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer text-xs"
-                >
-                  <span>View Extracted Workspace & Dashboard</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    if (onOpenSignIn) onOpenSignIn();
-                  }}
-                  className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold py-1.5 px-2.5 rounded-lg transition text-[11px] cursor-pointer flex items-center justify-center gap-1"
-                >
-                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                  <span>Sign in to Save to Account</span>
-                </button>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={handleCloseClick}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 sm:py-2.5 px-3 rounded-xl transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer text-xs"
+            >
+              <span>View Extracted Workspace & Financials</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -305,3 +369,4 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
     </div>
   );
 };
+
