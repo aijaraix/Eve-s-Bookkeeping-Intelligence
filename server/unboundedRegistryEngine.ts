@@ -230,7 +230,7 @@ export class UnboundedRegistryEngine {
   /**
    * Requirement #21: Strict Dimension-Matching Logic across 7 dimensions
    */
-  public areFactsDimensionallyMatched(f1: ExtractedFact, f2: ExtractedFact): boolean {
+  public static areFactsDimensionallyMatched(f1: ExtractedFact, f2: ExtractedFact): boolean {
     if (!f1 || !f2) return false;
     const samePeriod = (f1.periodStart === f2.periodStart && f1.periodEnd === f2.periodEnd) ||
                        (f1.periodOriginal === f2.periodOriginal) ||
@@ -290,8 +290,8 @@ export class UnboundedRegistryEngine {
       bsStatus = 'MISSING_DATA';
       bsExplanation = 'Incomplete balance sheet extraction in current dataset. Total Assets, Liabilities, and Equity missing.';
     } else if (
-      (totalAssetsObj.fact && totalLiabilitiesObj.fact && !this.areFactsDimensionallyMatched(totalAssetsObj.fact, totalLiabilitiesObj.fact)) ||
-      (totalAssetsObj.fact && totalEquityObj.fact && !this.areFactsDimensionallyMatched(totalAssetsObj.fact, totalEquityObj.fact))
+      (totalAssetsObj.fact && totalLiabilitiesObj.fact && !UnboundedRegistryEngine.areFactsDimensionallyMatched(totalAssetsObj.fact, totalLiabilitiesObj.fact)) ||
+      (totalAssetsObj.fact && totalEquityObj.fact && !UnboundedRegistryEngine.areFactsDimensionallyMatched(totalAssetsObj.fact, totalEquityObj.fact))
     ) {
       bsStatus = 'INSUFFICIENT_DIMENSIONALLY_MATCHED_DATA';
       bsExplanation = 'Incompatible fact dimensions detected across entity, period, currency, or scope. Balance sheet reconciliation halted.';

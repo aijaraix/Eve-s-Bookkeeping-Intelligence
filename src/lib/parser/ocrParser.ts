@@ -65,10 +65,10 @@ export class OCRParser implements DocumentParser {
       },
       metadata: {
         pages: 1,
-        language: 'English',
+        language: 'UNKNOWN',
         currency: 'EUR',
         entityName: 'Corporate Scanned Entity',
-        period: 'FY 2025',
+        period: undefined,
         totalWords: 140
       },
       sections,

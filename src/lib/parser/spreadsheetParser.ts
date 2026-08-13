@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel, CellModel, TableModel, AssetModel } from './types';
+import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel, CellModel, TableModel, AssetModel, detectLanguageFromText, detectPeriodFromText } from './types';
 
 export class SpreadsheetParser implements DocumentParser {
   public canHandle(file: FileInput): boolean {
@@ -114,10 +114,10 @@ export class SpreadsheetParser implements DocumentParser {
       },
       metadata: {
         pages: sheetNames.length,
-        language: 'English',
+        language: detectLanguageFromText(markdown).language,
         currency: 'EUR',
         entityName: file.filename.split('.')[0].replace(/[-_]/g, ' ').trim() || 'Corporate Entity',
-        period: 'FY 2025',
+        period: detectPeriodFromText(markdown) || undefined,
         totalWords: allCells.length * 3
       },
       sections: sheetNames.map((s, idx) => ({

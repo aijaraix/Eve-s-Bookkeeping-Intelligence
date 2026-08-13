@@ -137,18 +137,17 @@ export class DocumentIntelligenceAgent {
     }
 
     // 4. Period Extraction
-    let period = 'FY 2026';
+    let period: string | undefined = undefined;
     const dateRangeMatch = rawText.match(/(?:for the|three|six|nine|twelve)?\s*(?:months?|period)?\s*ended\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})/i)
       || rawText.match(/(?:quarter|q[1-4]|period)\s*(?:ended)?\s*([A-Za-z0-9\s,]{4,25}\d{4})/i)
-      || rawText.match(/([A-Z][a-z]+\s+\d{1,2},\s+\d{4}\s+(?:through|to|-)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4})/i);
+      || rawText.match(/([A-Z][a-z]+\s+\d{1,2},\s+\d{4}\s+(?:through|to|-)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4})/i)
+      || rawText.match(/\b(FY\s*20\d{2}|FY\s*19\d{2})\b/i);
 
     if (dateRangeMatch && dateRangeMatch[1]) {
       const captured = dateRangeMatch[1].trim();
       if (captured.length >= 4 && !/^(ended|period|from|for)$/i.test(captured)) {
         period = captured;
       }
-    } else if (rawText.toLowerCase().includes('june 30, 2026')) {
-      period = 'Three months ended June 30, 2026';
     }
 
     // 5. Unit Scale

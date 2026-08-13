@@ -1,4 +1,5 @@
 import { TenantRolePermission, TenantWorkspaceAccess, RegressionTestCase, RegressionSuiteRun, ExtractedFact } from "../src/types.js";
+import { UnboundedRegistryEngine } from "./unboundedRegistryEngine.js";
 
 export class TenantRegressionService {
   private userAccessMap: Map<string, TenantWorkspaceAccess[]> = new Map();
@@ -192,16 +193,46 @@ export class TenantRegressionService {
     });
 
     // Test 7: DIMENSION ISOLATION - Cross-entity/period/currency isolation check
+    const f1Test: ExtractedFact = {
+      id: 'f-dim-1',
+      workspaceId: workspaceId,
+      documentId: 'doc-1',
+      factType: 'REPORTED',
+      labelOriginal: 'Revenue 2024',
+      labelNormalized: 'revenue',
+      valueOriginal: '1000',
+      currencyOriginal: 'EUR',
+      valueFunctional: '1000',
+      functionalCurrency: 'EUR',
+      reportingPeriod: 'FY 2024',
+      pageNumber: 1,
+      sourceText: 'Revenue 1000',
+      confidence: 0.99,
+      status: 'VALIDATED',
+      extractionMethod: 'DETERMINISTIC'
+    };
+    const f2Incompatible: ExtractedFact = {
+      ...f1Test,
+      id: 'f-dim-2',
+      reportingPeriod: 'FY 2025',
+      functionalCurrency: 'USD'
+    };
+    const matchIncompatible = UnboundedRegistryEngine.areFactsDimensionallyMatched(f1Test, f2Incompatible);
+    const matchCompatible = UnboundedRegistryEngine.areFactsDimensionallyMatched(f1Test, { ...f1Test, id: 'f-dim-3' });
+    const dimIsoPassed = (matchIncompatible === false) && (matchCompatible === true);
+
     testCases.push({
       id: 'tc-007',
       name: 'DIMENSION ISOLATION: Reconciliation Dimension Matching Check',
       category: 'RECONCILIATION_RULES',
-      inputSummary: 'Evaluated reconciliation engine against incompatible dimension facts',
-      expectedOutcome: 'Cross-entity, cross-period, cross-currency fact combinations rejected',
-      actualOutcome: 'Reconciliation context strictly enforces matching workspace, entity, scope, period, and currency',
-      status: 'PASSED',
+      inputSummary: 'Evaluated areFactsDimensionallyMatched against incompatible and compatible facts',
+      expectedOutcome: 'Incompatible dimensions return false; identical dimensions return true',
+      actualOutcome: dimIsoPassed
+        ? 'PASSED: Incompatible dimensions rejected (false), compatible matched (true)'
+        : `FAILED: Incompatible returned ${matchIncompatible}, Compatible returned ${matchCompatible}`,
+      status: dimIsoPassed ? 'PASSED' : 'FAILED',
       executionTimeMs: 12,
-      details: 'Verified that mismatched facts produce INSUFFICIENT_DIMENSIONALLY_MATCHED_DATA.'
+      details: 'Verified that mismatched facts produce false in dimension matcher.'
     });
 
     // Test 8: TENANT ISOLATION - Security authorization check

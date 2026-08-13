@@ -90,19 +90,19 @@ export class ReviewerEngine {
       environment: "Cloud Run Container Sandbox",
       read_only_protection: "ACTIVE (All Write / Edit / Delete APIs Restricted)",
       public_test_workspace: {
-        id: "ws-unilever-2025",
-        name: "Unilever PLC FY 2025 Public Filing Test Workspace",
-        entity: "Unilever PLC",
-        period: "FY 2025",
-        currency: "EUR"
+        id: db.workspaces?.[0]?.id || "none",
+        name: db.workspaces?.[0]?.name || "None",
+        entity: db.workspaces?.[0]?.name || "None",
+        period: (db.workspaces?.[0] as any)?.period || db.documents?.[0]?.period || "Not Specified",
+        currency: db.workspaces?.[0]?.currency || "EUR"
       },
       health_summary: healthSummary,
       counts: {
-        workspaces: db.workspaces?.length || 1,
+        workspaces: db.workspaces?.length || 0,
         documents: docs.length,
         pages_processed: totalPages,
-        source_blocks: totalPages * 12,
-        tables_extracted: docs.length * 4,
+        source_blocks: (db.sourceBlocks || []).length,
+        tables_extracted: docs.reduce((acc: number, d: any) => acc + (facts.filter(f => (f.documentId === d.id || (f as any).document_id === d.id) && (f.tableName || f.source_table)).length || 0), 0),
         facts_extracted: facts.length,
         facts_verified: verifiedFacts,
         facts_unverified: unverifiedFacts,
@@ -139,22 +139,22 @@ export class ReviewerEngine {
 
       return {
         workspace_id: ws.id,
-        company_name: ws.name || (ws as any).companyName || "Unilever PLC",
-        project_name: (ws as any).projectName || "FY 2025 Annual Audit & Financial Intelligence",
-        entity_type: (ws as any).entityType || "Public Corporation",
-        reporting_period: (ws as any).reportingPeriod || "FY 2025",
+        company_name: ws.name || (ws as any).companyName || "Corporate Client",
+        project_name: (ws as any).projectName || `${ws.name} Audit Engagement`,
+        entity_type: (ws as any).entityType || "Corporate Entity",
+        reporting_period: (ws as any).reportingPeriod || (ws as any).period || "Not Specified",
         reporting_currency: ws.currency || "EUR",
-        presentation_units: (ws as any).presentationUnits || "Millions",
+        presentation_units: (ws as any).presentationUnits || "Units",
         documents_count: wsDocs.length,
-        processing_status: "COMPLETED",
+        processing_status: wsDocs.length > 0 ? "COMPLETED" : "EMPTY",
         fact_count: wsFacts.length,
         verified_fact_count: verified,
         review_items_count: reviewItems,
         conflicts_count: db.discrepancies?.length || 0,
-        derived_metrics_count: 4,
-        report_readiness: "100% AUDIT READY",
-        is_public_test_workspace: ws.id === "ws-unilever-2025" || ws.id === "ws-1",
-        created_at: ws.createdAt || "2026-01-15T08:00:00Z"
+        derived_metrics_count: 3,
+        report_readiness: wsFacts.length > 0 ? `${Math.round((verified / wsFacts.length) * 100)}% VERIFIED` : "0% VERIFIED",
+        is_public_test_workspace: false,
+        created_at: ws.createdAt || new Date().toISOString()
       };
     });
   }
@@ -167,35 +167,37 @@ export class ReviewerEngine {
 
     return docs.map((doc: any) => {
       const docFacts = (db.facts || []).filter((f: any) => f.documentId === doc.id || f.document_id === doc.id);
-      const pageCount = doc.pageCount || 12;
-      const verifiedCount = docFacts.filter((f: any) => f.status === "VALIDATED" || f.status === "APPROVED").length;
+      const pageCount = doc.pageCount || 1;
+      const verifiedCount = docFacts.filter((f: any) => f.status === "VALIDATED" || f.status === "APPROVED" || f.verificationStatus === "VERIFIED").length;
+      const docBlocks = (db.sourceBlocks || []).filter((b: any) => b.document_id === doc.id || b.documentId === doc.id);
+      const docTables = docFacts.filter((f: any) => f.tableName || f.source_table).length;
 
       return {
         document_id: doc.id,
-        filename: doc.fileName || doc.name || "Unilever_Annual_Report_2025.pdf",
-        file_type: doc.fileType || "PDF",
-        file_size_bytes: doc.fileSize || 14859200,
-        sha256_hash: doc.hash || "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        filename: doc.originalName || doc.filename || doc.fileName || doc.name || "document.pdf",
+        file_type: doc.mimeType || doc.fileType || "PDF",
+        file_size_bytes: doc.size || doc.fileSize || 0,
+        sha256_hash: doc.sha256 || doc.hash || "",
         page_count: pageCount,
-        language: doc.language || "en",
-        classification: doc.category || "Annual Financial Report & Accounts",
-        reporting_entity: doc.entityName || "Unilever PLC",
-        reporting_period: doc.period || "FY 2025",
+        language: doc.language || "UNKNOWN",
+        classification: doc.category || "Financial Statement",
+        reporting_entity: doc.entityName || "Corporate Entity",
+        reporting_period: doc.period || "Not Specified",
         currency: doc.currency || "EUR",
-        scale_unit: doc.scale || "Millions",
-        processing_status: "PROCESSED",
+        scale_unit: doc.scale || "Units",
+        processing_status: doc.status || "PROCESSED",
         pipeline_version: "v3.7-sonnet-hybrid",
         metrics_summary: {
           pages_discovered: pageCount,
           pages_processed: pageCount,
-          pages_failed: 0,
-          tables_detected: 4,
-          tables_extracted: 4,
-          source_blocks_created: pageCount * 12,
+          pages_failed: doc.status === "Failed" ? pageCount : 0,
+          tables_detected: docTables,
+          tables_extracted: docTables,
+          source_blocks_created: docBlocks.length || (pageCount * 2),
           facts_extracted: docFacts.length,
           facts_verified: verifiedCount,
           facts_requiring_review: docFacts.length - verifiedCount,
-          additional_facts_extracted: 2
+          additional_facts_extracted: docFacts.filter((f: any) => f.isCandidate || f.candidateSource).length
         }
       };
     });
@@ -261,11 +263,12 @@ export class ReviewerEngine {
 
     return facts.map(f => {
       const page = f.pageNumber || f.source_page || 1;
-      const docName = f.sourceDocument || "Unilever PLC Annual Report 2025";
+      const matchingDoc = (db.documents || []).find((d: any) => d.id === f.documentId || d.id === f.document_id);
+      const docName = f.sourceDocument || matchingDoc?.originalName || matchingDoc?.filename || "Source Document";
       
       return {
         fact_id: f.id,
-        workspace_id: f.workspaceId || (f as any).project_id || "ws-unilever-2025",
+        workspace_id: f.workspaceId || (f as any).project_id || db.workspaces?.[0]?.id || "ws-1",
         canonical_concept: f.canonicalMetric || f.canonical_metric || f.labelNormalized,
         reported_label: f.labelOriginal,
         normalized_label: f.labelNormalized,
@@ -273,8 +276,8 @@ export class ReviewerEngine {
         normalized_value: (f.normalizedValue ?? f.normalized_value ?? parseFloat(String(f.valueFunctional).replace(/[^0-9.-]/g, ''))) || 0,
         functional_amount: `${f.valueFunctional} ${f.currency || 'EUR'}`,
         currency: f.currency || 'EUR',
-        scale: f.scale || f.unitScale || 'Millions',
-        reporting_period: f.reportingPeriod || 'FY 2025',
+        scale: f.scale || f.unitScale || 'Units',
+        reporting_period: f.reportingPeriod || (f as any).fiscalPeriod || 'Not Specified',
         value_origin: (f as any).valueOrigin || 'REPORTED',
         source_confidence: f.confidence || 0.98,
         verification_status: f.status || 'VALIDATED',
@@ -287,7 +290,7 @@ export class ReviewerEngine {
           statement_type: f.statementType || 'income_statement',
           section: f.tableName || f.source_table || 'Financial Statements',
           table_row: f.labelOriginal,
-          table_column: f.reportingPeriod || 'FY 2025',
+          table_column: f.reportingPeriod || 'Current Period',
           verbatim_text_snippet: f.sourceText || `${f.labelOriginal}: ${f.valueOriginal}`,
           bounding_box_coords: { xMin: 120, yMin: 240, xMax: 480, yMax: 260 }
         }

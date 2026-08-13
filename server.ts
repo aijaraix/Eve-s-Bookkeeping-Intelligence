@@ -2111,7 +2111,7 @@ app.post("/api/documents/upload", (req, res) => {
               access_timestamp: new Date().toISOString()
             },
             parser: { engine: "fallback", version: "1.0", ocr_used: false, confidence: 0.5 },
-            metadata: { pages: 1, language: "English", currency: "EUR", entityName: "Corporate Entity", period: "FY 2025", totalWords: cleanAscii.split(/\s+/).length },
+            metadata: { pages: 1, language: "UNKNOWN", currency: "EUR", entityName: "Corporate Entity", period: undefined, totalWords: cleanAscii.split(/\s+/).length },
             sections: [{ id: "fallback", title: "Document Preview", level: 1, text: cleanAscii }],
             tables: [],
             assets: [],
@@ -2292,7 +2292,7 @@ Format each item as follows:
             ws.id,
             docId,
             docCurrency,
-            classification.reportingPeriod || "FY 2025",
+            classification.reportingPeriod || canonicalDoc.metadata?.period || "Not Specified",
             factsToAdd
           );
 

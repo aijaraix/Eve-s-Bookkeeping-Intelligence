@@ -145,7 +145,7 @@ function splitTextIntoPages(fullText: string, reportedNumPages: number): { pages
   return { pages, numpages: numPages, fullText };
 }
 
-import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel, AssetModel, SectionModel, TableModel } from './types';
+import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel, AssetModel, SectionModel, TableModel, detectLanguageFromText, detectPeriodFromText } from './types';
 
 export class AnyDocParser implements DocumentParser {
   public canHandle(file: FileInput): boolean {
@@ -400,10 +400,12 @@ export class AnyDocParser implements DocumentParser {
       },
       metadata: {
         pages: estimatedPages,
-        language: 'English',
+        language: detectLanguageFromText(rawText).language,
+        language_confidence: detectLanguageFromText(rawText).confidence,
+        language_detection_method: detectLanguageFromText(rawText).method,
         currency: detectedCurrency,
         entityName,
-        period: 'FY 2025',
+        period: detectPeriodFromText(rawText) || undefined,
         totalWords: rawText.split(/\s+/).length
       },
       sections,

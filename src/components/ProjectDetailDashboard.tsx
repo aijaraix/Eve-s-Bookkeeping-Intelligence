@@ -143,10 +143,10 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
     fiscalYearEnd: 'December 31',
     reportingCurrency: workspace.currency || 'EUR',
     accountingStandard: 'IFRS / GAAP',
-    healthScore: companyDocs.length > 0 ? 90 : 0,
+    healthScore: companyDocs.length > 0 ? Math.round((companyDocs.filter(d => d.status === 'Completed' || d.status === 'PROCESSED').length / companyDocs.length) * 100) : 0,
     riskScore: 'Not Assessed',
-    auditReadiness: summary?.hasValidatedFacts ? 100 : 0,
-    dataCompleteness: companyDocs.length > 0 ? 100 : 0,
+    auditReadiness: companyDocs.length > 0 ? Math.round((companyDocs.filter(d => d.status === 'Completed' || d.status === 'PROCESSED').length / companyDocs.length) * 100) : 0,
+    dataCompleteness: companyDocs.length > 0 ? Math.round((companyDocs.filter(d => d.status === 'Completed' || d.status === 'PROCESSED').length / companyDocs.length) * 100) : 0,
     annualRevenue: summary?.revenue && summary.revenue !== '—' ? summary.revenue : fallbackRevenue,
     netIncome: summary?.netIncome && summary.netIncome !== '—' ? summary.netIncome : fallbackNetIncome,
     totalAssets: summary?.assets && summary.assets !== '—' ? summary.assets : fallbackAssets,
@@ -228,8 +228,8 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
 
   // Verified Performance Data by Reported Period (No fabricated monthly trends)
   const periodPerformanceData = summary?.revenueRaw ? [
-    ...(summary?.comparativeRevenueRaw ? [{ period: 'FY 2024 (Prior)', revenue: Number((summary.comparativeRevenueRaw / 1e9).toFixed(2)), netIncome: 0 }] : []),
-    { period: workspace.period || 'FY 2025', revenue: Number((summary.revenueRaw / 1e9).toFixed(2)), netIncome: summary?.netIncomeRaw ? Number((summary.netIncomeRaw / 1e9).toFixed(2)) : 0 }
+    ...(summary?.comparativeRevenueRaw ? [{ period: 'Prior Period', revenue: Number((summary.comparativeRevenueRaw / 1e9).toFixed(2)), netIncome: 0 }] : []),
+    { period: workspace.period || summary?.period || 'Current Period', revenue: Number((summary.revenueRaw / 1e9).toFixed(2)), netIncome: summary?.netIncomeRaw ? Number((summary.netIncomeRaw / 1e9).toFixed(2)) : 0 }
   ] : [];
 
   // Audit Readiness Gauge Donut Data derived from verified document facts
@@ -241,7 +241,7 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
   ];
 
   // Financial Health Score Donut Data derived from facts existence
-  const healthScoreVal = summary?.hasValidatedFacts ? 92 : 0;
+  const healthScoreVal = companyDocs.length > 0 ? Math.round((verifiedDocsCount / companyDocs.length) * 100) : 0;
   const healthScoreData = [
     { name: 'Score', value: healthScoreVal, color: '#2563eb' },
     { name: 'Remaining', value: 100 - healthScoreVal, color: '#f1f5f9' }
@@ -328,9 +328,7 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
             <span>Audit Engagement</span>
             <span>•</span>
-            <span>FY 2025</span>
-            <span>•</span>
-            <span>Jan 1 – Dec 31, 2025</span>
+            <span>{workspace.period || summary?.period || 'Not Specified'}</span>
             <span>•</span>
             <span className="font-semibold text-slate-700">🌐 {currSymbol}</span>
           </div>

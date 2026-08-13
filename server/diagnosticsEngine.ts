@@ -60,7 +60,7 @@ export class DiagnosticsEngine {
       page_number: 1,
       section: "Header",
       block_type: "Heading",
-      raw_text: `${doc.entityName || "Corporate Entity"} — ${doc.category || "Financial Statement"} (${doc.period || "FY 2025"})`,
+      raw_text: `${doc.entityName || "Corporate Entity"} — ${doc.category || "Financial Statement"} (${doc.period || "Not Specified"})`,
       processing_status: "PROCESSED"
     });
 
@@ -114,7 +114,7 @@ export class DiagnosticsEngine {
         rows_count: rows.length,
         currency: doc.currency || "EUR",
         unit: tFacts[0]?.unitScale || "Millions",
-        reporting_period: doc.period || "FY 2025",
+        reporting_period: doc.period || "Not Specified",
         statement_type: tFacts[0]?.statementType || "income_statement",
         extraction_confidence: 0.98,
         processing_state: "EXTRACTED",
@@ -175,7 +175,7 @@ export class DiagnosticsEngine {
       input_values: { gross_profit: gpVal ?? "N/A", revenue: revVal ?? "N/A" },
       calculation_result: gpVal !== null && revVal !== null && revVal > 0 ? parseFloat(((gpVal / revVal) * 100).toFixed(2)) : null,
       currency_or_unit: "%",
-      reporting_period: revFact?.reportingPeriod || "FY 2025",
+      reporting_period: revFact?.reportingPeriod || "Not Specified",
       validation_status: gpVal !== null && revVal !== null ? "CALCULATED" : "NOT_AVAILABLE",
       calculated_at: new Date().toISOString()
     });
@@ -190,7 +190,7 @@ export class DiagnosticsEngine {
       input_values: { net_income: niVal ?? "N/A", equity: eqVal ?? "N/A" },
       calculation_result: niVal !== null && eqVal !== null && eqVal > 0 ? parseFloat(((niVal / eqVal) * 100).toFixed(2)) : null,
       currency_or_unit: "%",
-      reporting_period: niFact?.reportingPeriod || "FY 2025",
+      reporting_period: niFact?.reportingPeriod || "Not Specified",
       validation_status: niVal !== null && eqVal !== null ? "CALCULATED" : "NOT_AVAILABLE",
       calculated_at: new Date().toISOString()
     });
@@ -205,7 +205,7 @@ export class DiagnosticsEngine {
       input_values: { liabilities: liabVal ?? "N/A", equity: eqVal ?? "N/A" },
       calculation_result: liabVal !== null && eqVal !== null && eqVal > 0 ? parseFloat((liabVal / eqVal).toFixed(2)) : null,
       currency_or_unit: "x",
-      reporting_period: assetsFact?.reportingPeriod || "FY 2025",
+      reporting_period: assetsFact?.reportingPeriod || "Not Specified",
       validation_status: liabVal !== null && eqVal !== null ? "CALCULATED" : "NOT_AVAILABLE",
       calculated_at: new Date().toISOString()
     });
