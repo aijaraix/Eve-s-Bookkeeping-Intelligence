@@ -86,8 +86,8 @@ export class UnboundedRegistryEngine {
       const cosFact = allFacts.find(f => f.canonicalMetric === 'cost_of_sales');
 
       if (revFact && cosFact) {
-        const revVal = parseFloat(revFact.valueFunctional || '0');
-        const cosVal = parseFloat(cosFact.valueFunctional || '0');
+        const revVal = parseFloat(String(revFact.valueFunctional || '0'));
+        const cosVal = parseFloat(String(cosFact.valueFunctional || '0'));
         const calculatedGrossProfit = revVal - cosVal;
 
         candidates.push({
@@ -256,7 +256,7 @@ export class UnboundedRegistryEngine {
         f.labelOriginal?.toLowerCase().includes(metric.replace('_', ' '))
       );
       if (!match) return { val: 0 };
-      return { val: parseFloat(match.valueFunctional || '0'), fact: match };
+      return { val: parseFloat(String(match.valueFunctional || '0')), fact: match };
     };
 
     // Helper to calculate scale-aware dynamic tolerance (0.01% of base or min threshold)

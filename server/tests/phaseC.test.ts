@@ -23,7 +23,7 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
       entityScope: 'Group',
       sourcePage: 102,
       confidence: 0.98
-    };
+    } as any;
 
     const resolved = CanonicalFactResolver.resolveMetric('ws-test-1', 'revenue', [originalFact]);
 
@@ -88,7 +88,7 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         entityScope: 'Group',
         confidence: 0.96
       }
-    ];
+    ] as any;
 
     const currentFy = CanonicalFactResolver.resolveMetric('ws-test-period', 'revenue', facts, { targetPeriod: 'FY 2024' });
     expect(currentFy.primaryFact?.id).toBe('fct-fy24-current');
@@ -129,7 +129,7 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         entityScope: 'Group',
         confidence: 0.99
       }
-    ];
+    ] as any;
 
     const resolved = CanonicalFactResolver.resolveMetric('ws-volks', 'revenue', facts);
     expect(resolved.primaryFact?.id).toBe('fct-consolidated-primary');
@@ -183,7 +183,7 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         currencyOriginal: 'EUR',
         scaleOriginal: 'Millions'
       }
-    ];
+    ] as any;
 
     const resolved = CanonicalFactResolver.resolveMetric('ws-dedup', 'revenue', facts);
     expect(resolved.primaryFact).toBeDefined();
@@ -215,7 +215,7 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         reportingPeriod: 'FY 2024',
         entityScope: 'Group'
       }
-    ];
+    ] as any;
 
     const res2024 = CanonicalFactResolver.resolveMetric('ws-mat', 'revenue', facts, { targetPeriod: 'FY 2024' });
     expect(res2024.primaryFact?.id).toBe('fct-p2');
@@ -248,7 +248,7 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         reportingPeriod: 'FY 2024',
         entityScope: 'Group'
       }
-    ];
+    ] as any;
 
     const res = CanonicalFactResolver.resolveMetric('ws-mat2', 'revenue', facts);
     expect(res.primaryFact?.id).toBe('fct-group');
@@ -566,7 +566,7 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         entityScope: 'Group',
         confidence: 0.99
       }
-    ];
+    ] as any;
 
     // 1. Assert FY2025 Direct Metric Target Resolution
     const resRev2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'revenue', '2025-FY');

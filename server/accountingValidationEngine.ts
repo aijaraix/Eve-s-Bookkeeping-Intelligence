@@ -452,7 +452,7 @@ export class AccountingValidationEngine {
         results.push({
           metric: metricName,
           reportingPeriod: targetPeriodKey,
-          documentsCompared,
+          documentsCompared: docsCompared,
           hasConflict,
           variance,
           status: hasConflict ? "REVIEW_REQUIRED" : "RECONCILED",

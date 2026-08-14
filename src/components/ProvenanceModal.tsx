@@ -115,7 +115,7 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({
           <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
             <span className="text-[10px] text-slate-400 font-semibold block">Functional Value</span>
             <span className="text-base font-extrabold text-white font-mono">
-              {fact.functionalCurrency || 'EUR'} {parseFloat(fact.valueFunctional || '0').toLocaleString()}
+              {fact.functionalCurrency || 'EUR'} {parseFloat(String(fact.valueFunctional || '0')).toLocaleString()}
             </span>
           </div>
           <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
@@ -206,7 +206,7 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 block">Functional Amount</span>
-                <span className="font-mono text-white font-extrabold">{fxDetails?.targetCurrency || fact.functionalCurrency || 'EUR'} {parseFloat(fact.valueFunctional || '0').toLocaleString()}</span>
+                <span className="font-mono text-white font-extrabold">{fxDetails?.targetCurrency || fact.functionalCurrency || 'EUR'} {parseFloat(String(fact.valueFunctional || '0')).toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -261,7 +261,7 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({
                     type="text"
                     value={overrideVal}
                     onChange={(e) => setOverrideVal(e.target.value)}
-                    placeholder={fact.valueFunctional}
+                    placeholder={String(fact.valueFunctional || '')}
                     className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-2 font-mono text-xs"
                   />
                 </div>
@@ -306,7 +306,7 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({
             {!isEditing && (
               <button
                 onClick={() => {
-                  setOverrideVal(fact.valueFunctional);
+                  setOverrideVal(String(fact.valueFunctional || ''));
                   setIsEditing(true);
                 }}
                 className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg text-xs transition"

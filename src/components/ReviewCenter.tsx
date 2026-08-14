@@ -64,7 +64,7 @@ export const ReviewCenter: React.FC<ReviewCenterProps> = ({ facts, documents = [
                     <div className="text-[10px] text-neutral-500 font-normal">Original: "{fact.labelOriginal}"</div>
                   </td>
                   <td className="py-4 px-6 font-mono text-neutral-700">{fact.valueOriginal} {fact.currencyOriginal || 'EUR'}</td>
-                  <td className="py-4 px-6 font-mono text-emerald-800 font-bold">{fact.functionalCurrency || 'EUR'} {parseFloat(fact.valueFunctional || '0').toLocaleString()}</td>
+                  <td className="py-4 px-6 font-mono text-emerald-800 font-bold">{fact.functionalCurrency || 'EUR'} {parseFloat(String(fact.valueFunctional || '0')).toLocaleString()}</td>
                   <td className="py-4 px-6">
                     <span className="text-neutral-900 font-mono font-bold">{Math.round((fact.confidence || 0.95) * 100)}%</span>
                   </td>

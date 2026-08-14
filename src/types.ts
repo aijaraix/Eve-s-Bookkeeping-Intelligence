@@ -202,6 +202,8 @@ export interface ExtractedFact {
   reported_unit?: string;
   unitScale?: 'Units' | 'Thousands' | 'Millions' | 'Billions' | string;
   scale?: string;
+  scaleOriginal?: string;
+  normalizedScaleMultiplier?: number;
   exchangeRate?: string;
 
   // Time & Reporting Periods
@@ -968,6 +970,179 @@ export interface EvidenceRecord {
   insufficientEvidenceReason?: string;
   auditEvents: AuditEvent[];
   reconciliationFindings: string[];
+}
+
+export type ReportingEligibilityStatus =
+  | 'REPORT_READY'
+  | 'REPORT_WITH_WARNING'
+  | 'REVIEW_REQUIRED'
+  | 'INSUFFICIENT_EVIDENCE'
+  | 'REJECTED';
+
+export type ReportType =
+  | 'FINANCIAL_STATEMENT'
+  | 'MANAGEMENT_REPORT'
+  | 'VARIANCE_REPORT'
+  | 'FINANCIAL_HEALTH_REPORT'
+  | 'AUDIT_SUPPORT'
+  | 'BOOKKEEPING_REVIEW'
+  | 'MONTHLY_CLOSE'
+  | 'QUARTERLY_REPORT'
+  | 'ANNUAL_REPORT'
+  | 'MULTI_ENTITY';
+
+export type ReportValidationStatus =
+  | 'RECONCILED'
+  | 'REVIEW_REQUIRED'
+  | 'DISCREPANCY_DETECTED'
+  | 'UNVERIFIED';
+
+export type ReportConfidenceLevel =
+  | 'HIGH_CONFIDENCE'
+  | 'MEDIUM_CONFIDENCE'
+  | 'LOW_CONFIDENCE'
+  | 'HUMAN_VERIFIED'
+  | 'REVIEW_REQUIRED';
+
+export interface ReportMetric {
+  id: string;
+  canonicalMetric: string;
+  originalLabel: string;
+  displayLabel: string;
+  value: number | null;
+  displayValue: string;
+  currency: string;
+  unitScale: string;
+  reportingPeriod: string;
+  entityScope: string;
+  factId: string;
+  eligibilityStatus: ReportingEligibilityStatus;
+  confidence: MultidimensionalConfidence;
+  evidenceRef: EvidenceRecord | null;
+  warnings: string[];
+}
+
+export interface ReportSection {
+  id: string;
+  title: string;
+  metrics: ReportMetric[];
+  subsections?: ReportSection[];
+  subtotal: number | null;
+  subtotalDisplay: string;
+}
+
+export interface ReportVariance {
+  metricId: string;
+  canonicalMetric: string;
+  displayLabel: string;
+  currentPeriod: string;
+  comparativePeriod: string;
+  currentValue: number;
+  comparativeValue: number;
+  absoluteVariance: number;
+  percentageVariance: number | null;
+  formattedAbsoluteVariance: string;
+  formattedPercentageVariance: string;
+  sourceFactIdCurrent: string;
+  sourceFactIdComparative: string;
+  derivedFactId: string;
+  eligibilityStatus: ReportingEligibilityStatus;
+  warnings: string[];
+}
+
+export interface ReportRatio {
+  id: string;
+  name: string;
+  value: number | null;
+  formattedValue: string;
+  formula: string;
+  numeratorMetric: string;
+  denominatorMetric: string;
+  numeratorFactId: string | null;
+  denominatorFactId: string | null;
+  reportingPeriod: string;
+  currency: string;
+  scope: string;
+  timestamp: string;
+  eligibilityStatus: ReportingEligibilityStatus;
+  warnings: string[];
+  evidenceRef?: EvidenceRecord | null;
+}
+
+export interface ReportException {
+  id: string;
+  type:
+    | 'MISSING_METRIC'
+    | 'PERIOD_MISMATCH'
+    | 'CURRENCY_MISMATCH'
+    | 'SCALE_UNCERTAINTY'
+    | 'UNRECONCILED_BALANCE_SHEET'
+    | 'CASH_FLOW_DISCREPANCY'
+    | 'LOW_CONFIDENCE'
+    | 'CONFLICTING_FACTS'
+    | 'MISSING_SOURCE_PAGE'
+    | 'HUMAN_REVIEW_REQUIRED'
+    | 'INSUFFICIENT_EVIDENCE'
+    | 'INCOMPATIBLE_SCOPE'
+    | 'INCOMPATIBLE_PERIOD';
+  severity: 'CRITICAL' | 'WARNING' | 'INFO';
+  message: string;
+  factId?: string;
+  metric?: string;
+}
+
+export interface ManagementObservation {
+  id: string;
+  type: 'CALCULATED_OBSERVATION';
+  text: string;
+  relatedMetric: string;
+  sourceFactIds: string[];
+  isAIGeneratedCausal: false;
+}
+
+export interface FinancialReport {
+  id: string;
+  workspaceId: string;
+  companyId?: string;
+  reportType: ReportType;
+  title: string;
+  reportingPeriod: string;
+  comparativePeriod?: string;
+  entityName: string;
+  entityScope: string;
+  currency: string;
+  generatedAt: string;
+  accountingValidationStatus: ReportValidationStatus;
+  overallConfidenceLevel: ReportConfidenceLevel;
+  incomeStatement?: {
+    sections: ReportSection[];
+    netIncome: number | null;
+    netIncomeDisplay: string;
+  };
+  balanceSheet?: {
+    assets: ReportSection;
+    liabilities: ReportSection;
+    equity: ReportSection;
+    isReconciled: boolean;
+    discrepancyAmount: number;
+    status: ReportValidationStatus;
+  };
+  cashFlowStatement?: {
+    operating: ReportSection;
+    investing: ReportSection;
+    financing: ReportSection;
+    netChangeInCash: number | null;
+    openingCash: number | null;
+    closingCash: number | null;
+    isReconciled: boolean;
+  };
+  variances: ReportVariance[];
+  ratios: ReportRatio[];
+  exceptions: ReportException[];
+  observations: ManagementObservation[];
+  factIdsUsed: string[];
+  derivedFactIds: string[];
+  version: string;
 }
 
 

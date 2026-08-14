@@ -112,9 +112,9 @@ export class CanonicalFactResolver {
     } else if (factOrText) {
       textToScan = [
         (factOrText as any).unitScale,
-        factOrText.scaleOriginal,
-        factOrText.scale,
-        factOrText.reportedUnit,
+        (factOrText as any).scaleOriginal,
+        (factOrText as any).scale,
+        (factOrText as any).reportedUnit,
         factOrText.sourceText,
         factOrText.source_context,
         factOrText.labelOriginal,
