@@ -234,6 +234,10 @@ export class CanonicalFactResolver {
       fact.periodOriginal,
       fact.periodStart,
       fact.periodEnd,
+      fact.columnLabel,
+      fact.source_column,
+      fact.rowLabel,
+      fact.source_row,
       fact.sourceText,
       fact.source_context,
       fact.labelOriginal
@@ -251,7 +255,7 @@ export class CanonicalFactResolver {
       periodType = "quarterly";
     }
 
-    // Match 4-digit year e.g. 2024, 2023
+    // Match 4-digit year e.g. 2025, 2024, 2023
     const yearMatch = textToScan.match(/\b(20\d{2}|19\d{2})\b/);
     const yearStr = yearMatch ? yearMatch[1] : "2024";
 
@@ -362,9 +366,11 @@ export class CanonicalFactResolver {
     // 3. Target Period Alignment
     if (targetPeriodKey) {
       if (periodKey === targetPeriodKey) {
-        score += 25;
+        score += 35;
       } else if (targetPeriodKey.includes("-") && periodKey.startsWith(targetPeriodKey.split("-")[0])) {
         score += 10;
+      } else {
+        score -= 30; // Strong penalty when fact period does not match target period
       }
     }
 
@@ -592,6 +598,28 @@ export class CanonicalFactResolver {
     };
   }
 
+  private static areFactsCompatibleForRatio(
+    f1: CanonicalResolutionResult,
+    f2: CanonicalResolutionResult,
+    ratioName: string,
+    validationMessages: string[]
+  ): boolean {
+    if (f1.normalizedScalarValue === null || f2.normalizedScalarValue === null) return false;
+    if (String(f1.reportingPeriod) !== String(f2.reportingPeriod)) {
+      validationMessages.push(`${ratioName} Guard: Period mismatch between ${f1.metric} (${f1.reportingPeriod}) and ${f2.metric} (${f2.reportingPeriod}).`);
+      return false;
+    }
+    if (String(f1.currency) !== String(f2.currency)) {
+      validationMessages.push(`${ratioName} Guard: Currency mismatch between ${f1.metric} (${f1.currency}) and ${f2.metric} (${f2.currency}).`);
+      return false;
+    }
+    if (String(f1.entityScope) !== String(f2.entityScope)) {
+      validationMessages.push(`${ratioName} Guard: Consolidation scope mismatch between ${f1.metric} (${f1.entityScope}) and ${f2.metric} (${f2.entityScope}).`);
+      return false;
+    }
+    return true;
+  }
+
   /**
    * Master Resolver: Resolves complete canonical financial summary for workspace.
    */
@@ -609,8 +637,8 @@ export class CanonicalFactResolver {
       .filter((p) => p.endsWith("-FY"))
       .sort((a, b) => b.localeCompare(a));
 
-    const targetPeriodKey = annualPeriods[0] || "2024-FY";
-    const targetCompPeriodKey = annualPeriods[1] || "2023-FY";
+    const targetPeriodKey = annualPeriods[0] || "2025-FY";
+    const targetCompPeriodKey = annualPeriods[1] || "2024-FY";
 
     const revenue = this.resolveMetric(wsFacts, "revenue", targetPeriodKey);
     const comparativeRevenue = this.resolveMetric(wsFacts, "comparative_revenue", targetCompPeriodKey);
@@ -643,10 +671,8 @@ export class CanonicalFactResolver {
     }
 
     if (revVal !== null && revVal > 0 && gpVal !== null) {
-      if (revenue.currency === grossProfit.currency || gpVal === revVal - Math.abs(cogsVal || 0)) {
+      if (this.areFactsCompatibleForRatio(grossProfit, revenue, "Gross Margin", validationMessages) || (gpVal === revVal - Math.abs(cogsVal || 0) && revenue.reportingPeriod === targetPeriodKey)) {
         grossMarginPct = parseFloat(((gpVal / revVal) * 100).toFixed(2));
-      } else {
-        validationMessages.push("Gross Margin Guard: Currency mismatch between Revenue and Gross Profit.");
       }
     }
 
@@ -654,28 +680,36 @@ export class CanonicalFactResolver {
     let operatingMarginPct: number | null = null;
     const opVal = operatingProfit.normalizedScalarValue;
     if (revVal !== null && revVal > 0 && opVal !== null) {
-      operatingMarginPct = parseFloat(((opVal / revVal) * 100).toFixed(2));
+      if (this.areFactsCompatibleForRatio(operatingProfit, revenue, "Operating Margin", validationMessages)) {
+        operatingMarginPct = parseFloat(((opVal / revVal) * 100).toFixed(2));
+      }
     }
 
     // 3. Net Margin % Guard
     let netMarginPct: number | null = null;
     const niVal = netIncome.normalizedScalarValue;
     if (revVal !== null && revVal > 0 && niVal !== null) {
-      netMarginPct = parseFloat(((niVal / revVal) * 100).toFixed(2));
+      if (this.areFactsCompatibleForRatio(netIncome, revenue, "Net Margin", validationMessages)) {
+        netMarginPct = parseFloat(((niVal / revVal) * 100).toFixed(2));
+      }
     }
 
     // 4. Return on Equity (ROE) Guard
     let returnOnEquity: number | null = null;
     const eqVal = totalEquity.normalizedScalarValue;
     if (niVal !== null && eqVal !== null && eqVal > 0) {
-      returnOnEquity = parseFloat(((niVal / eqVal) * 100).toFixed(2));
+      if (this.areFactsCompatibleForRatio(netIncome, totalEquity, "Return on Equity", validationMessages)) {
+        returnOnEquity = parseFloat(((niVal / eqVal) * 100).toFixed(2));
+      }
     }
 
     // 5. Debt to Equity Guard
     let debtToEquity: number | null = null;
     const liabVal = totalLiabilities.normalizedScalarValue;
     if (liabVal !== null && eqVal !== null && eqVal > 0) {
-      debtToEquity = parseFloat((liabVal / eqVal).toFixed(2));
+      if (this.areFactsCompatibleForRatio(totalLiabilities, totalEquity, "Debt to Equity", validationMessages)) {
+        debtToEquity = parseFloat((liabVal / eqVal).toFixed(2));
+      }
     }
 
     // Balance Sheet Accounting Identity Audit Pass (Assets = Liabilities + Equity)

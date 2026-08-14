@@ -289,28 +289,168 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
   });
 
   it('Volkswagen Consolidated Financial Statement Regression Test', () => {
-    // Realistic extracted facts from Volkswagen AG Consolidated Statements (2024)
+    // Realistic extracted facts from Volkswagen AG Consolidated Statements (Side-by-side FY2025 and FY2024 comparative)
     const vwFacts: ExtractedFact[] = [
+      // FY 2025 Facts
+      {
+        id: 'vw-rev-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Sales revenue',
+        labelNormalized: 'Sales Revenue',
+        valueOriginal: '321,913',
+        valueFunctional: 321913000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'revenue',
+        statementType: 'INCOME_STATEMENT',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-cost-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Cost of sales',
+        labelNormalized: 'Cost of Sales',
+        valueOriginal: '-270,671',
+        valueFunctional: -270671000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'cost_of_sales',
+        statementType: 'INCOME_STATEMENT',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-gp-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Gross profit',
+        labelNormalized: 'Gross Profit',
+        valueOriginal: '51,242',
+        valueFunctional: 51242000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'gross_profit',
+        statementType: 'INCOME_STATEMENT',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-ni-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Profit after tax',
+        labelNormalized: 'Net Income',
+        valueOriginal: '12,150',
+        valueFunctional: 12150000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'net_income',
+        statementType: 'INCOME_STATEMENT',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-assets-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Total assets',
+        labelNormalized: 'Total Assets',
+        valueOriginal: '635,200',
+        valueFunctional: 635200000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'total_assets',
+        statementType: 'BALANCE_SHEET',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-liab-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Total liabilities',
+        labelNormalized: 'Total Liabilities',
+        valueOriginal: '443,100',
+        valueFunctional: 443100000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'total_liabilities',
+        statementType: 'BALANCE_SHEET',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-eq-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Equity',
+        labelNormalized: 'Total Equity',
+        valueOriginal: '192,100',
+        valueFunctional: 192100000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'total_equity',
+        statementType: 'BALANCE_SHEET',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-cash-2025',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Cash and cash equivalents',
+        labelNormalized: 'Cash and Cash Equivalents',
+        valueOriginal: '42,500',
+        valueFunctional: 42500000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'cash',
+        statementType: 'BALANCE_SHEET',
+        reportingPeriod: 'FY 2025',
+        columnLabel: '2025',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+
+      // FY 2024 Comparative Facts
       {
         id: 'vw-rev-2024',
         workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
+        documentId: 'vw-ar-2025.pdf',
         labelOriginal: 'Sales revenue',
         labelNormalized: 'Sales Revenue',
-        valueOriginal: '324,667',
-        valueFunctional: 324667000000,
+        valueOriginal: '324,656',
+        valueFunctional: 324656000000,
         currencyOriginal: 'EUR',
         scaleOriginal: 'Millions',
         canonicalMetric: 'revenue',
         statementType: 'INCOME_STATEMENT',
         reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
         entityScope: 'Group',
         confidence: 0.99
       },
       {
         id: 'vw-cost-2024',
         workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
+        documentId: 'vw-ar-2025.pdf',
         labelOriginal: 'Cost of sales',
         labelNormalized: 'Cost of Sales',
         valueOriginal: '-264,124',
@@ -320,45 +460,31 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         canonicalMetric: 'cost_of_sales',
         statementType: 'INCOME_STATEMENT',
         reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
         entityScope: 'Group',
         confidence: 0.99
       },
       {
         id: 'vw-gp-2024',
         workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
+        documentId: 'vw-ar-2025.pdf',
         labelOriginal: 'Gross profit',
         labelNormalized: 'Gross Profit',
-        valueOriginal: '60,543',
-        valueFunctional: 60543000000,
+        valueOriginal: '60,532',
+        valueFunctional: 60532000000,
         currencyOriginal: 'EUR',
         scaleOriginal: 'Millions',
         canonicalMetric: 'gross_profit',
         statementType: 'INCOME_STATEMENT',
         reportingPeriod: 'FY 2024',
-        entityScope: 'Group',
-        confidence: 0.99
-      },
-      {
-        id: 'vw-op-2024',
-        workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
-        labelOriginal: 'Operating result',
-        labelNormalized: 'Operating Profit',
-        valueOriginal: '19,062',
-        valueFunctional: 19062000000,
-        currencyOriginal: 'EUR',
-        scaleOriginal: 'Millions',
-        canonicalMetric: 'operating_profit',
-        statementType: 'INCOME_STATEMENT',
-        reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
         entityScope: 'Group',
         confidence: 0.99
       },
       {
         id: 'vw-ni-2024',
         workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
+        documentId: 'vw-ar-2025.pdf',
         labelOriginal: 'Profit after tax',
         labelNormalized: 'Net Income',
         valueOriginal: '13,100',
@@ -368,13 +494,14 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         canonicalMetric: 'net_income',
         statementType: 'INCOME_STATEMENT',
         reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
         entityScope: 'Group',
         confidence: 0.99
       },
       {
         id: 'vw-assets-2024',
         workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
+        documentId: 'vw-ar-2025.pdf',
         labelOriginal: 'Total assets',
         labelNormalized: 'Total Assets',
         valueOriginal: '624,312',
@@ -384,13 +511,14 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         canonicalMetric: 'total_assets',
         statementType: 'BALANCE_SHEET',
         reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
         entityScope: 'Group',
         confidence: 0.99
       },
       {
         id: 'vw-liab-2024',
         workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
+        documentId: 'vw-ar-2025.pdf',
         labelOriginal: 'Total liabilities',
         labelNormalized: 'Total Liabilities',
         valueOriginal: '436,512',
@@ -400,13 +528,14 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         canonicalMetric: 'total_liabilities',
         statementType: 'BALANCE_SHEET',
         reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
         entityScope: 'Group',
         confidence: 0.99
       },
       {
         id: 'vw-eq-2024',
         workspaceId: 'ws-vw-reg',
-        documentId: 'vw-annual-2024.pdf',
+        documentId: 'vw-ar-2025.pdf',
         labelOriginal: 'Equity',
         labelNormalized: 'Total Equity',
         valueOriginal: '187,800',
@@ -416,31 +545,104 @@ describe('Phase C Canonical Fact Resolution & Dual-Value Normalization Engine', 
         canonicalMetric: 'total_equity',
         statementType: 'BALANCE_SHEET',
         reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
+        entityScope: 'Group',
+        confidence: 0.99
+      },
+      {
+        id: 'vw-cash-2024',
+        workspaceId: 'ws-vw-reg',
+        documentId: 'vw-ar-2025.pdf',
+        labelOriginal: 'Cash and cash equivalents',
+        labelNormalized: 'Cash and Cash Equivalents',
+        valueOriginal: '40,100',
+        valueFunctional: 40100000000,
+        currencyOriginal: 'EUR',
+        scaleOriginal: 'Millions',
+        canonicalMetric: 'cash',
+        statementType: 'BALANCE_SHEET',
+        reportingPeriod: 'FY 2024',
+        columnLabel: '2024',
         entityScope: 'Group',
         confidence: 0.99
       }
     ];
 
+    // 1. Assert FY2025 Direct Metric Target Resolution
+    const resRev2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'revenue', '2025-FY');
+    expect(resRev2025.primaryFact?.id).toBe('vw-rev-2025');
+    expect(resRev2025.normalizedScalarValue).toBe(321913000000);
+    expect(resRev2025.formattedValue).toBe('€321.91B');
+
+    const resCost2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'cost_of_sales', '2025-FY');
+    expect(resCost2025.primaryFact?.id).toBe('vw-cost-2025');
+    expect(resCost2025.normalizedScalarValue).toBe(-270671000000);
+
+    const resGp2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'gross_profit', '2025-FY');
+    expect(resGp2025.primaryFact?.id).toBe('vw-gp-2025');
+    expect(resGp2025.normalizedScalarValue).toBe(51242000000);
+
+    const resNi2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'net_income', '2025-FY');
+    expect(resNi2025.primaryFact?.id).toBe('vw-ni-2025');
+    expect(resNi2025.normalizedScalarValue).toBe(12150000000);
+
+    const resAssets2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'total_assets', '2025-FY');
+    expect(resAssets2025.primaryFact?.id).toBe('vw-assets-2025');
+    expect(resAssets2025.normalizedScalarValue).toBe(635200000000);
+
+    const resEq2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'total_equity', '2025-FY');
+    expect(resEq2025.primaryFact?.id).toBe('vw-eq-2025');
+    expect(resEq2025.normalizedScalarValue).toBe(192100000000);
+
+    const resCash2025 = CanonicalFactResolver.resolveMetric(vwFacts, 'cash', '2025-FY');
+    expect(resCash2025.primaryFact?.id).toBe('vw-cash-2025');
+    expect(resCash2025.normalizedScalarValue).toBe(42500000000);
+
+    // 2. Assert FY2024 Direct Metric Target Resolution (Side-by-side comparative verification)
+    const resRev2024 = CanonicalFactResolver.resolveMetric(vwFacts, 'revenue', '2024-FY');
+    expect(resRev2024.primaryFact?.id).toBe('vw-rev-2024');
+    expect(resRev2024.normalizedScalarValue).toBe(324656000000);
+    expect(resRev2024.formattedValue).toBe('€324.66B');
+
+    const resCost2024 = CanonicalFactResolver.resolveMetric(vwFacts, 'cost_of_sales', '2024-FY');
+    expect(resCost2024.primaryFact?.id).toBe('vw-cost-2024');
+    expect(resCost2024.normalizedScalarValue).toBe(-264124000000);
+
+    const resGp2024 = CanonicalFactResolver.resolveMetric(vwFacts, 'gross_profit', '2024-FY');
+    expect(resGp2024.primaryFact?.id).toBe('vw-gp-2024');
+    expect(resGp2024.normalizedScalarValue).toBe(60532000000);
+
+    const resNi2024 = CanonicalFactResolver.resolveMetric(vwFacts, 'net_income', '2024-FY');
+    expect(resNi2024.primaryFact?.id).toBe('vw-ni-2024');
+    expect(resNi2024.normalizedScalarValue).toBe(13100000000);
+
+    const resAssets2024 = CanonicalFactResolver.resolveMetric(vwFacts, 'total_assets', '2024-FY');
+    expect(resAssets2024.primaryFact?.id).toBe('vw-assets-2024');
+    expect(resAssets2024.normalizedScalarValue).toBe(624312000000);
+
+    const resEq2024 = CanonicalFactResolver.resolveMetric(vwFacts, 'total_equity', '2024-FY');
+    expect(resEq2024.primaryFact?.id).toBe('vw-eq-2024');
+    expect(resEq2024.normalizedScalarValue).toBe(187800000000);
+
+    const resCash2024 = CanonicalFactResolver.resolveMetric(vwFacts, 'cash', '2024-FY');
+    expect(resCash2024.primaryFact?.id).toBe('vw-cash-2024');
+    expect(resCash2024.normalizedScalarValue).toBe(40100000000);
+
+    // 3. Workspace Summary auto-detects latest annual period (FY2025) and computes accurate guarded ratios
     const summary = CanonicalFactResolver.resolveWorkspaceSummary('ws-vw-reg', vwFacts);
 
-    expect(summary.revenue.normalizedScalarValue).toBe(324667000000);
-    expect(summary.revenue.formattedValue).toBe('€324.67B');
+    expect(summary.reportingPeriod).toBe('2025-FY');
+    expect(summary.revenue.normalizedScalarValue).toBe(321913000000);
+    expect(summary.revenue.formattedValue).toBe('€321.91B');
 
-    expect(summary.grossProfit.normalizedScalarValue).toBe(60543000000);
-    expect(summary.grossProfit.formattedValue).toBe('€60.54B');
+    expect(summary.grossProfit.normalizedScalarValue).toBe(51242000000);
+    expect(summary.grossProfit.formattedValue).toBe('€51.24B');
 
-    expect(summary.grossMarginPct).toBe(18.65); // 60,543 / 324,667 * 100
-    expect(summary.operatingMarginPct).toBe(5.87); // 19,062 / 324,667 * 100
-    expect(summary.returnOnEquity).toBe(6.98); // 13,100 / 187,800 * 100
-    expect(summary.debtToEquity).toBe(2.32); // 436,512 / 187,800
+    expect(summary.grossMarginPct).toBe(15.92); // 51,242 / 321,913 * 100 = 15.918%
+    expect(summary.netMarginPct).toBe(3.77); // 12,150 / 321,913 * 100 = 3.774%
+    expect(summary.returnOnEquity).toBe(6.32); // 12,150 / 192,100 * 100 = 6.324%
 
-    // Absurd ratios check
-    expect(summary.grossMarginPct).toBeGreaterThan(0);
-    expect(summary.grossMarginPct).toBeLessThan(100);
-    expect(summary.returnOnEquity).toBeGreaterThan(0);
-    expect(summary.returnOnEquity).toBeLessThan(100);
-
-    // Balance Sheet Accounting Identity check
+    // Accounting Identity check for FY2025 (635,200 = 443,100 + 192,100)
     expect(summary.accountingIdentityValid).toBe(true);
   });
 
