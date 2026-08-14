@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, CheckCircle2, Clock, Loader2, AlertCircle, RefreshCw, FileText, Layers, ShieldCheck, Zap } from 'lucide-react';
+import { Cpu, CheckCircle2, Clock, Loader2, AlertCircle, RefreshCw, FileText, AlertTriangle } from 'lucide-react';
 import { Workspace } from '../types';
 
 export interface QueueJobUI {
@@ -7,14 +7,26 @@ export interface QueueJobUI {
   workspaceId: string;
   documentId: string;
   documentTitle: string;
-  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "REVIEW_REQUIRED" | "FAILED" | "STALLED";
+  stage?: string;
+  stageHistory?: Array<{
+    stage: string;
+    status: "STARTED" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
+    timestamp: string;
+    details?: string;
+  }>;
   progress: number;
   currentStage: string;
   chunksTotal?: number;
   chunksCompleted?: number;
   unitsTotal?: number;
   unitsCompleted?: number;
+  pagesTotal?: number;
+  pagesCompleted?: number;
+  tasksTotal?: number;
+  tasksCompleted?: number;
   factsExtractedCount?: number;
+  heartbeatAt?: string;
   subAgents?: {
     alpha: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; pages: string; factsFound: number };
     beta: { status: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED"; pages: string; factsFound: number };
@@ -27,6 +39,7 @@ export interface QueueJobUI {
     executionTimeMs: number;
   };
   error?: string;
+  lastError?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -37,7 +50,7 @@ interface HermesQueueTrackerProps {
 
 export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWorkspace }) => {
   const [jobs, setJobs] = useState<QueueJobUI[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [resumingJobId, setResumingJobId] = useState<string | null>(null);
 
   const fetchJobs = async () => {
     try {
@@ -51,8 +64,19 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
         setJobs(data.jobs || []);
       }
     } catch (err) {
-      // Quietly handle transient polling network errors during dev server reloads
       setJobs([]);
+    }
+  };
+
+  const handleResumeJob = async (jobId: string) => {
+    setResumingJobId(jobId);
+    try {
+      await fetch(`/api/queue/jobs/${jobId}/resume`, { method: 'POST' });
+      await fetchJobs();
+    } catch (err) {
+      console.error("[QueueTracker] Resume error:", err);
+    } finally {
+      setResumingJobId(null);
     }
   };
 
@@ -78,7 +102,7 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
                 {jobs.filter(j => j.status === 'PROCESSING' || j.status === 'QUEUED').length} Active
               </span>
             </h3>
-            <p className="text-xs text-neutral-500">Chunked parallel processing for 300+ page financial reports without server timeouts.</p>
+            <p className="text-xs text-neutral-500">Persisted state machine tracking physical pages & financial verification.</p>
           </div>
         </div>
 
@@ -94,22 +118,26 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
       <div className="space-y-4">
         {jobs.map((job) => {
           const statusVal: "IDLE" | "PROCESSING" | "COMPLETED" | "FAILED" = 
-            job.status === 'COMPLETED' ? 'COMPLETED' : job.status === 'PROCESSING' ? 'PROCESSING' : 'IDLE';
+            (job.status === 'COMPLETED' || job.status === 'COMPLETED_WITH_WARNINGS' || job.status === 'REVIEW_REQUIRED')
+              ? 'COMPLETED'
+              : job.status === 'PROCESSING'
+              ? 'PROCESSING'
+              : 'IDLE';
 
           const subAgents = job.subAgents || {
             alpha: {
               status: statusVal,
-              pages: `${job.chunksCompleted ?? job.unitsCompleted ?? 0} / ${job.chunksTotal ?? job.unitsTotal ?? 1} units`,
+              pages: `Pages 1 - ${Math.ceil((job.pagesTotal || 1) / 3)}`,
               factsFound: Math.floor((job.factsExtractedCount ?? job.result?.facts?.length ?? 0) * 0.35)
             },
             beta: {
               status: statusVal,
-              pages: `${job.chunksCompleted ?? job.unitsCompleted ?? 0} / ${job.chunksTotal ?? job.unitsTotal ?? 1} units`,
+              pages: `Pages ${Math.ceil((job.pagesTotal || 1) / 3) + 1} - ${Math.ceil(((job.pagesTotal || 1) * 2) / 3)}`,
               factsFound: Math.floor((job.factsExtractedCount ?? job.result?.facts?.length ?? 0) * 0.35)
             },
             gamma: {
               status: statusVal,
-              pages: `${job.chunksCompleted ?? job.unitsCompleted ?? 0} / ${job.chunksTotal ?? job.unitsTotal ?? 1} units`,
+              pages: `Pages ${Math.ceil(((job.pagesTotal || 1) * 2) / 3) + 1} - ${job.pagesTotal || 1}`,
               factsFound: Math.floor((job.factsExtractedCount ?? job.result?.facts?.length ?? 0) * 0.3)
             },
             synthesizer: {
@@ -143,6 +171,31 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
                       <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Complete (100%)
                     </span>
                   )}
+                  {job.status === 'COMPLETED_WITH_WARNINGS' && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-amber-600" /> Complete (With Warnings)
+                    </span>
+                  )}
+                  {job.status === 'REVIEW_REQUIRED' && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-purple-600" /> Review Required
+                    </span>
+                  )}
+                  {job.status === 'STALLED' && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200 text-amber-900 border border-amber-300 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Stalled
+                      </span>
+                      <button
+                        onClick={() => handleResumeJob(job.id)}
+                        disabled={resumingJobId === job.id}
+                        className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1 cursor-pointer"
+                      >
+                        {resumingJobId === job.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        <span>Resume</span>
+                      </button>
+                    </div>
+                  )}
                   {job.status === 'FAILED' && (
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" /> Failed
@@ -155,17 +208,27 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
               <div className="w-full bg-neutral-200 rounded-full h-2 overflow-hidden">
                 <div
                   className={`h-2 transition-all duration-300 ${
-                    job.status === 'COMPLETED' ? 'bg-emerald-500' : job.status === 'FAILED' ? 'bg-rose-500' : 'bg-blue-600'
+                    job.status === 'COMPLETED' || job.status === 'COMPLETED_WITH_WARNINGS' || job.status === 'REVIEW_REQUIRED'
+                      ? 'bg-emerald-500'
+                      : job.status === 'FAILED'
+                      ? 'bg-rose-500'
+                      : job.status === 'STALLED'
+                      ? 'bg-amber-500'
+                      : 'bg-blue-600'
                   }`}
                   style={{ width: `${job.progress}%` }}
                 ></div>
               </div>
 
-              <p className="text-xs text-neutral-600 font-medium">{job.currentStage}</p>
+              <div className="flex items-center justify-between text-xs text-neutral-600">
+                <span className="font-medium">{job.currentStage}</span>
+                <span className="font-mono text-[10.5px] font-bold text-neutral-500 shrink-0 ml-2">
+                  Pages: {job.pagesCompleted ?? job.unitsCompleted ?? 0}/{job.pagesTotal ?? job.unitsTotal ?? 1} | Tasks: {job.tasksCompleted ?? job.unitsCompleted ?? 0}/{job.tasksTotal ?? job.unitsTotal ?? 1}
+                </span>
+              </div>
 
               {/* Sub-Agents Status Breakdown Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 pt-1 text-[11px]">
-                {/* Agent Alpha */}
                 <div className="bg-white p-2.5 rounded-xl border border-neutral-200 space-y-1">
                   <div className="flex items-center justify-between font-extrabold text-neutral-800">
                     <span>Agent Alpha</span>
@@ -179,7 +242,6 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
                   <span className="font-mono text-[10px] text-blue-600 font-bold block">{subAgents.alpha.factsFound} facts</span>
                 </div>
 
-                {/* Agent Beta */}
                 <div className="bg-white p-2.5 rounded-xl border border-neutral-200 space-y-1">
                   <div className="flex items-center justify-between font-extrabold text-neutral-800">
                     <span>Agent Beta</span>
@@ -193,7 +255,6 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
                   <span className="font-mono text-[10px] text-blue-600 font-bold block">{subAgents.beta.factsFound} facts</span>
                 </div>
 
-                {/* Agent Gamma */}
                 <div className="bg-white p-2.5 rounded-xl border border-neutral-200 space-y-1">
                   <div className="flex items-center justify-between font-extrabold text-neutral-800">
                     <span>Agent Gamma</span>
@@ -207,7 +268,6 @@ export const HermesQueueTracker: React.FC<HermesQueueTrackerProps> = ({ activeWo
                   <span className="font-mono text-[10px] text-blue-600 font-bold block">{subAgents.gamma.factsFound} facts</span>
                 </div>
 
-                {/* Hermes Synthesizer */}
                 <div className="bg-white p-2.5 rounded-xl border border-neutral-200 space-y-1">
                   <div className="flex items-center justify-between font-extrabold text-neutral-800">
                     <span>Synthesizer</span>

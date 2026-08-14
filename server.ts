@@ -1140,6 +1140,7 @@ app.get("/api/queue/jobs/:jobId", (req, res) => {
   res.json({ job });
 });
 
+
 // AI Re-orchestrate / Re-audit route
 app.post("/api/audit/reorchestrate", async (req, res) => {
   const { workspaceId, companyName } = req.body;
@@ -3307,6 +3308,14 @@ app.post("/api/queue/jobs/:id/retry", (req, res) => {
   if (!job) return res.status(404).json({ error: "Job not found or no failed units to retry" });
   return res.json({ success: true, message: "Job failed units re-queued for processing", job });
 });
+
+app.post("/api/queue/jobs/:id/resume", (req, res) => {
+  const { id } = req.params;
+  const job = backgroundIngestionQueue.retryFailedJob(id);
+  if (!job) return res.status(404).json({ error: "Job not found or cannot resume" });
+  return res.json({ success: true, message: "Job resumed for processing", job });
+});
+
 
 app.get("/api/workspaces/:id/readiness", (req, res) => {
   const { id } = req.params;

@@ -165,18 +165,21 @@ export default function App() {
                 isIngesting: true,
                 progress: latestJob.progress || 10,
                 stepName: latestJob.currentStage || 'Server Background Extraction Active...',
-                stepNumber: Math.min(4, Math.ceil((latestJob.progress || 10) / 25)),
+                stepNumber: Math.min(6, Math.ceil((latestJob.progress || 10) / 16)),
                 error: null
               }));
-            } else if (latestJob.status === 'COMPLETED') {
-              // If it recently completed while modal was open
+            } else if (
+              latestJob.status === 'COMPLETED' ||
+              latestJob.status === 'COMPLETED_WITH_WARNINGS' ||
+              latestJob.status === 'REVIEW_REQUIRED'
+            ) {
               setIngestionStatus(prev => {
                 if (prev.isIngesting || prev.progress < 100) {
                   return {
                     ...prev,
                     progress: 100,
                     stepName: latestJob.currentStage || 'Extraction Complete!',
-                    stepNumber: 4,
+                    stepNumber: 6,
                     result: {
                       workspace: activeWorkspace,
                       extractedName: latestJob.documentTitle || activeWorkspace?.name || 'Workspace',
@@ -187,8 +190,15 @@ export default function App() {
                 }
                 return prev;
               });
+            } else if (latestJob.status === 'STALLED' || latestJob.status === 'FAILED') {
+              setIngestionStatus(prev => ({
+                ...prev,
+                isIngesting: true,
+                error: latestJob.lastError || latestJob.error || 'Ingestion thread stalled or failed.'
+              }));
             }
           }
+
         }
       }
     } catch (err) {

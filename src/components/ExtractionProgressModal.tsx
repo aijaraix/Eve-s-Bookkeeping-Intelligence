@@ -1,5 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Sparkles, CheckCircle2, Loader2, ArrowRight, Building2, ShieldCheck, X, AlertCircle, FileText, Database, Clock, Zap, Check, Cloud } from 'lucide-react';
+import {
+  CheckCircle2,
+  Loader2,
+  ArrowRight,
+  Building2,
+  ShieldCheck,
+  X,
+  AlertCircle,
+  FileText,
+  Database,
+  Clock,
+  Cloud,
+  RefreshCw,
+  AlertTriangle
+} from 'lucide-react';
 import { Workspace } from '../types';
 
 export interface ServerQueueJob {
@@ -7,16 +21,28 @@ export interface ServerQueueJob {
   workspaceId: string;
   documentId: string;
   documentTitle: string;
-  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "REVIEW_REQUIRED" | "FAILED" | "STALLED";
+  stage?: string;
+  stageHistory?: Array<{
+    stage: string;
+    status: "STARTED" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
+    timestamp: string;
+    details?: string;
+  }>;
   progress: number;
   currentStage: string;
   unitsTotal: number;
   unitsCompleted: number;
+  pagesTotal?: number;
+  pagesCompleted?: number;
+  tasksTotal?: number;
+  tasksCompleted?: number;
+  heartbeatAt?: string;
   processingUnits?: Array<{
     unit_id: string;
     actual_page_start: number;
     actual_page_end: number;
-    status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
+    status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED" | "NO_TEXT";
     last_error?: string;
   }>;
   result?: {
@@ -25,6 +51,7 @@ export interface ServerQueueJob {
     agentLogs?: any[];
   };
   error?: string;
+  lastError?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -59,14 +86,22 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
   userEmail,
   onClose,
   onViewProject,
-  onOpenSignIn,
 }) => {
   const activeProgress = job?.progress !== undefined ? job.progress : progress;
   const activeStage = job?.currentStage || stepName;
-  const activeError = job?.error || error;
-  const isComplete = (job?.status === 'COMPLETED' || activeProgress === 100) && !activeError;
+  const activeError = job?.lastError || job?.error || error;
+
+  const isStalled = job?.status === 'STALLED';
+  const isFailed = job?.status === 'FAILED';
+  const isComplete = (
+    job?.status === 'COMPLETED' ||
+    job?.status === 'COMPLETED_WITH_WARNINGS' ||
+    job?.status === 'REVIEW_REQUIRED' ||
+    (activeProgress === 100 && !activeError)
+  ) && !isStalled && !isFailed;
 
   const [countdown, setCountdown] = useState<number>(1);
+  const [isResuming, setIsResuming] = useState(false);
 
   useEffect(() => {
     if (isOpen && isComplete) {
@@ -89,13 +124,13 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
 
   if (!isOpen) return null;
 
-  const steps = [
-    { num: 1, label: 'SHA-256 Verification & File Validation' },
-    { num: 2, label: 'Page Inventory & Bounded Unit Structure Parsing' },
-    { num: 3, label: 'Multilingual Detection & Legal Entity Resolution' },
-    { num: 4, label: 'Table & Narrative Fact Line-Item Extraction' },
-    { num: 5, label: 'Second-Pass Gap Analysis & Disclosure Discovery' },
-    { num: 6, label: 'Cross-Document Reconciliation & Readiness Gate' }
+  const pipelineStages = [
+    { key: 'DOCUMENT_REGISTERED', num: 1, label: 'Document Registration & Validation' },
+    { key: 'PAGE_INVENTORY_COMPLETED', num: 2, label: 'Physical Page Inventory Established' },
+    { key: 'PHYSICAL_EXTRACTION_COMPLETED', num: 3, label: 'Physical Page Source Text Extraction' },
+    { key: 'FINANCIAL_ANALYSIS_COMPLETED', num: 4, label: 'Financial Statement Line-Item Analysis' },
+    { key: 'GAP_ANALYSIS_COMPLETED', num: 5, label: 'Second-Pass Footnote & Disclosure Analysis' },
+    { key: 'AUDIT_LINEAGE_VERIFIED', num: 6, label: 'Completeness Audit & Lineage Verification' }
   ];
 
   const handleCloseClick = () => {
@@ -105,25 +140,82 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
     }
   };
 
+  const handleResume = async () => {
+    if (!job?.id) return;
+    setIsResuming(true);
+    try {
+      await fetch(`/api/queue/jobs/${job.id}/resume`, { method: 'POST' });
+    } catch (err) {
+      console.error("[Modal] Resume failed:", err);
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const isStageDone = (stageKey: string) => {
+    if (isComplete) return true;
+    if (!job) return false;
+    return Boolean(job.stageHistory?.some(s => s.stage === stageKey && s.status === 'COMPLETED'));
+  };
+
+  const isStageActive = (stageKey: string) => {
+    if (isComplete || !job) return false;
+    return job.stage === stageKey;
+  };
+
+  // Rule 4: Do NOT show page cards until PAGE_INVENTORY_COMPLETED is achieved
+  const isPageInventoryDone = job
+    ? Boolean(
+        job.stageHistory?.some(s => s.stage === 'PAGE_INVENTORY_COMPLETED' && s.status === 'COMPLETED') ||
+        (job.pagesTotal && job.pagesTotal > 0 && job.stage !== 'DOCUMENT_REGISTERED' && job.stage !== 'PAGE_INVENTORY_STARTED')
+      )
+    : false;
+
   const units = job?.processingUnits || [];
-  const unitsTotal = job?.unitsTotal || units.length || 0;
-  const unitsCompleted = job?.unitsCompleted || units.filter(u => u.status === 'COMPLETED').length || 0;
+  const pagesTotal = job?.pagesTotal || units.length || 0;
+  const pagesCompleted = job?.pagesCompleted || units.filter(u => u.status === 'COMPLETED' || u.status === 'NO_TEXT').length || 0;
+  const tasksTotal = job?.tasksTotal || units.length + 2;
+  const tasksCompleted = job?.tasksCompleted || pagesCompleted;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn overflow-y-auto">
       <div className="bg-white border border-neutral-200 rounded-2xl sm:rounded-3xl max-w-md sm:max-w-lg w-[92vw] p-3.5 sm:p-5 shadow-2xl text-neutral-900 space-y-3 relative overflow-hidden my-auto max-h-[85vh] sm:max-h-[88vh] flex flex-col">
         
-        {/* Top Header Bar with Always-Visible Close Button */}
+        {/* Top Header Bar */}
         <div className="flex items-center justify-between shrink-0 pb-1">
           <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[11px] sm:text-xs font-bold ${
-            isComplete ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-blue-50 border border-blue-200 text-blue-800'
+            isComplete
+              ? job?.status === 'COMPLETED_WITH_WARNINGS'
+                ? 'bg-amber-50 border border-amber-200 text-amber-800'
+                : job?.status === 'REVIEW_REQUIRED'
+                ? 'bg-purple-50 border border-purple-200 text-purple-800'
+                : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : isStalled
+              ? 'bg-amber-100 border border-amber-300 text-amber-900'
+              : isFailed
+              ? 'bg-rose-100 border border-rose-300 text-rose-900'
+              : 'bg-blue-50 border border-blue-200 text-blue-800'
           }`}>
             {isComplete ? (
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            ) : isStalled || isFailed ? (
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
             ) : (
               <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
             )}
-            <span>{isComplete ? 'Extraction Complete' : 'Server Extraction Active'}</span>
+            <span>
+              {isComplete
+                ? job?.status === 'COMPLETED_WITH_WARNINGS'
+                  ? 'Complete (With Extraction Warnings)'
+                  : job?.status === 'REVIEW_REQUIRED'
+                  ? 'Complete (Audit Review Required)'
+                  : 'Complete & Fully Reconciled'
+                : isStalled
+                ? 'Ingestion Stalled (Heartbeat Timeout)'
+                : isFailed
+                ? 'Ingestion Failed'
+                : 'Server Extraction Active'}
+            </span>
           </div>
 
           <button
@@ -141,39 +233,65 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
           {/* Title */}
           <div className="space-y-0.5">
             <h2 className="text-base sm:text-lg font-extrabold text-neutral-900 leading-snug">
-              {isComplete ? 'Document Extraction Complete!' : 'Analyzing & Extracting Financial Data'}
+              {isComplete ? 'Document Ingestion & Analysis Complete' : isStalled ? 'Ingestion Heartbeat Stalled' : 'Extracting Financial Data'}
             </h2>
             <p className="text-[11px] sm:text-xs text-neutral-500 font-medium leading-relaxed">
               {isComplete
-                ? 'All financial statements and line items have been parsed and reconciled into the Fact Registry.'
-                : activeStage || 'Parsing documents and running multi-agent consensus verification...'}
+                ? 'Financial statements and disclosures have been extracted into the Fact Registry.'
+                : activeStage || 'Parsing document pages and running multi-agent verification...'}
             </p>
           </div>
 
           {/* Background Worker Notification Badge */}
-          {!isComplete && (
+          {!isComplete && !isStalled && !isFailed && (
             <div className="bg-blue-50/80 border border-blue-200/80 rounded-xl p-2.5 flex items-start gap-2.5 text-blue-900 shadow-xs">
               <Cloud className="w-4 h-4 text-blue-600 shrink-0 mt-0.5 animate-pulse" />
               <div className="space-y-0.5 text-[11px]">
                 <span className="font-extrabold block text-blue-950 flex items-center gap-1">
-                  Server Background Pipeline Active
+                  Persistent Background State Machine Active
                 </span>
                 <p className="text-blue-800/90 leading-snug">
-                  You do not need to stay on this page. Refreshing or closing your browser will <strong>not</strong> stop processing.
+                  Refreshing or closing your browser will <strong>not</strong> lose progress. State is continuously persisted on the backend.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Progress Bar */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[11px] sm:text-xs font-extrabold">
+          {/* Stalled Banner */}
+          {isStalled && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start justify-between gap-3 text-amber-900 text-xs">
+              <div className="space-y-1">
+                <span className="font-extrabold block text-amber-950 flex items-center gap-1">
+                  Worker Thread Heartbeat Stalled
+                </span>
+                <p className="text-amber-800 text-[11px]">
+                  No heartbeat was received from the extraction thread for over 30s. Click Resume to re-queue incomplete units.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResume}
+                disabled={isResuming}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 shrink-0 cursor-pointer shadow-xs"
+              >
+                {isResuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span>Resume</span>
+              </button>
+            </div>
+          )}
+
+          {/* Progress Bar & Counters (Rule 5 & Rule 6: Separate pages from tasks) */}
+          <div className="space-y-1.5 bg-neutral-50 border border-neutral-200 rounded-xl p-2.5">
+            <div className="flex items-center justify-between text-[11px] font-extrabold">
               <span className="text-neutral-700 font-mono">
-                {unitsTotal > 0 ? `Units Processed (${unitsCompleted}/${unitsTotal})` : 'Progress Stage'}
+                Physical Pages: <span className="text-blue-700">{pagesCompleted}/{pagesTotal}</span>
+              </span>
+              <span className="text-neutral-500 font-mono text-[10px]">
+                Internal Tasks: {tasksCompleted}/{tasksTotal}
               </span>
               <span className={`${isComplete ? 'text-emerald-600' : 'text-blue-600'} font-mono`}>{activeProgress}%</span>
             </div>
-            <div className="w-full bg-neutral-100 rounded-full h-2 overflow-hidden border border-neutral-200 p-0.5">
+            <div className="w-full bg-neutral-200 rounded-full h-2 overflow-hidden border border-neutral-300 p-0.5">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   isComplete ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-blue-600 to-indigo-600'
@@ -188,7 +306,7 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] sm:text-xs font-bold p-2.5 rounded-xl flex items-center justify-between animate-fadeIn shadow-xs">
               <div className="flex items-center gap-1.5">
                 <Loader2 className="w-3 h-3 text-emerald-600 animate-spin shrink-0" />
-                <span>Closing modal & opening workspace automatically in {countdown}s...</span>
+                <span>Closing modal & opening workspace in {countdown}s...</span>
               </div>
               <button
                 type="button"
@@ -200,12 +318,14 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             </div>
           )}
 
-          {/* Real Bounded Page Units Breakdown (if job active) */}
-          {units.length > 0 && !isComplete && (
+          {/* Rule 4: Do NOT show page cards until PAGE_INVENTORY_COMPLETED */}
+          {isPageInventoryDone && units.length > 0 && !isComplete && (
             <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2.5 space-y-1.5">
-              <span className="text-[10px] font-extrabold text-neutral-500 uppercase tracking-wider block">
-                Document Page Units ({unitsCompleted}/{unitsTotal})
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold text-neutral-500 uppercase tracking-wider block">
+                  Physical Page Manifest Inventory ({pagesCompleted}/{pagesTotal} Pages Extracted)
+                </span>
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-32 overflow-y-auto pr-1">
                 {units.map((u, i) => (
                   <div
@@ -213,43 +333,53 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                     className={`p-1.5 rounded-lg border text-[10.5px] font-medium flex items-center justify-between ${
                       u.status === 'COMPLETED'
                         ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+                        : u.status === 'NO_TEXT'
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
                         : u.status === 'PROCESSING'
                         ? 'bg-blue-50 border-blue-300 text-blue-900 font-bold animate-pulse'
+                        : u.status === 'FAILED'
+                        ? 'bg-rose-50 border-rose-200 text-rose-800'
                         : 'bg-white border-neutral-200 text-neutral-500'
                     }`}
                   >
                     <span className="truncate">Page {u.actual_page_start}</span>
-                    {u.status === 'COMPLETED' ? (
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                    ) : u.status === 'PROCESSING' ? (
-                      <Loader2 className="w-3 h-3 text-blue-600 animate-spin shrink-0" />
-                    ) : (
-                      <Clock className="w-3 h-3 text-neutral-400 shrink-0" />
-                    )}
+                    <span className="text-[9px] font-mono font-bold shrink-0">
+                      {u.status === 'COMPLETED' ? (
+                        <span className="text-emerald-700">Extracted</span>
+                      ) : u.status === 'NO_TEXT' ? (
+                        <span className="text-amber-700">No Text</span>
+                      ) : u.status === 'PROCESSING' ? (
+                        <Loader2 className="w-3 h-3 text-blue-600 animate-spin shrink-0" />
+                      ) : u.status === 'FAILED' ? (
+                        <span className="text-rose-700">Failed</span>
+                      ) : (
+                        <Clock className="w-3 h-3 text-neutral-400 shrink-0" />
+                      )}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Pipeline Execution Checklist */}
+          {/* Rule 1 & Rule 2: Real State Machine Pipeline Execution Checklist */}
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2.5 sm:p-3.5 space-y-1.5">
             <span className="text-[10px] font-extrabold text-neutral-500 uppercase tracking-wider block mb-0.5">
-              Pipeline Execution Checklist
+              Persisted State Machine Execution Checklist
             </span>
-            {steps.map((s) => {
-              const stepDone = activeProgress >= s.num * 25 || isComplete;
-              const stepCurrent = !isComplete && activeProgress >= (s.num - 1) * 25 && activeProgress < s.num * 25;
+            {pipelineStages.map((s) => {
+              const stepDone = isStageDone(s.key);
+              const stepActive = isStageActive(s.key);
 
               return (
-                <div key={s.num} className="space-y-0.5">
+                <div key={s.key} className="space-y-0.5">
                   <div className="flex items-center justify-between text-[11px] sm:text-xs">
                     <div className="flex items-center space-x-1.5 sm:space-x-2">
                       {stepDone ? (
                         <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
                           <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                         </div>
-                      ) : stepCurrent ? (
+                      ) : stepActive ? (
                         <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
                           <Loader2 className="w-2 h-2 sm:w-2.5 sm:h-2.5 animate-spin" />
                         </div>
@@ -258,44 +388,16 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                           {s.num}
                         </div>
                       )}
-                      <span className={`font-semibold text-[11px] sm:text-xs ${stepDone ? 'text-neutral-900' : stepCurrent ? 'text-blue-700 font-bold' : 'text-neutral-400'}`}>
+                      <span className={`font-semibold text-[11px] sm:text-xs ${stepDone ? 'text-neutral-900' : stepActive ? 'text-blue-700 font-bold' : 'text-neutral-400'}`}>
                         {s.label}
                       </span>
                     </div>
                     {stepDone && (
                       <span className="text-[8.5px] sm:text-[9.5px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200 shrink-0">
-                        Verified
+                        Executed
                       </span>
                     )}
                   </div>
-
-                  {s.num === 4 && (activeProgress >= 80 || isComplete) && (
-                    <div className="ml-4 sm:ml-6 pl-2 border-l border-neutral-200 space-y-0.5 py-0.5">
-                      {[
-                        { id: 'fin', label: 'Fin AI (Ledger Tracing)', activeRange: [80, 84] },
-                        { id: 'audit', label: 'Audit AI (Regulatory Compliance)', activeRange: [85, 89] },
-                        { id: 'risk', label: 'Risk AI (Cut-off Review)', activeRange: [90, 94] },
-                        { id: 'lead', label: 'Hermes Lead (Consensus Verification)', activeRange: [95, 100] },
-                      ].map(agent => {
-                        const agentDone = activeProgress > agent.activeRange[1] || isComplete;
-                        const agentActive = !isComplete && activeProgress >= agent.activeRange[0] && activeProgress <= agent.activeRange[1];
-                        return (
-                          <div key={agent.id} className="flex items-center space-x-1.5 text-[9.5px] sm:text-[10px]">
-                            {agentDone ? (
-                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
-                            ) : agentActive ? (
-                              <Loader2 className="w-2.5 h-2.5 text-blue-600 animate-spin shrink-0" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full border border-neutral-300 shrink-0" />
-                            )}
-                            <span className={`${agentDone ? 'text-neutral-600 font-medium' : agentActive ? 'text-blue-700 font-bold' : 'text-neutral-400'}`}>
-                              {agent.label}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -312,7 +414,7 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             </div>
           )}
 
-          {/* Extraction Result Summary Box (When Complete) - Dynamic Facts Counter */}
+          {/* Extraction Result Summary Box */}
           {isComplete && (
             <div className="bg-gradient-to-br from-slate-900 to-[#0c1838] p-3 sm:p-3.5 rounded-xl border border-slate-800 text-white space-y-2 shadow-md">
               <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
@@ -321,13 +423,13 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                     <Building2 className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <span className="text-[8.5px] uppercase tracking-wider font-extrabold text-slate-400 block">Extracted Entity</span>
+                    <span className="text-[8.5px] uppercase tracking-wider font-extrabold text-slate-400 block">Extracted Workspace</span>
                     <span className="text-xs sm:text-sm font-extrabold text-white font-sans">{result?.extractedName || job?.documentTitle || 'Financial Workspace'}</span>
                   </div>
                 </div>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[8.5px] sm:text-[9.5px] font-bold border border-emerald-500/30 flex items-center gap-1">
                   <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
-                  <span>Validated</span>
+                  <span>State Verified</span>
                 </span>
               </div>
 
@@ -335,8 +437,8 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
                 <div className="bg-slate-800/60 p-2 rounded-lg border border-slate-700/50 flex items-center gap-1.5">
                   <FileText className="w-3 h-3 text-blue-400 shrink-0" />
                   <div>
-                    <span className="text-[8.5px] text-slate-400 block font-semibold">Processed Documents</span>
-                    <span className="font-extrabold text-white text-[11px] block">{result?.docCount || 1} Document File</span>
+                    <span className="text-[8.5px] text-slate-400 block font-semibold">Physical Pages</span>
+                    <span className="font-extrabold text-white text-[11px] block">{job?.pagesTotal || result?.docCount || 1} Physical Pages</span>
                   </div>
                 </div>
                 <div className="bg-slate-800/60 p-2 rounded-lg border border-slate-700/50 flex items-center gap-1.5">
@@ -369,4 +471,3 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
     </div>
   );
 };
-

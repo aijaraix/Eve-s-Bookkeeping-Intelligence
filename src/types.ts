@@ -788,3 +788,97 @@ export interface StaticMockScanResult {
   description: string;
 }
 
+export type IngestionJobStage =
+  | "DOCUMENT_REGISTERED"
+  | "PAGE_INVENTORY_STARTED"
+  | "PAGE_INVENTORY_COMPLETED"
+  | "SOURCE_BLOCKS_INDEXED"
+  | "PHYSICAL_EXTRACTION_IN_PROGRESS"
+  | "PHYSICAL_EXTRACTION_COMPLETED"
+  | "FINANCIAL_ANALYSIS_IN_PROGRESS"
+  | "FINANCIAL_ANALYSIS_COMPLETED"
+  | "GAP_ANALYSIS_COMPLETED"
+  | "AUDIT_LINEAGE_VERIFIED"
+  | "FINAL_RECONCILIATION_COMPLETED"
+  | "INGESTION_FAILED";
+
+export type IngestionJobStatus =
+  | "QUEUED"
+  | "PROCESSING"
+  | "COMPLETED"
+  | "COMPLETED_WITH_WARNINGS"
+  | "REVIEW_REQUIRED"
+  | "FAILED"
+  | "STALLED";
+
+export interface StageRecord {
+  stage: IngestionJobStage;
+  status: "STARTED" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
+  timestamp: string;
+  details?: string;
+}
+
+export interface ProcessingUnitRecord {
+  unit_id: string;
+  document_id: string;
+  workspace_id: string;
+  source_type: "PDF_PAGE" | "PDF_PAGE_RANGE" | "TABLE" | "NOTE" | "DOCX_SECTION" | "SPREADSHEET_RANGE" | "CSV_BATCH" | "IMAGE_PAGE";
+  unit_type?: string;
+  page_id?: string;
+  physical_page_number?: number;
+  actual_page_start: number;
+  actual_page_end: number;
+  section_id?: string;
+  source_block_ids?: string[];
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED" | "NO_TEXT";
+  attempt_count: number;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  last_error?: string;
+  textData: string;
+}
+
+export interface QueueJobRecord {
+  id: string;
+  workspaceId: string;
+  documentId: string;
+  documentTitle: string;
+  filePath?: string;
+  textData?: string;
+  functionalCurrency: string;
+  status: IngestionJobStatus;
+  stage: IngestionJobStage;
+  stageHistory: StageRecord[];
+  currentStage: string;
+  currentStageIndex?: number;
+  totalStages?: number;
+  progress: number;
+  startedAt?: string;
+  updatedAt: string;
+  heartbeatAt: string;
+  completedAt?: string;
+  lastError?: string;
+  unitsTotal: number;
+  unitsCompleted: number;
+  pagesTotal: number;
+  pagesCompleted: number;
+  tasksTotal: number;
+  tasksCompleted: number;
+  factsExtractedCount?: number;
+  pagesProcessedCount?: number;
+  entitiesDiscoveredCount?: number;
+  attemptCount: number;
+  processingUnits: ProcessingUnitRecord[];
+  result?: {
+    facts: ExtractedFact[];
+    discrepancies: DiscrepancyItem[];
+    agentLogs: AgentExecutionLog[];
+    auditLogs: AuditTrailRecord[];
+    executionTimeMs: number;
+  };
+  error?: string;
+  createdAt: string;
+}
+
+
