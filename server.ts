@@ -520,7 +520,13 @@ let db: AppStorage = {
 
 function saveStorage() {
   try {
-    fs.writeFileSync(STORAGE_FILE, JSON.stringify(db, null, 2));
+    let jsonStr: string;
+    try {
+      jsonStr = JSON.stringify(db, null, 2);
+    } catch {
+      jsonStr = JSON.stringify(db);
+    }
+    fs.writeFileSync(STORAGE_FILE, jsonStr);
   } catch (err) {
     console.error("Failed to save storage:", err);
   }
@@ -1046,17 +1052,20 @@ app.delete("/api/workspaces/:id", (req, res) => {
   const { id } = req.params;
   const idx = db.workspaces.findIndex(w => w.id === id);
   if (idx !== -1) {
+    const wsDocs = db.documents.filter(d => d.workspaceId === id);
+    const docIds = new Set(wsDocs.map(d => d.id));
+
     db.workspaces.splice(idx, 1);
     db.documents = db.documents.filter(d => d.workspaceId !== id);
-    db.facts = db.facts.filter(f => f.workspaceId !== id || (f as any).project_id === id);
+    db.facts = db.facts.filter(f => f.workspaceId !== id && (f as any).project_id !== id && !docIds.has((f as any).document_id || f.documentId));
     if (db.findings) {
       db.findings = db.findings.filter(f => f.workspaceId !== id);
     }
     if (db.pageManifests) {
-      db.pageManifests = db.pageManifests.filter((pm: any) => pm.workspace_id !== id);
+      db.pageManifests = db.pageManifests.filter((pm: any) => pm.workspace_id !== id && !docIds.has(pm.document_id));
     }
     if (db.sourceBlocks) {
-      db.sourceBlocks = db.sourceBlocks.filter((sb: any) => sb.workspace_id !== id);
+      db.sourceBlocks = db.sourceBlocks.filter((sb: any) => sb.workspace_id !== id && !docIds.has(sb.document_id));
     }
     if (db.auditLogs) {
       db.auditLogs = db.auditLogs.filter((l: any) => l.workspaceId !== id);
@@ -1419,9 +1428,9 @@ function getPrioritizedDocumentContent(doc: any, maxChars = 90000): string {
 // Helper functions for scale detection and financial number parsing
 export function detectScaleHint(str: string): number {
   const l = (str || '').toLowerCase();
-  if (l.includes('in millions') || l.includes('in million') || l.includes('amounts in millions') || l.includes('dollars in millions') || l.includes('yen in millions') || l.includes('€m') || l.includes('$m') || l.includes('£m') || l.includes('(in millions')) return 1000000;
-  if (l.includes('in billions') || l.includes('in billion') || l.includes('amounts in billions') || l.includes('dollars in billions') || l.includes('€b') || l.includes('$b') || l.includes('£b') || l.includes('(in billions')) return 1000000000;
-  if (l.includes('in thousands') || l.includes('in thousand') || l.includes('amounts in thousands') || l.includes('dollars in thousands') || l.includes('€k') || l.includes('$k') || l.includes('£k') || l.includes('(in thousands')) return 1000;
+  if (l.includes('in millions') || l.includes('in million') || l.includes('amounts in millions') || l.includes('dollars in millions') || l.includes('yen in millions') || l.includes('€m') || l.includes('$m') || l.includes('£m') || l.includes('(in millions') || l.includes('mio.') || l.includes('mio €') || l.includes('mio. €') || l.includes('millionen') || l.includes('in mio')) return 1000000;
+  if (l.includes('in billions') || l.includes('in billion') || l.includes('amounts in billions') || l.includes('dollars in billions') || l.includes('€b') || l.includes('$b') || l.includes('£b') || l.includes('(in billions') || l.includes('mrd.') || l.includes('milliarden')) return 1000000000;
+  if (l.includes('in thousands') || l.includes('in thousand') || l.includes('amounts in thousands') || l.includes('dollars in thousands') || l.includes('€k') || l.includes('$k') || l.includes('£k') || l.includes('(in thousands') || l.includes('teur') || l.includes('t€') || l.includes('tausend')) return 1000;
   return 0; // Return 0 so caller falls back to globalScale
 }
 
@@ -1493,8 +1502,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "revenue",
     normalizedLabel: "Revenue",
     accountingRole: "revenue",
-    exactRowMatches: [/^(group\s+)?turnover$/i, /^revenue(s)?$/i, /^(group\s+)?sales$/i, /^net\s+sales$/i, /^total\s+revenue$/i],
-    partialRowMatches: ["turnover", "group turnover", "group sales", "sales", "net sales", "total revenue"],
+    exactRowMatches: [/^(group\s+)?turnover$/i, /^revenue(s)?$/i, /^(group\s+)?sales$/i, /^net\s+sales$/i, /^total\s+revenue$/i, /^umsatzerlöse$/i, /^umsatzerloese$/i, /^umsatz$/i],
+    partialRowMatches: ["turnover", "group turnover", "group sales", "sales", "net sales", "total revenue", "umsatzerlöse", "umsatzerloese", "umsatz"],
     excludeRowPatterns: [/turnover\s+in/i, /turnover\s+growth/i, /increase\s+in/i, /segment/i, /non-underlying/i, /per\s+share/i, /by\s+region/i, /by\s+category/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1502,8 +1511,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "cost_of_sales",
     normalizedLabel: "Cost of Sales",
     accountingRole: "expense",
-    exactRowMatches: [/^cost\s+of\s+sales$/i, /^cost\s+of\s+goods\s+sold$/i, /^cogs$/i, /^cost\s+of\s+revenue$/i],
-    partialRowMatches: ["cost of sales", "cost of goods sold", "cogs", "cost of revenue"],
+    exactRowMatches: [/^cost\s+of\s+sales$/i, /^cost\s+of\s+goods\s+sold$/i, /^cogs$/i, /^cost\s+of\s+revenue$/i, /^herstellungskosten$/i],
+    partialRowMatches: ["cost of sales", "cost of goods sold", "cogs", "cost of revenue", "herstellungskosten"],
     excludeRowPatterns: [/sub-line/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1511,8 +1520,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "gross_profit",
     normalizedLabel: "Gross Profit",
     accountingRole: "profit",
-    exactRowMatches: [/^gross\s+profit$/i, /^gross\s+margin\s+\(amount\)$/i],
-    partialRowMatches: ["gross profit"],
+    exactRowMatches: [/^gross\s+profit$/i, /^gross\s+margin\s+\(amount\)$/i, /^bruttoergebnis\s+vom\s+umsatz$/i],
+    partialRowMatches: ["gross profit", "bruttoergebnis"],
     excludeRowPatterns: [/gross\s+margin\s+%/i, /gross\s+margin\s+percentage/i, /strong\s+gross\s+margin/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1520,8 +1529,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "operating_profit",
     normalizedLabel: "Operating Income",
     accountingRole: "profit",
-    exactRowMatches: [/^operating\s+profit$/i, /^operating\s+income$/i, /^operating\s+result$/i, /^profit\s+from\s+operations$/i],
-    partialRowMatches: ["operating profit", "operating income", "profit from operations"],
+    exactRowMatches: [/^operating\s+profit$/i, /^operating\s+income$/i, /^operating\s+result$/i, /^profit\s+from\s+operations$/i, /^operatives\s+ergebnis$/i, /^betriebsergebnis$/i],
+    partialRowMatches: ["operating profit", "operating income", "profit from operations", "operatives ergebnis", "betriebsergebnis"],
     excludeRowPatterns: [/operating\s+margin/i, /operating\s+profit\s+after\s+tax/i, /non-underlying/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1538,8 +1547,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "profit_before_tax",
     normalizedLabel: "Profit Before Tax",
     accountingRole: "profit",
-    exactRowMatches: [/^profit\s+before\s+tax(ation)?$/i, /^income\s+before\s+tax(es)?$/i],
-    partialRowMatches: ["profit before tax", "profit before taxation", "income before tax"],
+    exactRowMatches: [/^profit\s+before\s+tax(ation)?$/i, /^income\s+before\s+tax(es)?$/i, /^ergebnis\s+vor\s+steuern$/i],
+    partialRowMatches: ["profit before tax", "profit before taxation", "income before tax", "ergebnis vor steuern"],
     excludeRowPatterns: [],
     statementName: "Consolidated Income Statement"
   },
@@ -1547,8 +1556,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "net_income",
     normalizedLabel: "Net Income",
     accountingRole: "profit",
-    exactRowMatches: [/^net\s+profit\s+from\s+continuing\s+operations$/i, /^profit\s+for\s+the\s+year(\s+from\s+continuing\s+operations)?$/i, /^net\s+profit$/i, /^net\s+income$/i, /^profit\s+attributable\s+to\s+equity\s+holders$/i],
-    partialRowMatches: ["net profit from continuing operations", "profit for the year", "net profit", "net income", "profit for the period"],
+    exactRowMatches: [/^net\s+profit\s+from\s+continuing\s+operations$/i, /^profit\s+for\s+the\s+year(\s+from\s+continuing\s+operations)?$/i, /^net\s+profit$/i, /^net\s+income$/i, /^profit\s+attributable\s+to\s+equity\s+holders$/i, /^jahresüberschuss$/i, /^jahresueberschuss$/i, /^bilanzgewinn$/i],
+    partialRowMatches: ["net profit from continuing operations", "profit for the year", "net profit", "net income", "profit for the period", "jahresüberschuss", "jahresueberschuss", "bilanzgewinn"],
     excludeRowPatterns: [/non-underlying/i, /operating\s+profit\s+after\s+tax/i, /per\s+share/i, /before\s+tax/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1556,8 +1565,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "total_assets",
     normalizedLabel: "Total Assets",
     accountingRole: "asset",
-    exactRowMatches: [/^total\s+assets$/i, /^assets\s+total$/i],
-    partialRowMatches: ["total assets"],
+    exactRowMatches: [/^total\s+assets$/i, /^assets\s+total$/i, /^bilanzsumme$/i, /^summe\s+aktiva$/i],
+    partialRowMatches: ["total assets", "bilanzsumme", "summe aktiva"],
     excludeRowPatterns: [/goodwill/i, /intangible/i, /current\s+assets/i, /non-current\s+assets/i],
     statementName: "Consolidated Balance Sheet"
   },
@@ -1565,8 +1574,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "total_liabilities",
     normalizedLabel: "Total Liabilities",
     accountingRole: "liability",
-    exactRowMatches: [/^total\s+liabilities$/i, /^liabilities\s+total$/i],
-    partialRowMatches: ["total liabilities"],
+    exactRowMatches: [/^total\s+liabilities$/i, /^liabilities\s+total$/i, /^verbindlichkeiten$/i, /^fremdkapital$/i],
+    partialRowMatches: ["total liabilities", "verbindlichkeiten", "fremdkapital"],
     excludeRowPatterns: [/current\s+liabilities/i, /non-current\s+liabilities/i, /trade\s+payables/i],
     statementName: "Consolidated Balance Sheet"
   },
@@ -1574,8 +1583,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "total_equity",
     normalizedLabel: "Total Equity",
     accountingRole: "equity",
-    exactRowMatches: [/^total\s+equity$/i, /^(total\s+)?shareholders['’]\s+equity$/i, /^(total\s+)?stockholders['’]\s+equity$/i],
-    partialRowMatches: ["total equity", "shareholders’ equity", "shareholders' equity", "stockholders' equity"],
+    exactRowMatches: [/^total\s+equity$/i, /^(total\s+)?shareholders['’]\s+equity$/i, /^(total\s+)?stockholders['’]\s+equity$/i, /^eigenkapital$/i],
+    partialRowMatches: ["total equity", "shareholders’ equity", "shareholders' equity", "stockholders' equity", "eigenkapital"],
     excludeRowPatterns: [/per\s+share/i, /attributable/i],
     statementName: "Consolidated Balance Sheet"
   },
@@ -2354,8 +2363,8 @@ const upload = multer({
 });
 
 app.post("/api/documents/upload", (req, res) => {
-  req.setTimeout(300000);
-  res.setTimeout(300000);
+  req.setTimeout(600000);
+  res.setTimeout(600000);
 
   upload.array("files")(req, res, async (err) => {
     if (err) {

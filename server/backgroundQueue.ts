@@ -10,6 +10,9 @@ export interface ProcessingUnit {
   document_id: string;
   workspace_id: string;
   source_type: "PDF_PAGE" | "PDF_PAGE_RANGE" | "TABLE" | "NOTE" | "DOCX_SECTION" | "SPREADSHEET_RANGE" | "CSV_BATCH" | "IMAGE_PAGE";
+  unit_type?: "TEXT_BLOCK" | "TABLE" | "TABLE_CELL" | "FOOTNOTE" | "NARRATIVE" | "IMAGE" | "FACT_EXTRACTION" | "CLASSIFICATION" | "ENTITY_RESOLUTION" | "NORMALIZATION" | "RECONCILIATION" | "VALIDATION" | "REVIEW" | "SPREADSHEET_RANGE" | "CSV_BATCH" | "DOCX_SECTION";
+  page_id?: string;
+  physical_page_number?: number;
   actual_page_start: number;
   actual_page_end: number;
   section_id?: string;
@@ -75,8 +78,65 @@ class BackgroundIngestionQueue {
       if (!fs.existsSync(storageDir)) {
         fs.mkdirSync(storageDir, { recursive: true });
       }
-      const serializableJobs = Array.from(this.jobs.values());
-      fs.writeFileSync(QUEUE_FILE, JSON.stringify(serializableJobs, null, 2));
+
+      // Create sanitized lightweight representations of jobs for persistence
+      const prepareJobForStorage = (job: QueueJob) => {
+        const { textData, ...jobCopy } = job;
+
+        const cleanUnits = jobCopy.processingUnits?.map(u => ({
+          ...u,
+          unit_text: undefined, // Remove duplicate property
+          // Truncate unit textData if very long
+          textData: typeof u.textData === 'string' && u.textData.length > 5000
+            ? u.textData.substring(0, 5000) + "... [truncated]"
+            : u.textData
+        }));
+
+        let cleanResult = jobCopy.result;
+        if (cleanResult) {
+          cleanResult = {
+            ...cleanResult,
+            agentLogs: cleanResult.agentLogs?.map(log => ({
+              ...log,
+              prompt: typeof log.prompt === 'string' && log.prompt.length > 2000
+                ? log.prompt.substring(0, 2000) + "... [truncated]"
+                : log.prompt,
+              response: typeof log.response === 'string' && log.response.length > 2000
+                ? log.response.substring(0, 2000) + "... [truncated]"
+                : log.response
+            }))
+          };
+        }
+
+        return {
+          ...jobCopy,
+          processingUnits: cleanUnits,
+          result: cleanResult
+        };
+      };
+
+      let serializableJobs = Array.from(this.jobs.values()).map(prepareJobForStorage);
+
+      let jsonString: string;
+      try {
+        jsonString = JSON.stringify(serializableJobs);
+      } catch (stringifyErr) {
+        // Fallback: If JSON stringify fails, keep only active or recent jobs and strip heavy logs
+        console.warn("[Hermes Queue] Standard stringify failed due to size, applying aggressive trimming for storage...");
+        const trimmed = serializableJobs.slice(-15).map(j => ({
+          ...j,
+          result: j.status === 'COMPLETED' ? {
+            facts: j.result?.facts || [],
+            discrepancies: j.result?.discrepancies || [],
+            agentLogs: [],
+            auditLogs: [],
+            executionTimeMs: j.result?.executionTimeMs || 0
+          } : j.result
+        }));
+        jsonString = JSON.stringify(trimmed);
+      }
+
+      fs.writeFileSync(QUEUE_FILE, jsonString);
     } catch (err) {
       console.error("[Hermes Queue] Failed to save queue to disk:", err);
     }
@@ -89,36 +149,9 @@ class BackgroundIngestionQueue {
         const list: QueueJob[] = JSON.parse(raw);
         if (Array.isArray(list)) {
           list.forEach(job => {
-            // Auto-correct legacy/inflated unit counts (e.g. 1523 binary xref stream chunks -> real 25 pages)
-            if (job.unitsTotal > 50) {
-              const realPages = 25;
-              const ratio = realPages / job.unitsTotal;
-              job.unitsTotal = realPages;
-              job.unitsCompleted = Math.min(realPages, Math.floor(job.unitsCompleted * ratio) || Math.floor((job.progress / 100) * realPages) || 12);
-              
-              const newUnits: ProcessingUnit[] = [];
-              for (let p = 1; p <= realPages; p++) {
-                const isDone = p <= job.unitsCompleted;
-                newUnits.push({
-                  unit_id: `UNIT-${job.id}-P${p}`,
-                  document_id: job.documentId,
-                  workspace_id: job.workspaceId,
-                  source_type: "PDF_PAGE",
-                  actual_page_start: p,
-                  actual_page_end: p,
-                  section_id: `SEC-P${p}`,
-                  status: isDone ? "COMPLETED" : (p === job.unitsCompleted + 1 ? "PROCESSING" : "QUEUED"),
-                  attempt_count: 1,
-                  created_at: job.createdAt || new Date().toISOString(),
-                  textData: `Page ${p} content`
-                });
-              }
-              job.processingUnits = newUnits;
-            }
-
             if (job.status === "PROCESSING") {
               job.status = "QUEUED";
-              job.currentStage = `Re-queued for Page ${job.unitsCompleted + 1}/${job.unitsTotal} processing`;
+              job.currentStage = `Re-queued for Unit ${job.unitsCompleted + 1}/${job.unitsTotal} processing`;
             }
             this.jobs.set(job.id, job);
           });
@@ -142,47 +175,75 @@ class BackgroundIngestionQueue {
     pageManifests?: any[],
     sourceBlocks?: any[]
   ): QueueJob {
+    if (!workspaceId) {
+      throw new Error("Mandatory workspaceId (projectId) missing for ingestion session. Workers cannot create orphan jobs.");
+    }
+
     const jobId = `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const units: ProcessingUnit[] = [];
 
-    if (pageManifests && pageManifests.length > 0) {
-      // Create processing units directly from real PDF page objects
-      pageManifests.forEach((pm, idx) => {
-        const pageNum = pm.page_number || idx + 1;
-        const pageBlocks = sourceBlocks ? sourceBlocks.filter(sb => sb.page_number === pageNum || sb.pageNumber === pageNum) : [];
-        const blockIds = pageBlocks.map(sb => sb.source_block_id || sb.id).filter(Boolean);
-        const pageText = pageBlocks.map(sb => sb.raw_text || sb.text_content || "").join("\n") || textData;
+    const isPdf = (filePath || "").toLowerCase().endsWith(".pdf") || documentTitle.toLowerCase().endsWith(".pdf") || (pageManifests && pageManifests.length > 0);
 
+    if (isPdf) {
+      if (pageManifests && pageManifests.length > 0) {
+        // Create processing units strictly linked to authoritative physical page manifests
+        pageManifests.forEach((pm, idx) => {
+          const pageNum = pm.physical_page_number || pm.page_number || idx + 1;
+          const pageBlocks = sourceBlocks ? sourceBlocks.filter(sb => sb.page_number === pageNum || sb.pageNumber === pageNum) : [];
+          const blockIds = pageBlocks.map(sb => sb.source_block_id || sb.id).filter(Boolean);
+          const pageText = pageBlocks.map(sb => sb.raw_text || sb.text_content || "").join("\n") || textData;
+
+          units.push({
+            unit_id: `UNIT-${jobId}-P${pageNum}`,
+            document_id: documentId,
+            workspace_id: workspaceId,
+            source_type: "PDF_PAGE",
+            unit_type: "FACT_EXTRACTION",
+            page_id: pm.page_id || pm.id || `PM-${documentId}-P${pageNum}`,
+            physical_page_number: pageNum,
+            actual_page_start: pageNum,
+            actual_page_end: pageNum,
+            section_id: `SEC-P${pageNum}`,
+            source_block_ids: blockIds.length > 0 ? blockIds : undefined,
+            status: "QUEUED",
+            attempt_count: 0,
+            created_at: new Date().toISOString(),
+            textData: pageText,
+            unit_text: pageText
+          });
+        });
+      } else {
+        // PDF page inventory missing or failed: fail processing job rather than inferring fake pages from text chunks
         units.push({
-          unit_id: `UNIT-${jobId}-P${pageNum}`,
+          unit_id: `UNIT-${jobId}-ERR`,
           document_id: documentId,
           workspace_id: workspaceId,
           source_type: "PDF_PAGE",
-          actual_page_start: pageNum,
-          actual_page_end: pageNum,
-          section_id: `SEC-P${pageNum}`,
-          source_block_ids: blockIds.length > 0 ? blockIds : undefined,
-          status: "QUEUED",
-          attempt_count: 0,
+          unit_type: "CLASSIFICATION",
+          actual_page_start: 1,
+          actual_page_end: 1,
+          status: "FAILED",
+          attempt_count: 1,
           created_at: new Date().toISOString(),
-          textData: pageText,
-          unit_text: pageText
+          last_error: "Physical page inventory required before PDF page extraction can begin.",
+          textData: ""
         });
-      });
+      }
     } else {
-      // Clean raw binary PDF structures and xref stream table noise
+      // Non-PDF documents (Spreadsheets, CSV, DOCX): create units with native coordinate source types
       const cleanText = textData
         .replace(/0000\d{6}\s+\d{5}\s+[nf]\s*/g, '')
         .replace(/xref\s*\d+\s*\d+/g, '')
         .replace(/trailer\s*<<[\s\S]*?>>/g, '')
         .replace(/endobj|startxref/g, '');
 
-      // Divide document into clean bounded processing units based on actual readable text
-      const paragraphs = cleanText.split(/\n\s*\n/).filter(p => p.trim().length > 10 && !p.match(/^\d{6,}\s+\d{5}/));
+      const nativeSourceType: "SPREADSHEET_RANGE" | "CSV_BATCH" | "DOCX_SECTION" = 
+        filePath?.endsWith(".xlsx") || filePath?.endsWith(".xls") ? "SPREADSHEET_RANGE" :
+        filePath?.endsWith(".csv") ? "CSV_BATCH" : "DOCX_SECTION";
+
+      const paragraphs = cleanText.split(/\n\s*\n/).filter(p => p.trim().length > 10);
       const maxCharsPerUnit = 4000;
-      
       let currentUnitText = "";
-      let pageCounter = 1;
       let unitIdx = 1;
 
       for (const para of paragraphs) {
@@ -191,9 +252,10 @@ class BackgroundIngestionQueue {
             unit_id: `UNIT-${jobId}-${unitIdx}`,
             document_id: documentId,
             workspace_id: workspaceId,
-            source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "PDF_PAGE",
-            actual_page_start: pageCounter,
-            actual_page_end: pageCounter,
+            source_type: nativeSourceType,
+            unit_type: nativeSourceType === "DOCX_SECTION" ? "TEXT_BLOCK" : "TABLE",
+            actual_page_start: unitIdx,
+            actual_page_end: unitIdx,
             section_id: `SEC-${unitIdx}`,
             status: "QUEUED",
             attempt_count: 0,
@@ -203,7 +265,6 @@ class BackgroundIngestionQueue {
           });
           unitIdx++;
           currentUnitText = para + "\n\n";
-          pageCounter += 1;
         } else {
           currentUnitText += para + "\n\n";
         }
@@ -214,9 +275,10 @@ class BackgroundIngestionQueue {
           unit_id: `UNIT-${jobId}-${unitIdx}`,
           document_id: documentId,
           workspace_id: workspaceId,
-          source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "PDF_PAGE",
-          actual_page_start: pageCounter,
-          actual_page_end: pageCounter,
+          source_type: nativeSourceType,
+          unit_type: nativeSourceType === "DOCX_SECTION" ? "TEXT_BLOCK" : "TABLE",
+          actual_page_start: unitIdx,
+          actual_page_end: unitIdx,
           section_id: `SEC-${unitIdx}`,
           status: "QUEUED",
           attempt_count: 0,
@@ -224,11 +286,6 @@ class BackgroundIngestionQueue {
           textData: currentUnitText || "Document section text",
           unit_text: currentUnitText || "Document section text"
         });
-      }
-
-      // Cap total processing units to prevent UI inflation from corrupted/streamed PDFs
-      if (units.length > 50) {
-        units.length = 50;
       }
     }
 
@@ -238,7 +295,7 @@ class BackgroundIngestionQueue {
       documentId,
       documentTitle,
       filePath,
-      textData,
+      textData: undefined,
       functionalCurrency,
       status: "QUEUED",
       progress: 0,

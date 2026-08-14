@@ -368,20 +368,21 @@ export default function App() {
 
       for (let i = 0; i < totalFilesList.length; i++) {
         const fileItem = totalFilesList[i];
-        const formData = new FormData();
-        if (i === 0) {
-          formData.append('description', instructions || '');
-          if (driveUrl) formData.append('driveUrl', driveUrl);
-        }
-        if (userEmail) formData.append('userEmail', userEmail);
-        if (confirmAttach) formData.append('confirmAttachToExisting', 'true');
-        if (currentWorkspaceId) formData.append('workspaceId', currentWorkspaceId);
-        if (fileItem) formData.append('files', fileItem);
 
         let res: Response | null = null;
         let lastError: any = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
+            const formData = new FormData();
+            if (i === 0) {
+              formData.append('description', instructions || '');
+              if (driveUrl) formData.append('driveUrl', driveUrl);
+            }
+            if (userEmail) formData.append('userEmail', userEmail);
+            if (confirmAttach) formData.append('confirmAttachToExisting', 'true');
+            if (currentWorkspaceId) formData.append('workspaceId', currentWorkspaceId);
+            if (fileItem) formData.append('files', fileItem);
+
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout for bulk uploads
             res = await fetch('/api/documents/upload', {

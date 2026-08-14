@@ -1,6 +1,19 @@
 import * as pdfParseModule from 'pdf-parse';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Ensure DOMMatrix polyfill for pdfjs-dist in Node environments
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  try {
+    const canvas = require('@napi-rs/canvas');
+    if (canvas && canvas.DOMMatrix) {
+      (globalThis as any).DOMMatrix = canvas.DOMMatrix;
+    }
+  } catch (err) {
+    console.warn("DOMMatrix polyfill setup notice:", err);
+  }
+}
 
 async function extractDocxContent(buffer: Buffer): Promise<{ rawText: string; docxTables: TableModel[] }> {
   let rawText = '';
@@ -70,10 +83,75 @@ interface ExtractedPdfPage {
   text: string;
 }
 
+// Clean raw binary noise and control characters from extracted strings
+function sanitizeExtractedText(str: string): string {
+  if (!str) return "";
+  // Strip control characters except newline (\n), carriage return (\r), and tab (\t)
+  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ").replace(/[^\x20-\x7E\xA0-\xFF\n\r\t]/g, " ");
+}
+
 async function extractPdfPages(buffer: Buffer): Promise<{ pages: ExtractedPdfPage[]; numpages: number; fullText: string }> {
   const uint8Array = new Uint8Array(buffer);
+
+  // Method 1: Try direct page-by-page extraction using pdfjsLib
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: uint8Array,
+      useSystemFonts: true,
+      disableFontFace: true,
+      isEvalSupported: false
+    });
+    const doc = await loadingTask.promise;
+    try {
+      const numpages = doc.numPages;
+      const pages: ExtractedPdfPage[] = [];
+      let accumulatedText = "";
+
+      for (let i = 1; i <= numpages; i++) {
+        let page: any = null;
+        try {
+          page = await doc.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = sanitizeExtractedText(
+            textContent.items.map((item: any) => item.str || "").join(" ")
+          ).trim();
+
+          pages.push({
+            pageNumber: i,
+            text: pageText || `Page ${i} content`
+          });
+          accumulatedText += pageText + "\n\n";
+        } catch (pageErr) {
+          pages.push({
+            pageNumber: i,
+            text: `Page ${i} content`
+          });
+        } finally {
+          if (page) {
+            try {
+              if (typeof page.cleanup === 'function') page.cleanup();
+            } catch (e) {}
+          }
+        }
+      }
+
+      if (pages.length > 0) {
+        return { pages, numpages, fullText: accumulatedText };
+      }
+    } finally {
+      try {
+        if (typeof doc.cleanup === 'function') doc.cleanup();
+        if (typeof doc.destroy === 'function') doc.destroy();
+        if (typeof loadingTask.destroy === 'function') loadingTask.destroy();
+      } catch (e) {}
+    }
+  } catch (pdfjsErr) {
+    console.warn("pdfjsLib direct extraction warning, attempting fallback parser:", pdfjsErr);
+  }
+
+  // Method 2: Try legacy pdf-parse
   const mod = pdfParseModule as any;
-  const parseFunc = typeof mod === 'function' ? mod : (typeof mod.default === 'function' ? mod.default : null);
+  const parseFunc = typeof mod === 'function' ? mod : (typeof mod.default === 'function' ? mod.default : (mod.PDFParse ? (buf: Uint8Array) => new mod.PDFParse(buf).getText() : null));
 
   if (parseFunc) {
     try {
@@ -90,59 +168,62 @@ async function extractPdfPages(buffer: Buffer): Promise<{ pages: ExtractedPdfPag
               }
               lastY = item.transform[5];
             }
-            if (text.trim()) {
+            const cleanText = sanitizeExtractedText(text).trim();
+            if (cleanText) {
               pageTexts.push({
                 pageNumber: pageData.pageIndex + 1,
-                text: text.trim()
+                text: cleanText
               });
             }
-            return text;
+            return cleanText;
           });
         }
       };
 
       const res = await parseFunc(uint8Array, options);
-      const numpages = res.numpages || pageTexts.length || 1;
-      const fullText = res.text || '';
+      const numpages = res.numpages || pageTexts.length || 0;
+      const fullText = sanitizeExtractedText(res.text || '');
       
       pageTexts.sort((a, b) => a.pageNumber - b.pageNumber);
       if (pageTexts.length > 0) {
         return { pages: pageTexts, numpages, fullText };
       }
-      
-      return splitTextIntoPages(fullText, numpages);
     } catch (err) {
-      console.warn("pdf-parse custom pagerender warning:", err);
+      console.warn("pdf-parse fallback warning:", err);
     }
   }
 
-  const bufStr = buffer.toString('utf-8');
-  return splitTextIntoPages(bufStr, 1);
+  // If physical page parsing failed for PDF, return empty pages rather than inferring fake pages from chunks
+  return { pages: [], numpages: 0, fullText: "" };
 }
 
 function splitTextIntoPages(fullText: string, reportedNumPages: number): { pages: ExtractedPdfPage[]; numpages: number; fullText: string } {
-  const ffSplit = fullText.split(/\f/);
+  // Only used for non-PDF narrative documents to divide sections
+  const cleanText = sanitizeExtractedText(fullText);
+  if (!cleanText.trim()) return { pages: [], numpages: 0, fullText: "" };
+
+  const ffSplit = cleanText.split(/\f/);
   if (ffSplit.length > 1) {
     return {
-      pages: ffSplit.map((t, idx) => ({ pageNumber: idx + 1, text: t.trim() })),
+      pages: ffSplit.map((t, idx) => ({ pageNumber: idx + 1, text: t.trim() || `Section ${idx + 1} content` })),
       numpages: ffSplit.length,
-      fullText
+      fullText: cleanText
     };
   }
 
-  const numPages = Math.max(1, reportedNumPages || Math.ceil(fullText.length / 3000));
-  const charsPerPage = Math.ceil(fullText.length / numPages);
+  const numPages = Math.max(1, reportedNumPages || Math.ceil(cleanText.length / 3000));
+  const charsPerPage = Math.ceil(cleanText.length / numPages);
   const pages: ExtractedPdfPage[] = [];
 
   for (let p = 0; p < numPages; p++) {
-    const pageText = fullText.slice(p * charsPerPage, (p + 1) * charsPerPage).trim();
+    const pageText = cleanText.slice(p * charsPerPage, (p + 1) * charsPerPage).trim();
     pages.push({
       pageNumber: p + 1,
-      text: pageText || `Page ${p + 1} content.`
+      text: pageText || `Section ${p + 1} content.`
     });
   }
 
-  return { pages, numpages: numPages, fullText };
+  return { pages, numpages: numPages, fullText: cleanText };
 }
 
 import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel, AssetModel, SectionModel, TableModel, detectLanguageFromText, detectPeriodFromText } from './types';
@@ -215,7 +296,8 @@ export class AnyDocParser implements DocumentParser {
       rawText = `Document content for ${file.originalName || file.filename}. Financial statements and disclosures attached.`;
     }
 
-    if (extractedPages.length === 0) {
+    const isPdfDoc = ext === 'pdf' || inspection.detectedType === 'pdf';
+    if (!isPdfDoc && extractedPages.length === 0) {
       extractedPages = splitTextIntoPages(rawText, pdfNumPages).pages;
     }
 
@@ -254,8 +336,11 @@ export class AnyDocParser implements DocumentParser {
 
       pageManifests.push({
         id: `PM-${docId}-P${pg.pageNumber}`,
+        page_id: `PM-${docId}-P${pg.pageNumber}`,
         document_id: docId,
+        physical_page_number: pg.pageNumber,
         page_number: pg.pageNumber,
+        physical_page_count: pdfNumPages || extractedPages.length,
         printed_page_number: pg.pageNumber,
         status: 'PROCESSED',
         text_detected: pg.text.length > 5,

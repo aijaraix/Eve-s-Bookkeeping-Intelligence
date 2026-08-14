@@ -396,6 +396,8 @@ export interface AgentExecutionLog {
   findings: string[];
   discrepanciesFound?: number;
   executionTimeMs: number;
+  prompt?: string;
+  response?: string;
 }
 
 export interface AuditTrailRecord {
