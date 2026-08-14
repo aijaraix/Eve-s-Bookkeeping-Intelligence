@@ -1145,4 +1145,144 @@ export interface FinancialReport {
   version: string;
 }
 
+// ==========================================
+// PHASE G — VARIANCE & FINANCIAL INTELLIGENCE ENGINE TYPES
+// ==========================================
+
+export type VarianceDirection = 'FAVORABLE' | 'UNFAVORABLE' | 'NEUTRAL';
+export type MaterialityClassification = 'MATERIAL_CHANGE' | 'IMMATERIAL_CHANGE' | 'ANOMALOUS_CHANGE';
+
+export interface MaterialityConfig {
+  absoluteThreshold: number;
+  percentageThreshold: number;
+  anomalyPercentageThreshold: number;
+  marginDeteriorationThresholdBps: number;
+}
+
+export interface VarianceAnalysisResult {
+  metricId: string;
+  canonicalMetric: string;
+  displayLabel: string;
+  currentPeriod: string;
+  comparativePeriod: string;
+  currentValue: number;
+  comparativeValue: number;
+  absoluteVariance: number;
+  percentageVariance: number | null;
+  formattedAbsoluteVariance: string;
+  formattedPercentageVariance: string;
+  direction: VarianceDirection;
+  materiality: MaterialityClassification;
+  sourceFactIdCurrent: string;
+  sourceFactIdComparative: string;
+  derivedFactId: string;
+  evidenceLineageCurrent?: EvidenceRecord | null;
+  evidenceLineageComparative?: EvidenceRecord | null;
+  currency: string;
+  entityScope: string;
+  warnings: string[];
+}
+
+export interface TrendPoint {
+  period: string;
+  value: number;
+  displayValue: string;
+  factId: string;
+  evidenceRef?: EvidenceRecord | null;
+}
+
+export interface MultiPeriodTrendResult {
+  canonicalMetric: string;
+  displayLabel: string;
+  periods: string[];
+  points: TrendPoint[];
+  cagrPercentage: number | null;
+  formattedCAGR: string;
+  overallDirection: 'UPWARD' | 'DOWNWARD' | 'STABLE' | 'MIXED';
+  hasMissingPeriod: boolean;
+  missingPeriods: string[];
+  currency: string;
+  entityScope: string;
+}
+
+export interface RatioComparisonResult {
+  id: string;
+  ratioName: string;
+  formula: string;
+  currentPeriod: string;
+  comparativePeriod: string;
+  currentRatioValue: number | null;
+  comparativeRatioValue: number | null;
+  formattedCurrentRatio: string;
+  formattedComparativeRatio: string;
+  absoluteChange: number | null;
+  basisPointChange: number | null;
+  percentageChange: number | null;
+  formattedChange: string;
+  direction: 'IMPROVED' | 'DETERIORATED' | 'UNCHANGED' | 'N/A';
+  materiality: MaterialityClassification;
+  currency: string;
+  scope: string;
+  warnings: string[];
+  evidenceRefCurrent?: EvidenceRecord | null;
+  evidenceRefComparative?: EvidenceRecord | null;
+}
+
+export type FinancialAnomalyType =
+  | 'LARGE_UNEXPLAINED_MOVEMENT'
+  | 'MARGIN_DETERIORATION'
+  | 'MARGIN_IMPROVEMENT'
+  | 'REVENUE_PROFIT_DIVERGENCE'
+  | 'ASSET_LIABILITY_ANOMALY'
+  | 'CASH_FLOW_INCONSISTENCY'
+  | 'ACCOUNTING_IDENTITY_CONFLICT'
+  | 'PERIOD_CURRENCY_SCOPE_INCOMPATIBILITY';
+
+export interface FinancialAnomaly {
+  id: string;
+  anomalyType: FinancialAnomalyType;
+  severity: 'CRITICAL' | 'WARNING' | 'INFO';
+  title: string;
+  description: string;
+  metricKeys: string[];
+  factIds: string[];
+  reportingPeriod: string;
+  comparativePeriod?: string;
+  requiresHumanReview: boolean;
+  reviewItemId?: string;
+  evidenceLineageRefs: EvidenceRecord[];
+}
+
+export interface FinancialIntelligenceObservation {
+  id: string;
+  observationType: 'MATHEMATICAL_FACT' | 'CAUSAL_DISCLOSURE';
+  text: string;
+  causalSourceText?: string;
+  hasDocumentedCausation: boolean;
+  causalStatusText: string;
+  relatedMetrics: string[];
+  sourceFactIds: string[];
+  evidenceLineageRefs: EvidenceRecord[];
+}
+
+export interface FinancialIntelligencePackage {
+  id: string;
+  workspaceId: string;
+  reportingPeriod: string;
+  comparativePeriods: string[];
+  entityName: string;
+  entityScope: string;
+  currency: string;
+  generatedAt: string;
+  variances: VarianceAnalysisResult[];
+  multiPeriodTrends: MultiPeriodTrendResult[];
+  ratioComparisons: RatioComparisonResult[];
+  anomalies: FinancialAnomaly[];
+  observations: FinancialIntelligenceObservation[];
+  exceptions: ReportException[];
+  humanReviewItemsGenerated: HumanReviewItem[];
+  factIdsUsed: string[];
+}
+
+
 
