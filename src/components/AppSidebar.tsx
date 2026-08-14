@@ -44,6 +44,8 @@ interface AppSidebarProps {
   documents?: DocumentRecord[];
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  activeRole?: 'customer' | 'reviewer' | 'admin';
+  onRoleChange?: (role: 'customer' | 'reviewer' | 'admin') => void;
 }
 
 interface NavItem {
@@ -75,6 +77,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   documents = [],
   isMobileOpen = false,
   onCloseMobile,
+  activeRole = 'customer',
+  onRoleChange,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isFinancialsExpanded, setIsFinancialsExpanded] = useState(true);
@@ -140,7 +144,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   }
 
   const financialSubItems = [
-    { id: 'financials:dashboard', label: 'Dashboard' },
+    { id: 'financials:dashboard', label: 'Financial Overview' },
     { id: 'financials:income', label: 'Income Statement' },
     { id: 'financials:balance', label: 'Balance Sheet' },
     { id: 'financials:cash', label: 'Cash Flow Statement' },
@@ -151,30 +155,47 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { id: 'financials:forecast', label: 'Forecast & Projections' },
   ];
 
-  const mainNavItems: NavItem[] = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'corporate', label: 'Corporate Group & Multi-FX', icon: Building, badge: 'STAGE-2', badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
-    { id: 'unbounded-registry', label: 'Fact Registry & Recon', icon: Database, badge: 'STAGE-3', badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
-    { id: 'deliverables-stage', label: 'Deliverables & Lead Schedules', icon: FileCheck, badge: 'STAGE-4', badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
-    { id: 'tenant-regression', label: 'Security & Integration Suite', icon: ShieldCheck, badge: 'STAGE-5', badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
-    { id: 'projects', label: 'Projects', icon: FolderKanban, count: workspaces.length },
+  // Build customer primary navigation + role-based extensions
+  const customerNavItems: NavItem[] = [
+    { id: 'overview', label: 'Home', icon: LayoutDashboard },
     { id: 'companies', label: 'Companies', icon: Building2 },
-    { id: 'documents', label: 'Documents', icon: FileText },
+    { id: 'documents', label: 'Documents', icon: FileText, count: totalDocs },
     { id: 'financials', label: 'Financials', icon: DollarSign },
-    { id: 'swarm', label: 'Hermes Swarm & Audit', icon: Cpu, badge: '4-AGENT', badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
-    { id: 'findings', label: 'Audit & Findings', icon: AlertTriangle },
-    { id: 'reports', label: 'AI Deliverables', icon: FileSpreadsheet, badge: 'AI', badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
-    { id: 'system-diagnostics', label: 'System Diagnostics', icon: ShieldCheck, badge: 'DIAG', badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
-    { id: 'review', label: 'Reviewer Mode', icon: Eye, badge: 'REVIEW', badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
-    { id: 'teams', label: 'Users & Teams', icon: Users },
-    { id: 'activity', label: 'Activity Log', icon: Activity },
+    { id: 'reports', label: 'Reports & AI', icon: Sparkles },
+    { id: 'review', label: 'Review', icon: CheckSquare, count: reviewDocs || undefined },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ];
+
+  const reviewerNavItems: NavItem[] = [
+    { id: 'unbounded-registry', label: 'Fact Registry & Recon', icon: Database, badge: 'Auditor', badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+    { id: 'findings', label: 'Audit Findings', icon: AlertTriangle, badge: 'Findings', badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
+    { id: 'deliverables-stage', label: 'Lead Schedules', icon: FileCheck, badge: 'Reviewer', badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+  ];
+
+  const adminNavItems: NavItem[] = [
+    { id: 'swarm', label: 'Hermes Swarm', icon: Cpu, badge: 'Admin', badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+    { id: 'system-diagnostics', label: 'Diagnostics', icon: ShieldCheck, badge: 'Health', badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+    { id: 'tenant-regression', label: 'Security & Integrations', icon: ShieldCheck, badge: 'Suite', badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
+    { id: 'activity', label: 'Activity Log', icon: Activity },
+    { id: 'teams', label: 'Users & Teams', icon: Users },
+  ];
+
+  let mainNavItems: NavItem[] = [...customerNavItems];
+
+  if (activeRole === 'reviewer') {
+    // Insert Reviewer tools right before Settings
+    const settingsIdx = mainNavItems.findIndex(i => i.id === 'settings');
+    mainNavItems.splice(settingsIdx, 0, ...reviewerNavItems);
+  } else if (activeRole === 'admin') {
+    const settingsIdx = mainNavItems.findIndex(i => i.id === 'settings');
+    mainNavItems.splice(settingsIdx, 0, ...reviewerNavItems, ...adminNavItems);
+  }
 
   const shortcuts: ShortcutItem[] = [
     { label: 'Upload Documents', action: () => { onOpenUpload(); if (onCloseMobile) onCloseMobile(); }, icon: UploadCloud },
-    { label: 'Pending Reviews', action: () => handleNavClick('findings'), icon: Clock },
-    { label: 'High Risk Findings', action: () => handleNavClick('findings'), icon: AlertTriangle },
-    { label: 'Favorites', action: () => handleNavClick('projects'), icon: Star },
+    { label: 'Pending Reviews', action: () => handleNavClick('review'), icon: Clock },
+    { label: 'AI Reports', action: () => handleNavClick('reports'), icon: Sparkles },
+    { label: 'Engagements & Projects', action: () => handleNavClick('projects'), icon: Star },
   ];
 
   const sidebarContent = (
@@ -204,6 +225,45 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           </div>
         )}
       </div>
+
+      {/* Role Switcher Pill Bar */}
+      {!isCollapsed && onRoleChange && (
+        <div className="px-3 py-2 bg-[#060c21]/60 border-b border-[#18264d] flex items-center justify-between">
+          <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Mode:</span>
+          <div className="flex items-center space-x-1 bg-[#0d1b3f] p-0.5 rounded-lg border border-[#1e2e5c]">
+            <button
+              onClick={() => onRoleChange('customer')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                activeRole === 'customer'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Customer
+            </button>
+            <button
+              onClick={() => onRoleChange('reviewer')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                activeRole === 'reviewer'
+                  ? 'bg-purple-600 text-white shadow-2xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Reviewer
+            </button>
+            <button
+              onClick={() => onRoleChange('admin')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                activeRole === 'admin'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Admin
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Navigation Scroll Area */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 scrollbar-thin scrollbar-thumb-[#1e2e5c]">

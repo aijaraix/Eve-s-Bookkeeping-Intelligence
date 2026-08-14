@@ -113,6 +113,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState(initialSavedEmail ? 'overview' : 'landing');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
+  // Role-based Navigation Mode
+  const [activeRole, setActiveRole] = useState<'customer' | 'reviewer' | 'admin'>('customer');
+
   // Submission / Ingestion State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [matchingWorkspace, setMatchingWorkspace] = useState<Workspace | null>(null);
@@ -623,6 +626,8 @@ export default function App() {
         documents={documents}
         isMobileOpen={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
+        activeRole={activeRole}
+        onRoleChange={setActiveRole}
       />
 
       {/* 2. Main Application Content Area */}

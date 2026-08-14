@@ -37,23 +37,23 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     switch (currentView) {
       case 'overview':
         return {
-          title: 'Overview',
-          subtitle: 'Real-time overview of your portfolio, projects, and financial intelligence.',
+          title: 'Home',
+          subtitle: 'Command center for your financial snapshot, recent changes, active reviews, and AI insights.',
         };
       case 'projects':
         return {
-          title: 'Projects Overview',
-          subtitle: 'Manage all engagements and client workspaces across your portfolio.',
+          title: 'Engagements & Workspaces',
+          subtitle: 'Manage client workspaces and historical engagements across your portfolio.',
         };
       case 'companies':
         return {
-          title: 'Companies',
-          subtitle: 'Consolidated entity master registry, risk profiles, and corporate snapshots.',
+          title: 'Companies & Structure',
+          subtitle: 'Entity directory, corporate group relationships, and multi-currency reporting.',
         };
       case 'documents':
         return {
-          title: 'Documents Repository',
-          subtitle: 'SHA-256 verified financial records, filings, general ledgers, and subledgers.',
+          title: 'Documents',
+          subtitle: 'Uploaded financial statements, tax filings, general ledgers, and audit evidence.',
         };
       case 'financials':
       case 'income':
@@ -61,18 +61,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       case 'cash':
         return {
           title: 'Financial Statements & Analytics',
-          subtitle: 'IFRS & US GAAP audited income statement, balance sheet, and cash flow reconciliations.',
+          subtitle: 'Unified financial workspace with audited income statement, balance sheet, and analytics.',
         };
       case 'findings':
       case 'review':
         return {
-          title: 'Audit & Findings Center',
-          subtitle: 'PCAOB material weakness alerts, risk scoring, and auditor resolution tracking.',
+          title: 'Review Center',
+          subtitle: 'Human-in-the-loop control center for resolving discrepancies, low-confidence extractions, and verification requests.',
         };
       case 'reports':
         return {
-          title: 'AI Deliverables',
-          subtitle: 'AI-powered professional deliverables in seconds. Client-ready audit, advisory, and financial packages.',
+          title: 'Reports & AI Intelligence',
+          subtitle: 'Client-ready financial deliverables, management packages, and AI CPA assistant.',
         };
       case 'insights':
       case 'chat':
