@@ -24,6 +24,7 @@ import { corporateGroupService } from "./server/corporateGroupService.js";
 import { unboundedRegistryEngine } from "./server/unboundedRegistryEngine.js";
 import { tenantRegressionService } from "./server/tenantRegressionService.js";
 import { deliverablesEngine } from "./server/deliverablesEngine.js";
+import { CanonicalFactResolver } from "./server/canonicalFactResolver.js";
 
 const fileRouter = new FileRouter();
 const anyDocParser = new AnyDocParser();
@@ -3558,127 +3559,46 @@ app.get("/api/financial/summary", (req, res) => {
     });
   }
 
-  // Derive metrics strictly from extracted facts in db.facts using canonical metrics
-  const revFact = wsFacts.find(f => f.canonicalMetric === "revenue" || f.labelNormalized === "Revenue" || f.labelOriginal?.toLowerCase().includes("turnover") || f.labelOriginal?.toLowerCase().includes("group turnover"));
-  const compRevFact = wsFacts.find(f => f.canonicalMetric === "comparative_revenue" || f.labelNormalized?.toLowerCase().includes("comparative revenue"));
-  const costFact = wsFacts.find(f => f.canonicalMetric === "cost_of_sales" || f.labelNormalized === "Cost of Sales");
-  const grossFact = wsFacts.find(f => f.canonicalMetric === "gross_profit" || f.labelNormalized === "Gross Profit");
-  const opIncFact = wsFacts.find(f => f.canonicalMetric === "operating_profit" || f.labelNormalized === "Operating Income");
-  const ebitdaFact = wsFacts.find(f => f.canonicalMetric === "ebitda" || f.labelNormalized === "EBITDA");
-  const pbtFact = wsFacts.find(f => f.canonicalMetric === "profit_before_tax" || f.labelNormalized === "Profit Before Tax");
-  const netIncFact = wsFacts.find(f => f.canonicalMetric === "net_income" || f.labelNormalized === "Net Income" || f.labelOriginal?.toLowerCase().includes("profit for the year"));
-  const assetFact = wsFacts.find(f => f.canonicalMetric === "total_assets" || f.labelNormalized === "Total Assets");
-  const liabFact = wsFacts.find(f => f.canonicalMetric === "total_liabilities" || f.labelNormalized === "Total Liabilities");
-  const eqFact = wsFacts.find(f => f.canonicalMetric === "total_equity" || f.labelNormalized === "Total Equity");
-  const ocfFact = wsFacts.find(f => f.canonicalMetric === "operating_cash_flow" || f.labelNormalized === "Operating Cash Flow");
-  const icfFact = wsFacts.find(f => f.canonicalMetric === "net_investing_cash_flow" || f.labelNormalized === "Net Investing Cash Flow");
-  const netFinFact = wsFacts.find(f => f.canonicalMetric === "net_financing_cash_flow" || f.labelNormalized === "Net Financing Cash Flow");
-  const fcfFact = wsFacts.find(f => f.canonicalMetric === "free_cash_flow" || f.labelNormalized === "Free Cash Flow");
-  const cashFact = wsFacts.find(f => f.labelNormalized === "Cash");
-  const opexFact = wsFacts.find(f => f.labelNormalized === "Operating Expenses");
-  const taxFact = wsFacts.find(f => f.labelNormalized === "Income Taxes");
-  const arFact = wsFacts.find(f => f.labelNormalized === "Accounts Receivable");
-  const apFact = wsFacts.find(f => f.labelNormalized === "Accounts Payable");
+  // Derive canonical metrics using CanonicalFactResolver (Phase C Source-Truth & Priority Resolution)
+  const canonicalSummary = CanonicalFactResolver.resolveWorkspaceSummary(ws.id, db.facts);
 
-  const parseVal = (fact?: ExtractedFact) => {
-    if (!fact) return 0;
-    if (typeof fact.normalizedValue === 'number') return fact.normalizedValue;
-    if (typeof fact.normalized_value === 'number') return fact.normalized_value;
-    const str = fact.valueFunctional || fact.valueOriginal || fact.rawValue;
-    const clean = String(str).replace(/[^0-9.-]/g, '');
-    const num = parseFloat(clean);
-    return isNaN(num) ? 0 : num;
-  };
+  const revVal = canonicalSummary.revenue.normalizedScalarValue || 0;
+  const compRevVal = canonicalSummary.comparativeRevenue.normalizedScalarValue || 0;
+  const costVal = canonicalSummary.costOfSales.normalizedScalarValue || 0;
+  const grossVal = canonicalSummary.grossProfit.normalizedScalarValue || (revVal && costVal ? revVal - Math.abs(costVal) : 0);
+  const opIncVal = canonicalSummary.operatingProfit.normalizedScalarValue || 0;
+  const ebitdaVal = canonicalSummary.ebitda.normalizedScalarValue || 0;
+  const pbtVal = canonicalSummary.profitBeforeTax.normalizedScalarValue || 0;
+  const netVal = canonicalSummary.netIncome.normalizedScalarValue || 0;
+  const assetsVal = canonicalSummary.totalAssets.normalizedScalarValue || 0;
+  const liabVal = canonicalSummary.totalLiabilities.normalizedScalarValue || 0;
+  const eqVal = canonicalSummary.totalEquity.normalizedScalarValue || 0;
+  const cashVal = canonicalSummary.cash.normalizedScalarValue || 0;
+  const ocfVal = canonicalSummary.operatingCashFlow.normalizedScalarValue || 0;
+  const icfVal = canonicalSummary.investingCashFlow.normalizedScalarValue || 0;
+  const finVal = canonicalSummary.financingCashFlow.normalizedScalarValue || 0;
+  const fcfVal = canonicalSummary.freeCashFlow.normalizedScalarValue || 0;
 
-  const cashVal = parseVal(cashFact);
-  const revVal = parseVal(revFact);
-  const compRevVal = parseVal(compRevFact);
-  const costVal = parseVal(costFact); // negative computational sign for expense
-  const grossVal = grossFact ? parseVal(grossFact) : (revFact && costFact ? revVal + costVal : 0);
-  const opIncVal = parseVal(opIncFact);
-  const ebitdaVal = ebitdaFact ? parseVal(ebitdaFact) : 0;
-  const pbtVal = parseVal(pbtFact);
-  const netVal = parseVal(netIncFact);
-  const assetsVal = parseVal(assetFact);
-  const eqVal = parseVal(eqFact);
-  const liabVal = liabFact ? parseVal(liabFact) : (assetsVal !== 0 && eqVal !== 0 ? assetsVal - eqVal : 0);
-  const ocfVal = parseVal(ocfFact);
-  const icfVal = parseVal(icfFact);
-  const finVal = parseVal(netFinFact);
-  const fcfVal = parseVal(fcfFact);
+  const effectiveCurrencyCode = canonicalSummary.currency || ws.currency || "EUR";
 
-  let opexVal = parseVal(opexFact);
-  if (opexVal === 0 && grossVal > 0 && opIncVal !== 0) {
-    if (grossVal > opIncVal) {
-      opexVal = grossVal - opIncVal;
-    }
-  }
+  const kpiProvenanceMap: Record<string, ExtractedFact> = {};
+  if (canonicalSummary.revenue.primaryFact) kpiProvenanceMap['revenue'] = canonicalSummary.revenue.primaryFact;
+  if (canonicalSummary.costOfSales.primaryFact) kpiProvenanceMap['cost_of_sales'] = canonicalSummary.costOfSales.primaryFact;
+  if (canonicalSummary.grossProfit.primaryFact) kpiProvenanceMap['gross_profit'] = canonicalSummary.grossProfit.primaryFact;
+  if (canonicalSummary.operatingProfit.primaryFact) kpiProvenanceMap['operating_profit'] = canonicalSummary.operatingProfit.primaryFact;
+  if (canonicalSummary.ebitda.primaryFact) kpiProvenanceMap['ebitda'] = canonicalSummary.ebitda.primaryFact;
+  if (canonicalSummary.profitBeforeTax.primaryFact) kpiProvenanceMap['profit_before_tax'] = canonicalSummary.profitBeforeTax.primaryFact;
+  if (canonicalSummary.netIncome.primaryFact) kpiProvenanceMap['net_income'] = canonicalSummary.netIncome.primaryFact;
+  if (canonicalSummary.totalAssets.primaryFact) kpiProvenanceMap['total_assets'] = canonicalSummary.totalAssets.primaryFact;
+  if (canonicalSummary.totalLiabilities.primaryFact) kpiProvenanceMap['total_liabilities'] = canonicalSummary.totalLiabilities.primaryFact;
+  if (canonicalSummary.totalEquity.primaryFact) kpiProvenanceMap['total_equity'] = canonicalSummary.totalEquity.primaryFact;
+  if (canonicalSummary.cash.primaryFact) kpiProvenanceMap['cash'] = canonicalSummary.cash.primaryFact;
+  if (canonicalSummary.operatingCashFlow.primaryFact) kpiProvenanceMap['operating_cash_flow'] = canonicalSummary.operatingCashFlow.primaryFact;
 
-  const taxVal = parseVal(taxFact);
-  const arVal = parseVal(arFact);
-  const apVal = parseVal(apFact);
-
-  // Accounting Identity & Provenance Verification
-  let validationStatus: 'VERIFIED' | 'UNVERIFIED' | 'DATA_VERIFICATION_REQUIRED' = 'VERIFIED';
-  let validationMessages: string[] = [];
-
-  // 1. Balance Sheet Accounting Identity Pass (Assets = Liabilities + Equity)
-  if (assetsVal !== 0 && (liabVal !== 0 || eqVal !== 0)) {
-    const diff = Math.abs(assetsVal - (liabVal + eqVal));
-    const relDiff = diff / Math.abs(assetsVal);
-    if (relDiff > 0.02) {
-      validationStatus = 'DATA_VERIFICATION_REQUIRED';
-      validationMessages.push(`Balance Sheet Identity Mismatch: Total Assets (${assetsVal}) ≠ Liabilities (${liabVal}) + Equity (${eqVal})`);
-    }
-  }
-
-  // 2. Reject Zero Equity / Dummy Reconciliation
-  if (eqVal === 0 && assetsVal > 0) {
-    validationStatus = 'DATA_VERIFICATION_REQUIRED';
-    validationMessages.push(`Verification Rejected: Total Equity is 0 while Total Assets is ${assetsVal}. Valid Balance Sheet source provenance required.`);
-  }
-
-  // 3. Strict Source Provenance Verification: Core metrics must come from verified financial statement records
-  if (!revFact || !assetFact || !eqFact || !liabFact) {
-    validationStatus = 'DATA_VERIFICATION_REQUIRED';
-    validationMessages.push('Core financial metrics lack verified source statement provenance.');
-  }
-
-  if (revVal < 0) {
-    validationStatus = 'DATA_VERIFICATION_REQUIRED';
-    validationMessages.push(`High-Severity Warning: Revenue is negative (${revVal}). Verify source presentation.`);
-  }
-
-  if (assetsVal < 0) {
-    validationStatus = 'DATA_VERIFICATION_REQUIRED';
-    validationMessages.push(`High-Severity Warning: Total Assets is negative (${assetsVal}). Verify source presentation.`);
-  }
-
-  if (!revFact || !assetFact) {
-    validationStatus = 'DATA_VERIFICATION_REQUIRED';
-    validationMessages.push('Core financial metrics (Revenue/Total Assets) require verification.');
-  }
-
-  // Format currency numbers accurately
-  const effectiveCurrencyCode = revFact?.currencyOriginal || revFact?.functionalCurrency || ws.currency || "EUR";
-  const currSym = effectiveCurrencyCode === "EUR" ? "€" : effectiveCurrencyCode === "GBP" ? "£" : effectiveCurrencyCode === "CHF" ? "CHF " : effectiveCurrencyCode === "JPY" ? "¥" : "$";
-
-  const formatAmount = (val: number, hasFact = true) => {
-    if (!hasFact && val === 0) return "—";
-    if (val === 0) return `${currSym}0`;
-    const abs = Math.abs(val);
-    const prefix = val < 0 ? `-${currSym}` : currSym;
-    if (abs >= 1_000_000_000) {
-      return `${prefix}${(abs / 1_000_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}B`;
-    }
-    if (abs >= 1_000_000) {
-      return `${prefix}${(abs / 1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}M`;
-    }
-    if (abs >= 1_000) {
-      return `${prefix}${(abs / 1_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}K`;
-    }
-    return `${prefix}${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
+  const approved = wsFacts.filter(f => f.status === "approved" || f.status === "validated").length;
+  const proposed = wsFacts.filter(f => f.status === "proposed" || f.status === "extracted").length;
+  const rejected = wsFacts.filter(f => f.status === "rejected").length;
+  const total = wsFacts.length;
 
   let revYoYPctStr = "—";
   if (compRevVal > 0 && revVal > 0) {
@@ -3686,84 +3606,55 @@ app.get("/api/financial/summary", (req, res) => {
     revYoYPctStr = `${yoy >= 0 ? '+' : ''}${yoy.toFixed(1)}%`;
   }
 
-  let grossMarginPctStr = "—";
-  if (revVal > 0 && grossVal !== 0) {
-    grossMarginPctStr = `${((grossVal / revVal) * 100).toFixed(1)}%`;
-  }
-
-  const kpiProvenanceMap: Record<string, ExtractedFact> = {};
-  if (revFact) kpiProvenanceMap['revenue'] = revFact;
-  if (costFact) kpiProvenanceMap['cost_of_sales'] = costFact;
-  if (grossFact) kpiProvenanceMap['gross_profit'] = grossFact;
-  if (opIncFact) kpiProvenanceMap['operating_profit'] = opIncFact;
-  if (ebitdaFact) kpiProvenanceMap['ebitda'] = ebitdaFact;
-  if (pbtFact) kpiProvenanceMap['profit_before_tax'] = pbtFact;
-  if (netIncFact) kpiProvenanceMap['net_income'] = netIncFact;
-  if (assetFact) kpiProvenanceMap['total_assets'] = assetFact;
-  if (liabFact) kpiProvenanceMap['total_liabilities'] = liabFact;
-  if (eqFact) kpiProvenanceMap['total_equity'] = eqFact;
-  if (ocfFact) kpiProvenanceMap['operating_cash_flow'] = ocfFact;
-  if (icfFact) kpiProvenanceMap['net_investing_cash_flow'] = icfFact;
-  if (netFinFact) kpiProvenanceMap['net_financing_cash_flow'] = netFinFact;
-  if (fcfFact) kpiProvenanceMap['free_cash_flow'] = fcfFact;
-
-  const approved = wsFacts.filter(f => f.status === "approved" || f.status === "validated").length;
-  const proposed = wsFacts.filter(f => f.status === "proposed" || f.status === "extracted").length;
-  const rejected = wsFacts.filter(f => f.status === "rejected").length;
-  const total = wsFacts.length;
-
-  const opMarginStr = revVal > 0 && opIncVal !== 0 ? `${((opIncVal / revVal) * 100).toFixed(1)}%` : "17.9%";
-  const underlyingOpMarginStr = "20.0%";
-
   res.json({
-    revenue: revFact ? formatAmount(revVal, true) : "—",
+    revenue: canonicalSummary.revenue.formattedValue,
     revenueRaw: revVal,
     comparativeRevenueRaw: compRevVal,
     revenueYoYPct: revYoYPctStr,
-    costOfRevenue: costFact ? formatAmount(costVal, true) : "—",
+    costOfRevenue: canonicalSummary.costOfSales.formattedValue,
     costOfRevenueRaw: costVal,
-    grossProfit: grossFact || (revFact && costFact) ? formatAmount(grossVal, true) : "—",
+    grossProfit: canonicalSummary.grossProfit.formattedValue,
     grossProfitRaw: grossVal,
-    grossMarginPct: grossMarginPctStr,
-    operatingExpenses: opexFact ? formatAmount(opexVal, true) : "—",
-    operatingExpensesRaw: opexVal,
-    operatingIncome: opIncFact ? formatAmount(opIncVal, true) : "—",
+    grossMarginPct: canonicalSummary.grossMarginPct !== null ? `${canonicalSummary.grossMarginPct}%` : "—",
+    operatingExpenses: "—",
+    operatingExpensesRaw: 0,
+    operatingIncome: canonicalSummary.operatingProfit.formattedValue,
     operatingIncomeRaw: opIncVal,
-    operatingMarginPct: opMarginStr,
-    underlyingOperatingMarginPct: underlyingOpMarginStr,
-    ebitda: ebitdaFact ? formatAmount(ebitdaVal, true) : "—",
-    ebitdaRaw: ebitdaFact ? ebitdaVal : undefined,
-    profitBeforeTax: pbtFact ? formatAmount(pbtVal, true) : "—",
-    profitBeforeTaxRaw: pbtFact ? pbtVal : undefined,
-    taxes: taxFact ? formatAmount(taxVal, true) : "—",
-    taxesRaw: taxVal,
-    netIncome: netIncFact ? formatAmount(netVal, true) : "—",
+    operatingMarginPct: canonicalSummary.operatingMarginPct !== null ? `${canonicalSummary.operatingMarginPct}%` : "—",
+    underlyingOperatingMarginPct: "—",
+    ebitda: canonicalSummary.ebitda.formattedValue,
+    ebitdaRaw: ebitdaVal,
+    profitBeforeTax: canonicalSummary.profitBeforeTax.formattedValue,
+    profitBeforeTaxRaw: pbtVal,
+    taxes: "—",
+    taxesRaw: 0,
+    netIncome: canonicalSummary.netIncome.formattedValue,
     netIncomeRaw: netVal,
-    cash: cashFact ? formatAmount(cashVal, true) : "—",
+    cash: canonicalSummary.cash.formattedValue,
     cashRaw: cashVal,
-    assets: assetFact ? formatAmount(assetsVal, true) : "—",
+    assets: canonicalSummary.totalAssets.formattedValue,
     assetsRaw: assetsVal,
-    liabilities: liabFact || liabVal !== 0 ? formatAmount(liabVal, true) : "—",
+    liabilities: canonicalSummary.totalLiabilities.formattedValue,
     liabilitiesRaw: liabVal,
-    equity: eqFact ? formatAmount(eqVal, true) : "—",
+    equity: canonicalSummary.totalEquity.formattedValue,
     equityRaw: eqVal,
-    operatingCashFlow: ocfFact ? formatAmount(ocfVal, true) : "—",
-    operatingCashFlowRaw: ocfFact ? ocfVal : undefined,
-    netInvestingCashFlow: icfFact ? formatAmount(icfVal, true) : "—",
-    netInvestingCashFlowRaw: icfFact ? icfVal : undefined,
-    netFinancingCashFlow: netFinFact ? formatAmount(finVal, true) : "—",
-    netFinancingCashFlowRaw: netFinFact ? finVal : undefined,
-    freeCashFlow: fcfFact ? formatAmount(fcfVal, true) : "—",
-    freeCashFlowRaw: fcfFact ? fcfVal : undefined,
-    accountsReceivable: arFact ? formatAmount(arVal, true) : "—",
-    accountsReceivableRaw: arVal,
-    accountsPayable: apFact ? formatAmount(apVal, true) : "—",
-    accountsPayableRaw: apVal,
-    currency: revFact?.currencyOriginal || curr,
-    unitScale: revFact ? "Base Units" : "—",
-    period: revFact?.periodEnd || wsDocs[0]?.period || "FY 2025",
+    operatingCashFlow: canonicalSummary.operatingCashFlow.formattedValue,
+    operatingCashFlowRaw: ocfVal,
+    netInvestingCashFlow: canonicalSummary.investingCashFlow.formattedValue,
+    netInvestingCashFlowRaw: icfVal,
+    netFinancingCashFlow: canonicalSummary.financingCashFlow.formattedValue,
+    netFinancingCashFlowRaw: finVal,
+    freeCashFlow: canonicalSummary.freeCashFlow.formattedValue,
+    freeCashFlowRaw: fcfVal,
+    accountsReceivable: "—",
+    accountsReceivableRaw: 0,
+    accountsPayable: "—",
+    accountsPayableRaw: 0,
+    currency: effectiveCurrencyCode,
+    unitScale: canonicalSummary.unitScale,
+    period: canonicalSummary.reportingPeriod,
     documentCount: docCount,
-    validationPassRate: validationStatus === 'VERIFIED' ? "100%" : "Requires Verification",
+    validationPassRate: canonicalSummary.accountingIdentityValid ? "100%" : "Requires Verification",
     averageConfidence: (wsFacts.reduce((acc, f) => acc + (f.confidence || 0.9), 0) / (total || 1)).toFixed(2),
     totalFacts: total,
     approvedFacts: approved,
@@ -3771,9 +3662,9 @@ app.get("/api/financial/summary", (req, res) => {
     rejectedFacts: rejected,
     multiPeriodData: [],
     hasValidatedFacts: total > 0,
-    validationStatus: validationStatus,
-    validationMessage: validationMessages.join(" | "),
-    kpiProvenanceMap: kpiProvenanceMap
+    validationStatus: canonicalSummary.accountingIdentityValid ? "VERIFIED" : "DATA_VERIFICATION_REQUIRED",
+    validationMessage: canonicalSummary.validationMessages.join(" | "),
+    kpiProvenanceMap
   });
 });
 

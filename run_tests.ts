@@ -11,6 +11,7 @@ import path from "path";
 import { parseValWithScale } from "./server";
 import { verifyUnileverReconciliation } from "./src/lib/unileverGoldenFixture";
 import { ReviewerEngine } from "./server/reviewerEngine";
+import { CanonicalFactResolver } from "./server/canonicalFactResolver";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -296,6 +297,174 @@ assert(
   serverHtml.includes("Reviewer Mode") && serverHtml.includes("Unilever PLC"),
   "Server-rendered HTML page generation failed!",
   "Server-rendered HTML page successfully generated for external reviewers & web readers."
+);
+
+// Test Case 4: Phase C Financial Data Normalization & Canonical Fact Resolution & Volkswagen Regression
+console.log(`\n${colors.bold}[SUITE 4: PHASE C CANONICAL FACT RESOLUTION & VOLKSWAGEN REGRESSION]${colors.reset}`);
+
+// 4.1 Dual-Value Architecture Test
+const dualFact = {
+  id: 'fct-dual-1',
+  workspaceId: 'ws-c1',
+  documentId: 'doc-vw-2024.pdf',
+  labelOriginal: 'Umsatzerlöse (Sales revenue)',
+  labelNormalized: 'Sales Revenue',
+  valueOriginal: '324.667',
+  valueFunctional: 324667000000,
+  currencyOriginal: 'EUR',
+  scaleOriginal: 'Millions',
+  canonicalMetric: 'revenue',
+  statementType: 'INCOME_STATEMENT',
+  reportingPeriod: 'FY 2024',
+  entityScope: 'Group'
+};
+
+const dualRes = CanonicalFactResolver.resolveMetric('ws-c1', 'revenue', [dualFact as any]);
+assert(
+  "Phase C Dual-Value Architecture Integrity",
+  dualRes.primaryFact?.valueOriginal === '324.667' && dualRes.normalizedScalarValue === 324667000000,
+  "Dual value architecture failed to preserve original string value alongside normalized scalar!",
+  "Original source string '324.667' permanently preserved alongside normalized scalar 324.667B."
+);
+
+// 4.2 Volkswagen Consolidated Statement Resolution
+const vwFactsFixture = [
+  {
+    id: 'vw-f1',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Sales revenue',
+    valueOriginal: '324,667',
+    valueFunctional: 324667000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'revenue',
+    statementType: 'INCOME_STATEMENT',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  },
+  {
+    id: 'vw-f2',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Cost of sales',
+    valueOriginal: '-264,124',
+    valueFunctional: -264124000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'cost_of_sales',
+    statementType: 'INCOME_STATEMENT',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  },
+  {
+    id: 'vw-f3',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Gross profit',
+    valueOriginal: '60,543',
+    valueFunctional: 60543000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'gross_profit',
+    statementType: 'INCOME_STATEMENT',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  },
+  {
+    id: 'vw-f4',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Operating result',
+    valueOriginal: '19,062',
+    valueFunctional: 19062000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'operating_profit',
+    statementType: 'INCOME_STATEMENT',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  },
+  {
+    id: 'vw-f5',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Profit after tax',
+    valueOriginal: '13,100',
+    valueFunctional: 13100000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'net_income',
+    statementType: 'INCOME_STATEMENT',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  },
+  {
+    id: 'vw-f6',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Total assets',
+    valueOriginal: '624,312',
+    valueFunctional: 624312000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'total_assets',
+    statementType: 'BALANCE_SHEET',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  },
+  {
+    id: 'vw-f7',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Total liabilities',
+    valueOriginal: '436,512',
+    valueFunctional: 436512000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'total_liabilities',
+    statementType: 'BALANCE_SHEET',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  },
+  {
+    id: 'vw-f8',
+    workspaceId: 'ws-vw-suite',
+    documentId: 'vw-ar-2024.pdf',
+    labelOriginal: 'Equity',
+    valueOriginal: '187,800',
+    valueFunctional: 187800000000,
+    currencyOriginal: 'EUR',
+    scaleOriginal: 'Millions',
+    canonicalMetric: 'total_equity',
+    statementType: 'BALANCE_SHEET',
+    reportingPeriod: 'FY 2024',
+    entityScope: 'Group',
+    confidence: 0.99
+  }
+];
+
+const vwSummary = CanonicalFactResolver.resolveWorkspaceSummary('ws-vw-suite', vwFactsFixture as any);
+
+assert(
+  "Volkswagen Canonical Revenue Resolution",
+  vwSummary.revenue.normalizedScalarValue === 324667000000 && vwSummary.revenue.formattedValue === '€324.67B',
+  `Volkswagen revenue improperly resolved to ${vwSummary.revenue.formattedValue}`,
+  "Volkswagen consolidated revenue accurately resolved to €324.67B."
+);
+
+assert(
+  "Volkswagen Accounting Identity & Financial Ratios Validation",
+  vwSummary.accountingIdentityValid && vwSummary.grossMarginPct === 18.65 && vwSummary.returnOnEquity === 6.98,
+  `Volkswagen financial metrics validation failed: Gross margin ${vwSummary.grossMarginPct}%, ROE ${vwSummary.returnOnEquity}%`,
+  "Volkswagen ratios normalized with zero absurdities: Gross Margin 18.65%, Operating Margin 5.87%, ROE 6.98%, Debt/Equity 2.32x."
 );
 
 

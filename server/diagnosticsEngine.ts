@@ -14,6 +14,7 @@ import {
   ExtractedFact,
   Workspace
 } from "../src/types.js";
+import { CanonicalFactResolver } from "./canonicalFactResolver.js";
 
 export class DiagnosticsEngine {
   // 1. Generate Page Manifests for a document
@@ -129,40 +130,7 @@ export class DiagnosticsEngine {
 
   // 4. Calculate Derived Metrics with Lineage & Formula Tracking
   public static calculateDerivedMetrics(workspaceId: string, facts: ExtractedFact[]): DerivedMetricRecord[] {
-    const wsFacts = facts.filter(f => f.workspaceId === workspaceId || f.company_id === workspaceId || (f as any).project_id === workspaceId);
-    
-    const findFact = (metricName: string) => {
-      return wsFacts.find(f => {
-        const canonical = (f.canonicalMetric || f.canonical_metric || "").toLowerCase();
-        const normLabel = (f.labelNormalized || (f as any).normalized_label || "").toLowerCase();
-        return canonical === metricName.toLowerCase() || normLabel.includes(metricName.toLowerCase());
-      });
-    };
-
-    const revFact = findFact("revenue");
-    const cogsFact = findFact("cost_of_sales");
-    const gpFact = findFact("gross_profit");
-    const assetsFact = findFact("total_assets");
-    const liabFact = findFact("total_liabilities");
-    const eqFact = findFact("total_equity");
-    const niFact = findFact("net_income");
-    const ocfFact = findFact("operating_cash_flow");
-
-    const getVal = (f?: ExtractedFact) => {
-      if (!f) return null;
-      const v = f.normalizedValue ?? f.normalized_value ?? parseFloat(String(f.valueFunctional).replace(/[^0-9.-]/g, ''));
-      return isNaN(v) ? null : v;
-    };
-
-    const revVal = getVal(revFact);
-    const cogsVal = getVal(cogsFact);
-    const gpVal = getVal(gpFact) ?? (revVal !== null && cogsVal !== null ? revVal - Math.abs(cogsVal) : null);
-    const assetsVal = getVal(assetsFact);
-    const liabVal = getVal(liabFact);
-    const eqVal = getVal(eqFact);
-    const niVal = getVal(niFact);
-    const ocfVal = getVal(ocfFact);
-
+    const summary = CanonicalFactResolver.resolveWorkspaceSummary(workspaceId, facts);
     const metrics: DerivedMetricRecord[] = [];
 
     // Gross Margin
@@ -171,12 +139,15 @@ export class DiagnosticsEngine {
       workspace_id: workspaceId,
       metric_name: "Gross Margin (%)",
       formula: "(Gross Profit / Revenue) * 100",
-      input_fact_ids: [gpFact?.id, revFact?.id].filter(Boolean) as string[],
-      input_values: { gross_profit: gpVal ?? "N/A", revenue: revVal ?? "N/A" },
-      calculation_result: gpVal !== null && revVal !== null && revVal > 0 ? parseFloat(((gpVal / revVal) * 100).toFixed(2)) : null,
+      input_fact_ids: [summary.grossProfit.primaryFact?.id, summary.revenue.primaryFact?.id].filter(Boolean) as string[],
+      input_values: {
+        gross_profit: summary.grossProfit.normalizedScalarValue ?? "N/A",
+        revenue: summary.revenue.normalizedScalarValue ?? "N/A"
+      },
+      calculation_result: summary.grossMarginPct,
       currency_or_unit: "%",
-      reporting_period: revFact?.reportingPeriod || "Not Specified",
-      validation_status: gpVal !== null && revVal !== null ? "CALCULATED" : "NOT_AVAILABLE",
+      reporting_period: summary.reportingPeriod,
+      validation_status: summary.grossMarginPct !== null ? "CALCULATED" : "NOT_AVAILABLE",
       calculated_at: new Date().toISOString()
     });
 
@@ -186,12 +157,15 @@ export class DiagnosticsEngine {
       workspace_id: workspaceId,
       metric_name: "Return on Equity (ROE)",
       formula: "(Net Income / Total Equity) * 100",
-      input_fact_ids: [niFact?.id, eqFact?.id].filter(Boolean) as string[],
-      input_values: { net_income: niVal ?? "N/A", equity: eqVal ?? "N/A" },
-      calculation_result: niVal !== null && eqVal !== null && eqVal > 0 ? parseFloat(((niVal / eqVal) * 100).toFixed(2)) : null,
+      input_fact_ids: [summary.netIncome.primaryFact?.id, summary.totalEquity.primaryFact?.id].filter(Boolean) as string[],
+      input_values: {
+        net_income: summary.netIncome.normalizedScalarValue ?? "N/A",
+        equity: summary.totalEquity.normalizedScalarValue ?? "N/A"
+      },
+      calculation_result: summary.returnOnEquity,
       currency_or_unit: "%",
-      reporting_period: niFact?.reportingPeriod || "Not Specified",
-      validation_status: niVal !== null && eqVal !== null ? "CALCULATED" : "NOT_AVAILABLE",
+      reporting_period: summary.reportingPeriod,
+      validation_status: summary.returnOnEquity !== null ? "CALCULATED" : "NOT_AVAILABLE",
       calculated_at: new Date().toISOString()
     });
 
@@ -201,12 +175,15 @@ export class DiagnosticsEngine {
       workspace_id: workspaceId,
       metric_name: "Debt to Equity Ratio",
       formula: "Total Liabilities / Total Equity",
-      input_fact_ids: [liabFact?.id, eqFact?.id].filter(Boolean) as string[],
-      input_values: { liabilities: liabVal ?? "N/A", equity: eqVal ?? "N/A" },
-      calculation_result: liabVal !== null && eqVal !== null && eqVal > 0 ? parseFloat((liabVal / eqVal).toFixed(2)) : null,
+      input_fact_ids: [summary.totalLiabilities.primaryFact?.id, summary.totalEquity.primaryFact?.id].filter(Boolean) as string[],
+      input_values: {
+        liabilities: summary.totalLiabilities.normalizedScalarValue ?? "N/A",
+        equity: summary.totalEquity.normalizedScalarValue ?? "N/A"
+      },
+      calculation_result: summary.debtToEquity,
       currency_or_unit: "x",
-      reporting_period: assetsFact?.reportingPeriod || "Not Specified",
-      validation_status: liabVal !== null && eqVal !== null ? "CALCULATED" : "NOT_AVAILABLE",
+      reporting_period: summary.reportingPeriod,
+      validation_status: summary.debtToEquity !== null ? "CALCULATED" : "NOT_AVAILABLE",
       calculated_at: new Date().toISOString()
     });
 
