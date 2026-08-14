@@ -275,6 +275,13 @@ export default function App() {
           targetWs = wsData.find(w => w.id === targetWs?.id) || targetWs;
         }
         setActiveWorkspace(targetWs);
+      } else {
+        setWorkspaces([]);
+        setActiveWorkspace(null);
+        setDocuments([]);
+        setFacts([]);
+        setSummary(null);
+        targetWs = null;
       }
 
       const targetWsId = targetWs?.id || (Array.isArray(wsData) && wsData[0]?.id) || '';
@@ -567,6 +574,7 @@ export default function App() {
           onOpenSignIn={() => setIsSignInOpen(true)}
           onSignOut={handleSignOut}
           onOpenAdminPanel={() => setIsAdminPanelOpen(true)}
+          onGoToDashboard={() => setCurrentView('overview')}
         />
         <SignInModal
           isOpen={isSignInOpen}
@@ -634,30 +642,32 @@ export default function App() {
               summary={summary}
               onNavigate={setCurrentView}
               onSelectWorkspace={handleSelectProject}
+              activeQueueJob={activeQueueJob}
+              onOpenQueueModal={() => setIngestionStatus(prev => ({ ...prev, isIngesting: true }))}
             />
           )}
 
           {(currentView === 'corporate' || currentView === 'stage2' || currentView === 'entities') && (
             <CorporateGroupStageView
-              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || ''}
             />
           )}
 
           {(currentView === 'unbounded-registry' || currentView === 'stage3' || currentView === 'facts-registry') && (
             <UnboundedRegistryStageView
-              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || ''}
             />
           )}
 
           {(currentView === 'deliverables-stage' || currentView === 'stage4' || currentView === 'lead-schedules') && (
             <DeliverablesStageView
-              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || ''}
             />
           )}
 
           {(currentView === 'tenant-regression' || currentView === 'stage5' || currentView === 'security') && (
             <TenantRegressionStageView
-              workspaceId={activeWorkspace?.id || workspaces[0]?.id || 'ws-1'}
+              workspaceId={activeWorkspace?.id || workspaces[0]?.id || ''}
             />
           )}
 
@@ -673,6 +683,8 @@ export default function App() {
               userEmail={userEmail}
               onSubmitUpload={handleLandingSubmitClick}
               onResetData={handleResetData}
+              activeQueueJob={activeQueueJob}
+              onOpenQueueModal={() => setIngestionStatus(prev => ({ ...prev, isIngesting: true }))}
             />
           )}
 

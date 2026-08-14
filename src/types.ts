@@ -48,6 +48,7 @@ export interface Workspace {
   userEmail?: string;
   createdAt: string;
   workspaceType?: 'bank_statement_review' | 'monthly_bookkeeping' | 'financial_statement_analysis' | 'audit_engagement' | 'tax_review' | 'expense_review' | 'general_workspace';
+  primaryEntityId?: string;
 }
 
 export interface BankTransaction {

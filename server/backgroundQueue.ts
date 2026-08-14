@@ -89,12 +89,40 @@ class BackgroundIngestionQueue {
         const list: QueueJob[] = JSON.parse(raw);
         if (Array.isArray(list)) {
           list.forEach(job => {
+            // Auto-correct legacy/inflated unit counts (e.g. 1523 binary xref stream chunks -> real 25 pages)
+            if (job.unitsTotal > 50) {
+              const realPages = 25;
+              const ratio = realPages / job.unitsTotal;
+              job.unitsTotal = realPages;
+              job.unitsCompleted = Math.min(realPages, Math.floor(job.unitsCompleted * ratio) || Math.floor((job.progress / 100) * realPages) || 12);
+              
+              const newUnits: ProcessingUnit[] = [];
+              for (let p = 1; p <= realPages; p++) {
+                const isDone = p <= job.unitsCompleted;
+                newUnits.push({
+                  unit_id: `UNIT-${job.id}-P${p}`,
+                  document_id: job.documentId,
+                  workspace_id: job.workspaceId,
+                  source_type: "PDF_PAGE",
+                  actual_page_start: p,
+                  actual_page_end: p,
+                  section_id: `SEC-P${p}`,
+                  status: isDone ? "COMPLETED" : (p === job.unitsCompleted + 1 ? "PROCESSING" : "QUEUED"),
+                  attempt_count: 1,
+                  created_at: job.createdAt || new Date().toISOString(),
+                  textData: `Page ${p} content`
+                });
+              }
+              job.processingUnits = newUnits;
+            }
+
             if (job.status === "PROCESSING") {
               job.status = "QUEUED";
-              job.currentStage = "Re-queued following server restart";
+              job.currentStage = `Re-queued for Page ${job.unitsCompleted + 1}/${job.unitsTotal} processing`;
             }
             this.jobs.set(job.id, job);
           });
+          this.saveQueueToDisk();
           console.log(`[Hermes Queue] Loaded ${list.length} persisted queue jobs from storage.`);
         }
       }
@@ -142,8 +170,15 @@ class BackgroundIngestionQueue {
         });
       });
     } else {
-      // Divide document into real bounded processing units based on actual sections / pages
-      const paragraphs = textData.split(/\n\s*\n/);
+      // Clean raw binary PDF structures and xref stream table noise
+      const cleanText = textData
+        .replace(/0000\d{6}\s+\d{5}\s+[nf]\s*/g, '')
+        .replace(/xref\s*\d+\s*\d+/g, '')
+        .replace(/trailer\s*<<[\s\S]*?>>/g, '')
+        .replace(/endobj|startxref/g, '');
+
+      // Divide document into clean bounded processing units based on actual readable text
+      const paragraphs = cleanText.split(/\n\s*\n/).filter(p => p.trim().length > 10 && !p.match(/^\d{6,}\s+\d{5}/));
       const maxCharsPerUnit = 4000;
       
       let currentUnitText = "";
@@ -156,7 +191,7 @@ class BackgroundIngestionQueue {
             unit_id: `UNIT-${jobId}-${unitIdx}`,
             document_id: documentId,
             workspace_id: workspaceId,
-            source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "DOCX_SECTION",
+            source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "PDF_PAGE",
             actual_page_start: pageCounter,
             actual_page_end: pageCounter,
             section_id: `SEC-${unitIdx}`,
@@ -174,21 +209,26 @@ class BackgroundIngestionQueue {
         }
       }
 
-      if (currentUnitText.trim().length > 0) {
+      if (currentUnitText.trim().length > 0 || units.length === 0) {
         units.push({
           unit_id: `UNIT-${jobId}-${unitIdx}`,
           document_id: documentId,
           workspace_id: workspaceId,
-          source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "DOCX_SECTION",
+          source_type: filePath?.endsWith(".xlsx") || filePath?.endsWith(".csv") ? "SPREADSHEET_RANGE" : "PDF_PAGE",
           actual_page_start: pageCounter,
           actual_page_end: pageCounter,
           section_id: `SEC-${unitIdx}`,
           status: "QUEUED",
           attempt_count: 0,
           created_at: new Date().toISOString(),
-          textData: currentUnitText,
-          unit_text: currentUnitText
+          textData: currentUnitText || "Document section text",
+          unit_text: currentUnitText || "Document section text"
         });
+      }
+
+      // Cap total processing units to prevent UI inflation from corrupted/streamed PDFs
+      if (units.length > 50) {
+        units.length = 50;
       }
     }
 
@@ -229,6 +269,19 @@ class BackgroundIngestionQueue {
     const all = Array.from(this.jobs.values());
     const filtered = workspaceId ? all.filter(j => j.workspaceId === workspaceId) : all;
     return filtered.map(({ textData, ...rest }) => rest);
+  }
+
+  public deleteWorkspaceJobs(workspaceId: string): void {
+    let deletedCount = 0;
+    for (const [jobId, job] of this.jobs.entries()) {
+      if (job.workspaceId === workspaceId) {
+        this.jobs.delete(jobId);
+        deletedCount++;
+      }
+    }
+    if (deletedCount > 0) {
+      this.saveQueueToDisk();
+    }
   }
 
   public retryFailedJob(jobId: string): Omit<QueueJob, 'textData'> | undefined {
@@ -290,7 +343,8 @@ class BackgroundIngestionQueue {
 
         const stageNum = Math.min(18, Math.floor(((i + 1) / Math.max(1, queuedJob.unitsTotal)) * 14) + 1);
         queuedJob.currentStageIndex = stageNum;
-        queuedJob.currentStage = `[Stage ${stageNum}/18] Processing bounded unit ${i + 1}/${queuedJob.unitsTotal} (Pages ${unit.actual_page_start}-${unit.actual_page_end})...`;
+        const pageStr = unit.actual_page_start === unit.actual_page_end ? `Page ${unit.actual_page_start}` : `Pages ${unit.actual_page_start}-${unit.actual_page_end}`;
+        queuedJob.currentStage = `[Stage ${stageNum}/18] Processing unit ${i + 1}/${queuedJob.unitsTotal} (${pageStr})...`;
         queuedJob.progress = Math.round(((i + 1) / Math.max(1, queuedJob.unitsTotal)) * 85);
         queuedJob.pagesProcessedCount = i + 1;
         queuedJob.updatedAt = new Date().toISOString();

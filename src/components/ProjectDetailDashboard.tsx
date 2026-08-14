@@ -82,6 +82,21 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
     'overview' | 'projects' | 'financials' | 'documents' | 'findings' | 'reports' | 'insights' | 'subsidiaries' | 'contacts' | 'activity' | 'geographic' | 'settings' | 'extraction'
   >('overview');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [entities, setEntities] = useState<any[]>([]);
+  const [selectedEntityId, setSelectedEntityId] = useState<string>('ALL_CONSOLIDATED');
+
+  React.useEffect(() => {
+    if (workspace?.id) {
+      fetch(`/api/workspaces/${workspace.id}/entities`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.entities)) {
+            setEntities(data.entities);
+          }
+        })
+        .catch(() => setEntities([]));
+    }
+  }, [workspace?.id]);
 
   const [overviewSubTab, setOverviewSubTab] = useState<
     'key_info' | 'financial_highlights' | 'credit_ratings' | 'banking_facilities' | 'legal_compliance' | 'esg_overview'
@@ -316,22 +331,43 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
         </div>
 
         {/* Project Title & Status Banner */}
-        <div className="space-y-1">
-          <div className="flex items-center space-x-3">
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">{workspace.name}</h1>
-            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>In Progress</span>
-            </span>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center space-x-3">
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight">{workspace.name}</h1>
+              <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>In Progress</span>
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
+              <span>Audit Engagement</span>
+              <span>•</span>
+              <span>{workspace.period || summary?.period || 'Not Specified'}</span>
+              <span>•</span>
+              <span className="font-semibold text-slate-700">🌐 {currSymbol}</span>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
-            <span>Audit Engagement</span>
-            <span>•</span>
-            <span>{workspace.period || summary?.period || 'Not Specified'}</span>
-            <span>•</span>
-            <span className="font-semibold text-slate-700">🌐 {currSymbol}</span>
-          </div>
+          {entities.length > 0 && (
+            <div className="flex items-center space-x-2 bg-slate-50 border border-slate-200/90 rounded-xl px-3 py-1.5 shadow-2xs">
+              <Building2 className="w-4 h-4 text-blue-600" />
+              <span className="text-xs font-bold text-slate-600">Reporting Scope:</span>
+              <select
+                value={selectedEntityId}
+                onChange={(e) => setSelectedEntityId(e.target.value)}
+                className="bg-white border border-slate-300 text-xs font-bold text-slate-800 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL_CONSOLIDATED">🌐 Consolidated Group ({workspace.name})</option>
+                {entities.map(e => (
+                  <option key={e.id} value={e.id}>
+                    🏢 {e.name} ({e.entityType} • {e.reportingCurrency})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Navigation Tabs Bar */}

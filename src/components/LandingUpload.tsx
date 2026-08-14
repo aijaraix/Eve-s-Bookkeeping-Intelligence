@@ -54,6 +54,7 @@ interface LandingUploadProps {
   onOpenSignIn: () => void;
   onSignOut?: () => void;
   onOpenAdminPanel?: () => void;
+  onGoToDashboard?: () => void;
 }
 
 export const LandingUpload: React.FC<LandingUploadProps> = ({
@@ -64,6 +65,7 @@ export const LandingUpload: React.FC<LandingUploadProps> = ({
   onOpenSignIn,
   onSignOut,
   onOpenAdminPanel,
+  onGoToDashboard,
 }) => {
   // Navigation & Page State
   const [activeTab, setActiveTab] = useState<'home' | 'products' | 'solutions' | 'industries' | 'pricing' | 'terms' | 'privacy' | 'soc2'>('home');
@@ -205,19 +207,29 @@ export const LandingUpload: React.FC<LandingUploadProps> = ({
           </nav>
 
           {/* Right Action Buttons */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
             {userEmail ? (
-              <div className="relative">
+              <>
                 <button
-                  onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                  className="bg-[#0b152d] hover:bg-[#122045] border border-emerald-500/40 text-white text-xs font-bold px-3 py-1.5 rounded-2xl transition cursor-pointer flex items-center gap-2 shadow-xs"
+                  onClick={() => onGoToDashboard ? onGoToDashboard() : onSubmitClick([], '', '')}
+                  className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
                 >
-                  <div className="w-6 h-6 rounded-xl bg-emerald-500 text-[#060A17] font-extrabold flex items-center justify-center text-xs shadow-2xs">
-                    {userEmail.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="font-mono text-emerald-300 max-w-[140px] truncate">{userEmail}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  <FolderKanban className="w-4 h-4" />
+                  <span>Go to Dashboard</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </button>
+
+                <div className="relative">
+                  <button
+                    onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                    className="bg-[#0b152d] hover:bg-[#122045] border border-emerald-500/40 text-white text-xs font-bold px-3 py-1.5 rounded-2xl transition cursor-pointer flex items-center gap-2 shadow-xs"
+                  >
+                    <div className="w-6 h-6 rounded-xl bg-emerald-500 text-[#060A17] font-extrabold flex items-center justify-center text-xs shadow-2xs">
+                      {userEmail.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="font-mono text-emerald-300 max-w-[120px] truncate">{userEmail}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
 
                 {isProfileMenuOpen && (
                   <div className="absolute right-0 mt-2 w-64 bg-[#0a1329] border border-[#1b2b52] rounded-2xl shadow-2xl p-3 z-50 text-xs space-y-2 text-slate-200">
@@ -270,6 +282,7 @@ export const LandingUpload: React.FC<LandingUploadProps> = ({
                   </div>
                 )}
               </div>
+              </>
             ) : (
               <button
                 onClick={onOpenSignIn}
@@ -306,6 +319,30 @@ export const LandingUpload: React.FC<LandingUploadProps> = ({
             <div className="absolute top-1/3 right-10 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[140px] pointer-events-none" />
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+              
+              {/* Signed-in User Banner */}
+              {userEmail && (
+                <div className="bg-gradient-to-r from-[#0b1b3d] via-[#102552] to-[#0a1836] border border-emerald-500/40 rounded-2xl p-4 mb-8 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/30 shrink-0">
+                      <UserCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-300 font-semibold uppercase tracking-wider block">Signed in as <strong className="text-emerald-400 font-mono text-xs font-bold">{userEmail}</strong></span>
+                      <h4 className="text-sm font-extrabold text-white">Access your active client engagements and live extraction jobs</h4>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onGoToDashboard ? onGoToDashboard() : onSubmitClick([], '', '')}
+                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer shrink-0"
+                  >
+                    <FolderKanban className="w-4 h-4" />
+                    <span>Go to Dashboard</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
                 
                 {/* Left Hero Content (5 Cols) */}

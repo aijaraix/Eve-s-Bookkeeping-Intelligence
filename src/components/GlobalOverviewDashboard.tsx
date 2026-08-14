@@ -31,6 +31,8 @@ interface GlobalOverviewDashboardProps {
   summary: FinancialSummary | null;
   onNavigate: (view: string) => void;
   onSelectWorkspace: (ws: Workspace) => void;
+  activeQueueJob?: any | null;
+  onOpenQueueModal?: () => void;
 }
 
 export const GlobalOverviewDashboard: React.FC<GlobalOverviewDashboardProps> = ({
@@ -39,6 +41,8 @@ export const GlobalOverviewDashboard: React.FC<GlobalOverviewDashboardProps> = (
   summary,
   onNavigate,
   onSelectWorkspace,
+  activeQueueJob,
+  onOpenQueueModal,
 }) => {
   // Palette for chart segments
   const COLORS_DOCS = ['#10b981', '#3b82f6', '#f59e0b', '#64748b'];
@@ -185,6 +189,48 @@ export const GlobalOverviewDashboard: React.FC<GlobalOverviewDashboardProps> = (
                 <ArrowRight className="w-3 h-3" />
               </button>
             </div>
+
+            {/* Live In-Progress Background Processing Placeholder Card */}
+            {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED') && (
+              <div 
+                onClick={() => onOpenQueueModal && onOpenQueueModal()}
+                className="bg-gradient-to-r from-blue-900/10 via-amber-500/10 to-blue-900/10 border-2 border-blue-500/40 rounded-xl p-3 shadow-md cursor-pointer hover:border-blue-500 transition relative overflow-hidden group mb-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                      <Sparkles className="w-4 h-4 animate-spin" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-neutral-900 text-xs">
+                          {activeQueueJob.documentTitle || 'Financial Document Processing'}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                          Extracting ({activeQueueJob.progress || 15}%)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-neutral-600 font-medium mt-0.5">
+                        {activeQueueJob.currentStage || 'Running multi-agent consensus verification...'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 text-blue-600 text-[11px] font-extrabold group-hover:underline shrink-0">
+                    <span>View Progress</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </div>
+                </div>
+
+                <div className="mt-2 w-full bg-neutral-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500 h-1.5 transition-all duration-300"
+                    style={{ width: `${Math.max(10, activeQueueJob.progress || 15)}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {workspaces.length > 0 ? (
               <div className="overflow-x-auto">

@@ -32,6 +32,8 @@ interface ProjectLibraryProps {
   userEmail: string | null;
   onSubmitUpload: (files: File[], instructions: string, driveUrl?: string, confirmAttach?: boolean, workspaceId?: string) => void;
   onResetData?: () => void;
+  activeQueueJob?: any | null;
+  onOpenQueueModal?: () => void;
 }
 
 export interface ProjectItem {
@@ -59,6 +61,8 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
   userEmail,
   onSubmitUpload,
   onResetData,
+  activeQueueJob,
+  onOpenQueueModal,
 }) => {
   // Search and Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -517,6 +521,54 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
 
         </div>
       </div>
+
+      {/* ----------------- LIVE BACKGROUND EXTRACTION PLACEHOLDER CARD ----------------- */}
+      {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED') && (
+        <div 
+          onClick={() => onOpenQueueModal && onOpenQueueModal()}
+          className="bg-gradient-to-r from-blue-900/10 via-amber-500/10 to-blue-900/10 border-2 border-blue-500/40 rounded-2xl p-4 shadow-lg cursor-pointer hover:border-blue-500 transition relative overflow-hidden group"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md shrink-0">
+                <Activity className="w-5 h-5 animate-spin" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-extrabold text-slate-900 text-sm">
+                    {activeQueueJob.documentTitle || 'Financial Document Processing'}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    Extracting & Processing ({activeQueueJob.progress || 15}%)
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 font-medium mt-0.5 flex items-center gap-1.5">
+                  <span>{activeQueueJob.currentStage || 'Running multi-agent consensus verification...'}</span>
+                  <span className="font-mono text-blue-600 font-bold">
+                    ({activeQueueJob.unitsCompleted || 0}/{activeQueueJob.unitsTotal || 1} units)
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-extrabold text-blue-600 group-hover:underline flex items-center gap-1">
+                <span>View Live Walkthrough</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
+          </div>
+
+          {/* Live Progress Bar */}
+          <div className="mt-3 w-full bg-slate-200/80 rounded-full h-2 overflow-hidden">
+            <div 
+              className="bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500 h-2 transition-all duration-300"
+              style={{ width: `${Math.max(10, activeQueueJob.progress || 15)}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ----------------- MAIN CONTENT SPLIT GRID ----------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
