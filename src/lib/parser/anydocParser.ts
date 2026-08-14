@@ -118,13 +118,13 @@ async function extractPdfPages(buffer: Buffer): Promise<{ pages: ExtractedPdfPag
 
           pages.push({
             pageNumber: i,
-            text: pageText || `Page ${i} content`
+            text: pageText
           });
           accumulatedText += pageText + "\n\n";
         } catch (pageErr) {
           pages.push({
             pageNumber: i,
-            text: `Page ${i} content`
+            text: ""
           });
         } finally {
           if (page) {
@@ -205,7 +205,7 @@ function splitTextIntoPages(fullText: string, reportedNumPages: number): { pages
   const ffSplit = cleanText.split(/\f/);
   if (ffSplit.length > 1) {
     return {
-      pages: ffSplit.map((t, idx) => ({ pageNumber: idx + 1, text: t.trim() || `Section ${idx + 1} content` })),
+      pages: ffSplit.map((t, idx) => ({ pageNumber: idx + 1, text: t.trim() })),
       numpages: ffSplit.length,
       fullText: cleanText
     };
@@ -219,7 +219,7 @@ function splitTextIntoPages(fullText: string, reportedNumPages: number): { pages
     const pageText = cleanText.slice(p * charsPerPage, (p + 1) * charsPerPage).trim();
     pages.push({
       pageNumber: p + 1,
-      text: pageText || `Section ${p + 1} content.`
+      text: pageText
     });
   }
 
@@ -292,11 +292,11 @@ export class AnyDocParser implements DocumentParser {
       if (words.length > 20) rawText = words.join(' ');
     }
 
-    if (!rawText || rawText.trim().length < 20) {
-      rawText = `Document content for ${file.originalName || file.filename}. Financial statements and disclosures attached.`;
+    const isPdfDoc = ext === 'pdf' || inspection.detectedType === 'pdf';
+    if (!isPdfDoc && (!rawText || rawText.trim().length < 20)) {
+      rawText = rawText || "";
     }
 
-    const isPdfDoc = ext === 'pdf' || inspection.detectedType === 'pdf';
     if (!isPdfDoc && extractedPages.length === 0) {
       extractedPages = splitTextIntoPages(rawText, pdfNumPages).pages;
     }
@@ -306,7 +306,9 @@ export class AnyDocParser implements DocumentParser {
     const sourceBlocks: any[] = [];
 
     extractedPages.forEach((pg) => {
-      const pageLines = pg.text.split('\n').map(l => l.trim()).filter(Boolean);
+      const pageTextClean = (pg.text || "").trim();
+      const hasText = pageTextClean.length > 5;
+      const pageLines = pageTextClean ? pageTextClean.split('\n').map(l => l.trim()).filter(Boolean) : [];
       let pageSection = 'General Section';
       let blockCount = 0;
 
@@ -342,18 +344,18 @@ export class AnyDocParser implements DocumentParser {
         page_number: pg.pageNumber,
         physical_page_count: pdfNumPages || extractedPages.length,
         printed_page_number: pg.pageNumber,
-        status: 'PROCESSED',
-        text_detected: pg.text.length > 5,
+        status: hasText ? 'PROCESSED' : 'OCR_REQUIRED',
+        text_detected: hasText,
         image_detected: false,
-        table_detected: pg.text.includes('\t') || pg.text.includes('|') || /(?:\d+[\.,\d]*|\b\d+\b)/.test(pg.text),
+        table_detected: hasText && (pageTextClean.includes('\t') || pageTextClean.includes('|') || /(?:\d+[\.,\d]*|\b\d+\b)/.test(pageTextClean)),
         chart_detected: false,
-        ocr_required: false,
-        native_text_available: true,
+        ocr_required: !hasText,
+        native_text_available: hasText,
         processing_attempts: 1,
         processing_duration_ms: 120,
         source_blocks_created: blockCount,
         facts_extracted: 0,
-        verification_status: 'VERIFIED',
+        verification_status: hasText ? 'VERIFIED' : 'EXTRACTION_FAILED',
         retry_count: 0
       });
     });

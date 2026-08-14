@@ -17,7 +17,7 @@ export interface ProcessingUnit {
   actual_page_end: number;
   section_id?: string;
   source_block_ids?: string[];
-  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED" | "NO_TEXT";
   attempt_count: number;
   created_at: string;
   started_at?: string;
@@ -36,6 +36,7 @@ export interface QueueJob {
   textData?: string;
   functionalCurrency: string;
   status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED";
+  lastError?: string;
   progress: number; // 0 to 100
   currentStage: string;
   currentStageIndex?: number;
@@ -59,7 +60,7 @@ export interface QueueJob {
   updatedAt: string;
 }
 
-class BackgroundIngestionQueue {
+export class BackgroundIngestionQueue {
   private jobs: Map<string, QueueJob> = new Map();
   private isProcessingQueue = false;
   private onJobCompletedListener?: (job: QueueJob) => void;
@@ -183,6 +184,8 @@ class BackgroundIngestionQueue {
     const units: ProcessingUnit[] = [];
 
     const isPdf = (filePath || "").toLowerCase().endsWith(".pdf") || documentTitle.toLowerCase().endsWith(".pdf") || (pageManifests && pageManifests.length > 0);
+    let jobStatus: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" = "QUEUED";
+    let jobLastError: string | undefined = undefined;
 
     if (isPdf) {
       if (pageManifests && pageManifests.length > 0) {
@@ -191,7 +194,9 @@ class BackgroundIngestionQueue {
           const pageNum = pm.physical_page_number || pm.page_number || idx + 1;
           const pageBlocks = sourceBlocks ? sourceBlocks.filter(sb => sb.page_number === pageNum || sb.pageNumber === pageNum) : [];
           const blockIds = pageBlocks.map(sb => sb.source_block_id || sb.id).filter(Boolean);
-          const pageText = pageBlocks.map(sb => sb.raw_text || sb.text_content || "").join("\n") || textData;
+          // Strictly source text from page-specific source blocks only. NEVER fall back to full-document textData.
+          const pageText = pageBlocks.map(sb => sb.raw_text || sb.text_content || "").join("\n");
+          const hasText = pageText.trim().length > 0;
 
           units.push({
             unit_id: `UNIT-${jobId}-P${pageNum}`,
@@ -205,7 +210,7 @@ class BackgroundIngestionQueue {
             actual_page_end: pageNum,
             section_id: `SEC-P${pageNum}`,
             source_block_ids: blockIds.length > 0 ? blockIds : undefined,
-            status: "QUEUED",
+            status: hasText ? "QUEUED" : "NO_TEXT",
             attempt_count: 0,
             created_at: new Date().toISOString(),
             textData: pageText,
@@ -213,21 +218,9 @@ class BackgroundIngestionQueue {
           });
         });
       } else {
-        // PDF page inventory missing or failed: fail processing job rather than inferring fake pages from text chunks
-        units.push({
-          unit_id: `UNIT-${jobId}-ERR`,
-          document_id: documentId,
-          workspace_id: workspaceId,
-          source_type: "PDF_PAGE",
-          unit_type: "CLASSIFICATION",
-          actual_page_start: 1,
-          actual_page_end: 1,
-          status: "FAILED",
-          attempt_count: 1,
-          created_at: new Date().toISOString(),
-          last_error: "Physical page inventory required before PDF page extraction can begin.",
-          textData: ""
-        });
+        // PDF page inventory missing or failed: fail job directly with 0 processing units
+        jobStatus = "FAILED";
+        jobLastError = "Authoritative physical page inventory required before PDF extraction.";
       }
     } else {
       // Non-PDF documents (Spreadsheets, CSV, DOCX): create units with native coordinate source types
@@ -297,9 +290,12 @@ class BackgroundIngestionQueue {
       filePath,
       textData: undefined,
       functionalCurrency,
-      status: "QUEUED",
-      progress: 0,
-      currentStage: `Queued for Bounded Unit Ingestion (${units.length} units total)`,
+      status: jobStatus,
+      lastError: jobLastError,
+      progress: jobStatus === "FAILED" ? 0 : 0,
+      currentStage: jobStatus === "FAILED" 
+        ? "Failed: Physical page inventory required before PDF extraction."
+        : `Queued for Bounded Unit Ingestion (${units.length} units total)`,
       unitsTotal: units.length,
       unitsCompleted: 0,
       attemptCount: 1,

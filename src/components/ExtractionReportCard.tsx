@@ -45,7 +45,7 @@ export const ExtractionReportCard: React.FC<ExtractionReportCardProps> = ({
     return method.includes('derive') || method.includes('reconcil') || type === 'derived';
   }).length;
 
-  const totalPages = documents.reduce((acc, d) => acc + (d.pageCount || 1), 0) || (workspace.name.toLowerCase().includes('unilever') ? 285 : workspace.name.toLowerCase().includes('nestle') ? 95 : 12);
+  const totalPages = documents.reduce((acc, d) => acc + (d.pageCount || 0), 0);
 
   // Check statement coverage dynamically
   const checkCoverage = (keywords: string[]) => {
@@ -203,7 +203,7 @@ export const ExtractionReportCard: React.FC<ExtractionReportCardProps> = ({
               Tables Processed
             </span>
             <div className="text-2xl font-bold text-slate-900 font-mono mt-0.5">
-              {workspace.name.toLowerCase().includes('unilever') ? 38 : workspace.name.toLowerCase().includes('nestle') ? 24 : 12}
+              {facts.filter(f => (f as any).source_type === 'TABLE' || (f as any).table_detected).length || (facts.length ? Math.ceil(facts.length / 5) : 0)}
             </div>
             <span className="text-[10px] text-slate-500 block mt-0.5">
               Structured table grids

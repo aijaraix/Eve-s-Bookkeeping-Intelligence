@@ -899,59 +899,6 @@ export function evaluateWorkspaceReadiness(workspaceId: string) {
   return { isReady, readinessState, checks, details };
 }
 
-export function consolidateVolkswagenWorkspaces() {
-  const vwWorkspaces = db.workspaces.filter(w => 
-    w.name.toLowerCase().includes("volkswagen") || 
-    w.name.toLowerCase().includes("vw")
-  );
-
-  if (vwWorkspaces.length > 1) {
-    console.log(`[Server Auto-Consolidation] Found ${vwWorkspaces.length} split Volkswagen workspaces. Merging into primary container...`);
-    const primaryWs = vwWorkspaces[0];
-    const secondaryWorkspaces = vwWorkspaces.slice(1);
-
-    secondaryWorkspaces.forEach(secWs => {
-      // Re-assign documents
-      db.documents.forEach(d => {
-        if (d.workspaceId === secWs.id) d.workspaceId = primaryWs.id;
-      });
-
-      // Re-assign facts
-      db.facts.forEach(f => {
-        if (f.workspaceId === secWs.id) f.workspaceId = primaryWs.id;
-      });
-
-      // Re-assign findings
-      if (db.findings) {
-        db.findings.forEach(fn => {
-          if (fn.workspaceId === secWs.id) fn.workspaceId = primaryWs.id;
-        });
-      }
-
-      // Re-assign page manifests & source blocks
-      if (db.pageManifests) {
-        db.pageManifests.forEach(pm => {
-          if (pm.workspace_id === secWs.id) pm.workspace_id = primaryWs.id;
-        });
-      }
-      if (db.sourceBlocks) {
-        db.sourceBlocks.forEach(sb => {
-          if (sb.workspace_id === secWs.id) sb.workspace_id = primaryWs.id;
-        });
-      }
-
-      // Delete secondary workspace
-      db.workspaces = db.workspaces.filter(w => w.id !== secWs.id);
-      console.log(`[Server Auto-Consolidation] Merged secondary workspace ${secWs.id} (${secWs.name}) into primary ${primaryWs.id} (${primaryWs.name})`);
-    });
-
-    // Run reconciliation on merged primary workspace
-    reconcileWorkspaceFacts(primaryWs.id);
-    validateAccountingEquations(primaryWs.id);
-    saveStorage();
-  }
-}
-
 function loadStorage() {
   try {
     if (fs.existsSync(STORAGE_FILE)) {
@@ -968,7 +915,6 @@ function loadStorage() {
         saveStorage();
       }
     }
-    consolidateVolkswagenWorkspaces();
   } catch (err) {
     console.error("Failed to load storage, using default:", err);
   }
@@ -2292,21 +2238,21 @@ CRITICAL INSTRUCTIONS:
     finalName = "Corporate Entity";
   }
 
-  // Heuristic check for Raphael Pharmaceutical test case pattern
+  // Generic entity detection via company name patterns in text
   const discoveredEntities: any[] = [];
   const externalParties: string[] = [];
-  if (textSnippets.toLowerCase().includes("raphael pharmaceutical ltd")) {
-    discoveredEntities.push({
-      name: "Raphael Pharmaceutical Ltd.",
-      type: "SUBSIDIARY",
-      ownershipPercentage: 100
+  const legalEntityMatches = textSnippets.match(/([A-Z][A-Za-z0-9\s&,.-]+?\b(?:Ltd|Limited|Inc|Corporation|Corp|AG|GmbH|PLC|S\.A\.)\b)/g);
+  if (legalEntityMatches) {
+    const uniqueMatches = Array.from(new Set(legalEntityMatches.map(m => m.trim())));
+    uniqueMatches.forEach(entityName => {
+      if (entityName.toLowerCase() !== finalName.toLowerCase() && entityName.length > 3 && entityName.length < 60) {
+        discoveredEntities.push({
+          name: entityName,
+          type: "SUBSIDIARY",
+          ownershipPercentage: 100
+        });
+      }
     });
-  }
-  if (textSnippets.toLowerCase().includes("fda") || textSnippets.toLowerCase().includes("food and drug administration")) {
-    externalParties.push("FDA");
-  }
-  if (textSnippets.toLowerCase().includes("citruslabs")) {
-    externalParties.push("Citruslabs");
   }
 
   return {
