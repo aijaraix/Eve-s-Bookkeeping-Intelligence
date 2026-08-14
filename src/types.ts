@@ -881,4 +881,93 @@ export interface QueueJobRecord {
   createdAt: string;
 }
 
+export type PhaseEReviewStatus =
+  | 'AUTO_VERIFIED'
+  | 'REVIEW_REQUIRED'
+  | 'UNDER_REVIEW'
+  | 'HUMAN_VERIFIED'
+  | 'REJECTED'
+  | 'INSUFFICIENT_EVIDENCE';
+
+export interface MultidimensionalConfidence {
+  extractionConfidence: number;
+  semanticMetricConfidence: number;
+  periodConfidence: number;
+  currencyScaleConfidence: number;
+  entityScopeConfidence: number;
+  canonicalSelectionConfidence: number;
+  accountingValidationConfidence: number;
+  overallAggregateConfidence: number;
+}
+
+export interface HumanReviewOverrideRecord {
+  id: string;
+  reviewItemId: string;
+  factId: string;
+  reviewer: string;
+  timestamp: string;
+  reason: string;
+  previousSelection: any;
+  newSelection: any;
+  action: 'HUMAN_VERIFIED' | 'REJECTED' | 'OVERRIDE_VALUE' | 'OVERRIDE_METRIC' | 'FLAG_INSUFFICIENT_EVIDENCE';
+}
+
+export interface HumanReviewItem {
+  id: string;
+  workspaceId: string;
+  documentId: string;
+  factId: string;
+  triggerReason: 'AMBIGUOUS_FACT' | 'CONFLICTING_FACTS' | 'ACCOUNTING_DISCREPANCY' | 'INCOMPATIBLE_PERIOD' | 'INCOMPATIBLE_SCOPE' | 'UNCERTAIN_CURRENCY_SCALE' | 'FAILED_EXTRACTION' | 'MISSING_SOURCE_PAGE' | 'LOW_CONFIDENCE_SELECTION';
+  status: PhaseEReviewStatus;
+  description: string;
+  originalFact: ExtractedFact;
+  currentSelection: any;
+  previousSelections: any[];
+  reviewHistory: HumanReviewOverrideRecord[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  workspaceId: string;
+  documentId?: string;
+  factId?: string;
+  timestamp: string;
+  eventType: 'EXTRACTION' | 'NORMALIZATION' | 'CANONICAL_SELECTION' | 'ACCOUNTING_VALIDATION' | 'RECONCILIATION' | 'DERIVED_CALCULATION' | 'REVIEW_CREATED' | 'HUMAN_OVERRIDE';
+  actor: string;
+  description: string;
+  previousState?: any;
+  newState?: any;
+  metadata?: Record<string, any>;
+}
+
+export interface EvidenceRecord {
+  factId: string;
+  workspaceId: string;
+  documentId: string;
+  canonicalMetric: string;
+  displayValue: string;
+  normalizedValue: number | null;
+  currency: string;
+  scale: string;
+  reportingPeriod: string;
+  entityScope: string;
+  reviewStatus: PhaseEReviewStatus;
+  multidimensionalConfidence: MultidimensionalConfidence;
+  lineage: {
+    layer1_dashboardValue: string;
+    layer2_canonicalMetric: { metric: string; selectionScore: number; reasoning: string };
+    layer3_accountingValidation: { status: string; checksPassed: string[]; discrepancies: string[] };
+    layer4_extractedFact: { id: string; labelOriginal: string; valueOriginal: string; currencyOriginal: string; unitScale: string; normalizedValue: number | null; extractionMethod: string };
+    layer5_sourceDocument: { id: string; filename: string; sha256: string; status: string };
+    layer6_physicalPage: { physicalPageNumber: number | null; existsInManifest: boolean };
+    layer7_sourceLocation: { boundingBox?: any; tableRowIndex?: number; tableColIndex?: number; cellRange?: string; sourceText: string; contextSentence?: string };
+  };
+  evidenceValid: boolean;
+  insufficientEvidenceReason?: string;
+  auditEvents: AuditEvent[];
+  reconciliationFindings: string[];
+}
+
 
