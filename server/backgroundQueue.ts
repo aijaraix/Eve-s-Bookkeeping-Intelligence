@@ -30,6 +30,7 @@ export class BackgroundIngestionQueue {
 
   constructor() {
     this.loadQueueFromDisk();
+    setInterval(() => this.checkStalledJobs(), 10000);
   }
 
   public setOnJobCompleted(listener: (job: QueueJob) => void) {
