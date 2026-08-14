@@ -87,7 +87,12 @@ export class CanonicalFactResolver {
       else if (clean.includes("CNY") || clean.includes("RMB")) res = "CNY";
       else res = clean.slice(0, 3) || "EUR";
     }
-    const strObj = Object.assign(new String(res), { code: res, valueOf: () => res, toString: () => res });
+    const strObj = Object.assign(new String(res), {
+      code: res,
+      [Symbol.toPrimitive]() { return res; },
+      valueOf() { return res; },
+      toString() { return res; }
+    });
     return strObj as any;
   }
 
@@ -276,6 +281,14 @@ export class CanonicalFactResolver {
    * Extract entity name and consolidation scope without mutating original source fields.
    */
   public static resolveEntityAndScope(fact: ExtractedFact): { entityName: string; entityScope: string } {
+    const explicitScope = fact.entityScope || fact.entity_scope || fact.consolidationScope;
+    if (explicitScope && explicitScope !== "Consolidated") {
+      return {
+        entityName: fact.entityName || (fact as any).company_id || "Group",
+        entityScope: explicitScope
+      };
+    }
+
     const textToScan = [
       fact.entityName,
       fact.entityScope,
@@ -286,15 +299,9 @@ export class CanonicalFactResolver {
       fact.sourceDocument
     ].filter(Boolean).join(" ").toLowerCase();
 
-    let entityScope = fact.entityScope || fact.entity_scope || fact.consolidationScope || "Consolidated";
+    let entityScope = explicitScope || "Consolidated";
     
     if (
-      textToScan.includes("consolidated") ||
-      textToScan.includes("group") ||
-      textToScan.includes("overall")
-    ) {
-      entityScope = "Consolidated";
-    } else if (
       textToScan.includes("parent") ||
       textToScan.includes("standalone") ||
       textToScan.includes("holding company") ||
@@ -315,6 +322,12 @@ export class CanonicalFactResolver {
       textToScan.includes("financial services")
     ) {
       entityScope = "Segment";
+    } else if (
+      textToScan.includes("consolidated") ||
+      textToScan.includes("group") ||
+      textToScan.includes("overall")
+    ) {
+      entityScope = "Consolidated";
     }
 
     const entityName = fact.entityName || (fact as any).company_id || "Group";
@@ -353,9 +366,9 @@ export class CanonicalFactResolver {
     }
 
     // 2. Consolidation Scope Weight (Consolidated/Group is primary)
-    if (entityScope === "Consolidated") {
+    if (entityScope === "Consolidated" || entityScope === "Group") {
       score += 30;
-    } else if (entityScope === "Parent Only") {
+    } else if (entityScope === "Parent Only" || entityScope === "Parent") {
       score += 15;
     } else if (entityScope === "Subsidiary") {
       score += 5;

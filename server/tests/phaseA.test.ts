@@ -1,17 +1,10 @@
+import { describe, it, expect } from "vitest";
 import { BackgroundIngestionQueue } from "../backgroundQueue.js";
-import assert from "assert";
 
-async function runPhaseATests() {
-  console.log("==========================================");
-  console.log("  RUNNING PHASE A SOURCE-TRUTH TEST SUITE ");
-  console.log("==========================================");
-
+describe("Phase A Source-Truth Test Suite", () => {
   const queue = new BackgroundIngestionQueue();
-  let passedCount = 0;
 
-  // TEST 1: PDF Page Bounds
-  try {
-    console.log("\n[Test 1/5] Testing PDF Page Bounds (25 pages)...");
+  it("Test 1: PDF Page Bounds (25 physical pages strictly mapped to 25 processing units)", () => {
     const pageManifests25 = Array.from({ length: 25 }, (_, i) => ({
       id: `PM-DOC25-P${i + 1}`,
       page_id: `PM-DOC25-P${i + 1}`,
@@ -41,23 +34,15 @@ async function runPhaseATests() {
       sourceBlocks25
     );
 
-    assert.strictEqual(job.unitsTotal, 25, "Job total units must strictly equal 25");
-    assert.strictEqual(job.processingUnits.length, 25, "Processing units count must strictly equal 25");
+    expect(job.unitsTotal).toBe(25);
+    expect(job.processingUnits.length).toBe(25);
     
     const maxPageNum = Math.max(...job.processingUnits.map(u => u.physical_page_number || 0));
-    assert.strictEqual(maxPageNum, 25, "Max physical_page_number must be 25");
-    assert.ok(!job.processingUnits.some(u => (u.physical_page_number || 0) > 25), "No physical page number can exceed 25");
+    expect(maxPageNum).toBe(25);
+    expect(job.processingUnits.some(u => (u.physical_page_number || 0) > 25)).toBe(false);
+  });
 
-    console.log("✓ TEST 1 PASSED: 25 physical pages strictly mapped to 25 processing units without bounds inflation.");
-    passedCount++;
-  } catch (err: any) {
-    console.error("❌ TEST 1 FAILED:", err.message);
-    process.exit(1);
-  }
-
-  // TEST 2: Failed Page Extraction (No Fabricated Text)
-  try {
-    console.log("\n[Test 2/5] Testing Failed Page Extraction (Physical Page 10 text fails)...");
+  it("Test 2: Failed Page Extraction (Physical Page 10 text fails, ZERO fabricated text)", () => {
     const pageManifests10 = Array.from({ length: 10 }, (_, i) => {
       const isFailed = i + 1 === 10;
       return {
@@ -94,21 +79,13 @@ async function runPhaseATests() {
     );
 
     const page10Unit = job.processingUnits.find(u => u.physical_page_number === 10);
-    assert.ok(page10Unit, "Physical page 10 unit must remain in processing units");
-    assert.strictEqual(page10Unit.textData, "", "Failed page 10 textData must be empty string, NOT fabricated");
-    assert.strictEqual(page10Unit.status, "NO_TEXT", "Failed page unit status must be NO_TEXT");
-    assert.ok(!page10Unit.textData.includes("Page 10 content"), "Must never substitute 'Page 10 content' string");
+    expect(page10Unit).toBeDefined();
+    expect(page10Unit?.textData).toBe("");
+    expect(page10Unit?.status).toBe("NO_TEXT");
+    expect(page10Unit?.textData.includes("Page 10 content")).toBe(false);
+  });
 
-    console.log("✓ TEST 2 PASSED: Physical page 10 preserved with failure status and ZERO fabricated text.");
-    passedCount++;
-  } catch (err: any) {
-    console.error("❌ TEST 2 FAILED:", err.message);
-    process.exit(1);
-  }
-
-  // TEST 3: Missing Inventory Failure
-  try {
-    console.log("\n[Test 3/5] Testing Missing Inventory Handling for PDF...");
+  it("Test 3: Missing Inventory Handling for PDF correctly fails job", () => {
     const job = queue.createJob(
       "ws-proj-001",
       "DOC-NO-INV",
@@ -120,20 +97,12 @@ async function runPhaseATests() {
       []
     );
 
-    assert.strictEqual(job.status, "FAILED", "Job must be marked FAILED when page inventory is missing for PDF");
-    assert.strictEqual(job.processingUnits.length, 0, "No processing units must be created when PDF inventory is missing");
-    assert.ok(job.lastError?.includes("Authoritative physical page inventory required"), "Job lastError must explain missing inventory");
+    expect(job.status).toBe("FAILED");
+    expect(job.processingUnits.length).toBe(0);
+    expect(job.lastError).toContain("Authoritative physical page inventory required");
+  });
 
-    console.log("✓ TEST 3 PASSED: PDF missing inventory correctly fails job with 0 processing units and no page-level UI artifact.");
-    passedCount++;
-  } catch (err: any) {
-    console.error("❌ TEST 3 FAILED:", err.message);
-    process.exit(1);
-  }
-
-  // TEST 4: Page Isolation (No Whole-Document Text Leaking)
-  try {
-    console.log("\n[Test 4/5] Testing Page Isolation (ALPHA_ONLY, BETA_ONLY, GAMMA_ONLY)...");
+  it("Test 4: Page Isolation (Whole-document text does NOT leak into individual page units)", () => {
     const pageManifests3 = [1, 2, 3].map(p => ({
       id: `PM-DOC3-P${p}`,
       page_id: `PM-DOC3-P${p}`,
@@ -167,31 +136,21 @@ async function runPhaseATests() {
     const unit2 = job.processingUnits.find(u => u.physical_page_number === 2)!;
     const unit3 = job.processingUnits.find(u => u.physical_page_number === 3)!;
 
-    assert.ok(unit1.textData.includes("ALPHA_ONLY"), "Unit 1 must contain ALPHA_ONLY");
-    assert.ok(!unit1.textData.includes("BETA_ONLY"), "Unit 1 must NOT contain BETA_ONLY");
-    assert.ok(!unit1.textData.includes("GAMMA_ONLY"), "Unit 1 must NOT contain GAMMA_ONLY");
+    expect(unit1.textData).toContain("ALPHA_ONLY");
+    expect(unit1.textData).not.toContain("BETA_ONLY");
+    expect(unit1.textData).not.toContain("GAMMA_ONLY");
 
-    assert.ok(unit2.textData.includes("BETA_ONLY"), "Unit 2 must contain BETA_ONLY");
-    assert.ok(!unit2.textData.includes("ALPHA_ONLY"), "Unit 2 must NOT contain ALPHA_ONLY");
-    assert.ok(!unit2.textData.includes("GAMMA_ONLY"), "Unit 2 must NOT contain GAMMA_ONLY");
+    expect(unit2.textData).toContain("BETA_ONLY");
+    expect(unit2.textData).not.toContain("ALPHA_ONLY");
+    expect(unit2.textData).not.toContain("GAMMA_ONLY");
 
-    assert.ok(unit3.textData.includes("GAMMA_ONLY"), "Unit 3 must contain GAMMA_ONLY");
-    assert.ok(!unit3.textData.includes("ALPHA_ONLY"), "Unit 3 must NOT contain ALPHA_ONLY");
-    assert.ok(!unit3.textData.includes("BETA_ONLY"), "Unit 3 must NOT contain BETA_ONLY");
+    expect(unit3.textData).toContain("GAMMA_ONLY");
+    expect(unit3.textData).not.toContain("ALPHA_ONLY");
+    expect(unit3.textData).not.toContain("BETA_ONLY");
+  });
 
-    console.log("✓ TEST 4 PASSED: Page isolation verified. Whole-document text does NOT leak into individual page units.");
-    passedCount++;
-  } catch (err: any) {
-    console.error("❌ TEST 4 FAILED:", err.message);
-    process.exit(1);
-  }
-
-  // TEST 5: Mandatory Project Scope Consistency
-  try {
-    console.log("\n[Test 5/5] Testing Mandatory Project Scope Consistency...");
-    
-    // Test rejection of orphan job without workspaceId
-    assert.throws(() => {
+  it("Test 5: Mandatory Project Scope Consistency across multi-entity operations", () => {
+    expect(() => {
       queue.createJob(
         "", // missing workspaceId
         "DOC-ORPHAN",
@@ -201,7 +160,7 @@ async function runPhaseATests() {
         "Orphan.pdf",
         [{ id: "PM-1", document_id: "DOC-ORPHAN", physical_page_number: 1, page_number: 1 }]
       );
-    }, /Mandatory workspaceId/, "Queue must reject job creation without workspaceId");
+    }).toThrow(/Mandatory workspaceId/);
 
     const job = queue.createJob(
       "ws-project-immutable-999",
@@ -214,23 +173,7 @@ async function runPhaseATests() {
       [{ source_block_id: "BLK-1", document_id: "DOC-MULTI-ENT", page_number: 1, raw_text: "Entity Parent and Entity Sub" }]
     );
 
-    assert.strictEqual(job.workspaceId, "ws-project-immutable-999", "Job workspaceId must remain strictly bound to project container");
-    assert.strictEqual(job.processingUnits[0].workspace_id, "ws-project-immutable-999", "Processing unit workspace_id must match project container");
-
-    console.log("✓ TEST 5 PASSED: Workspace scope is strictly mandatory and preserved across multi-entity operations.");
-    passedCount++;
-  } catch (err: any) {
-    console.error("❌ TEST 5 FAILED:", err.message);
-    process.exit(1);
-  }
-
-  console.log(`\n==========================================`);
-  console.log(`  ALL ${passedCount}/5 PHASE A TESTS PASSED SUCCESSFULLY! `);
-  console.log(`==========================================\n`);
-  process.exit(0);
-}
-
-runPhaseATests().catch(err => {
-  console.error("Fatal test runner failure:", err);
-  process.exit(1);
+    expect(job.workspaceId).toBe("ws-project-immutable-999");
+    expect(job.processingUnits[0].workspace_id).toBe("ws-project-immutable-999");
+  });
 });
