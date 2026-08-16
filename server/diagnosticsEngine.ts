@@ -201,7 +201,7 @@ export class DiagnosticsEngine {
         return can === metric.toLowerCase() || lbl.includes(metric.toLowerCase());
       });
       if (!match) return { factId: null, val: null };
-      const v = match.normalizedValue ?? match.normalized_value ?? parseFloat(String(match.valueFunctional).replace(/[^0-9.-]/g, ''));
+      const v = match.normalizedValue ?? match.normalized_value ?? CanonicalFactResolver.calculateNormalizedValue(match);
       return { factId: match.id, val: isNaN(v) ? null : v };
     };
 
@@ -304,7 +304,7 @@ export class DiagnosticsEngine {
             candidates: group.map((f, i) => ({
               fact_id: f.id,
               value: f.valueOriginal || String(f.valueFunctional),
-              normalized_value: (f.normalizedValue ?? f.normalized_value ?? parseFloat(String(f.valueFunctional).replace(/[^0-9.-]/g, ''))) || 0,
+              normalized_value: (f.normalizedValue ?? f.normalized_value ?? CanonicalFactResolver.calculateNormalizedValue(f)) || 0,
               source_document: f.sourceDocument || f.documentId || "Document",
               page_number: f.pageNumber || f.source_page || 1,
               context: f.sourceText || f.labelOriginal,

@@ -25,6 +25,13 @@ import { unboundedRegistryEngine } from "./server/unboundedRegistryEngine.js";
 import { tenantRegressionService } from "./server/tenantRegressionService.js";
 import { deliverablesEngine } from "./server/deliverablesEngine.js";
 import { CanonicalFactResolver } from "./server/canonicalFactResolver.js";
+import {
+  ForensicEntityResolver,
+  LocaleAwareNumberParser,
+  AccountingSignResolver,
+  PageClassifier,
+  PresentationIntegrityGate
+} from "./server/forensicExtractionEngine.js";
 
 const fileRouter = new FileRouter();
 const anyDocParser = new AnyDocParser();
@@ -68,7 +75,7 @@ async function generateGeminiContent(promptOrParts: string | any[], jsonMode = t
   for (const model of modelsToTry) {
     let timeoutId: NodeJS.Timeout | null = null;
     try {
-      const timeoutMs = 12000; // 12s max timeout per model
+      const timeoutMs = 5000; // 5s max timeout per model
       const timeoutPromise = new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => resolve(null), timeoutMs);
       });
@@ -108,7 +115,7 @@ async function generateGeminiContent(promptOrParts: string | any[], jsonMode = t
     }
   }
 
-  // Fallback to OpenRouter if Gemini Direct is quota-exhausted or fails
+  // Fallback to OpenRouter if Gemini Direct fails or is unavailable
   const promptStr = typeof promptOrParts === "string" 
     ? promptOrParts 
     : promptOrParts.map(p => typeof p === 'string' ? p : p.text || '').join('\n');
@@ -125,11 +132,8 @@ async function generateOpenRouterContent(prompt: string, jsonMode = true): Promi
   if (!apiKey || !apiKey.trim()) return null;
 
   const modelsToTry = [
-    "anthropic/claude-3.7-sonnet",
     "anthropic/claude-3.5-sonnet",
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "google/gemini-2.0-flash-001"
+    "openai/gpt-4o-mini"
   ];
 
   for (const model of modelsToTry) {
@@ -151,7 +155,7 @@ async function generateOpenRouterContent(prompt: string, jsonMode = true): Promi
           },
           ...(jsonMode ? { response_format: { type: "json_object" } } : {})
         }),
-        signal: AbortSignal.timeout(15000)
+        signal: AbortSignal.timeout(4000)
       });
 
       if (!response.ok) {
@@ -339,7 +343,13 @@ async function runAIHealthTest(force = false): Promise<AIHealthStatus> {
 }
 
 async function generateAIContent(promptOrParts: string | any[], jsonMode = true): Promise<string | null> {
-  // First priority: Try OpenRouter with Claude 3.7 / 3.5 Sonnet if OPENROUTER_API_KEY is configured
+  // First priority: Native Gemini API (fastest and direct)
+  if (process.env.GEMINI_API_KEY) {
+    const geminiRes = await generateGeminiContent(promptOrParts, jsonMode);
+    if (geminiRes) return geminiRes;
+  }
+
+  // Second priority: OpenRouter
   if (process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY) {
     let promptString = "";
     if (typeof promptOrParts === "string") {
@@ -349,12 +359,6 @@ async function generateAIContent(promptOrParts: string | any[], jsonMode = true)
     }
     const openRouterResult = await generateOpenRouterContent(promptString, jsonMode);
     if (openRouterResult) return openRouterResult;
-  }
-
-  // Second priority: Native Gemini API
-  if (process.env.GEMINI_API_KEY) {
-    const geminiRes = await generateGeminiContent(promptOrParts, jsonMode);
-    if (geminiRes) return geminiRes;
   }
 
   return null;
@@ -1415,84 +1419,11 @@ export function parseValWithScale(text: string, scaleHint = 1): number | null {
   }
 
   // 4. Smart Multi-National Number Parser (Supports German/European e.g. 51.243,00 / 97.968 and US e.g. 51,243.00 / 97,968)
-  const isNegative = lower.startsWith("–") || lower.startsWith("-") || (text.includes("(") && text.includes(")"));
-  
-  const unitMatch = text.match(/\b(billion|million|thousand|mio|mrd|teur|t€|bn|m|k)\b/i);
-  const unitSuffix = unitMatch ? unitMatch[1].toLowerCase() : null;
-
-  const numTokenMatch = text.match(/[\(\-–]?\s*[\$€£¥]?\s*([\d.,]+)\s*[\$€£¥]?/);
-  if (!numTokenMatch) return null;
-
-  let numStr = numTokenMatch[1];
-  if (!numStr || !/\d/.test(numStr)) return null;
-
-  // Disambiguate European vs US format
-  const hasComma = numStr.includes(",");
-  const hasDot = numStr.includes(".");
-
-  if (hasComma && hasDot) {
-    const lastComma = numStr.lastIndexOf(",");
-    const lastDot = numStr.lastIndexOf(".");
-    if (lastComma > lastDot) {
-      // European: 1.234,56
-      numStr = numStr.replace(/\./g, "").replace(",", ".");
-    } else {
-      // US: 1,234.56
-      numStr = numStr.replace(/,/g, "");
-    }
-  } else if (hasComma) {
-    const parts = numStr.split(",");
-    if (parts.length > 2) {
-      numStr = numStr.replace(/,/g, "");
-    } else if (parts.length === 2) {
-      if (parts[1].length === 3 && parts[0].length <= 3) {
-        numStr = numStr.replace(",", "");
-      } else {
-        numStr = parts[0] + "." + parts[1];
-      }
-    }
-  } else if (hasDot) {
-    const parts = numStr.split(".");
-    if (parts.length > 2) {
-      numStr = numStr.replace(/\./g, "");
-    } else if (parts.length === 2) {
-      if (parts[1].length === 3 && parts[0].length <= 3) {
-        numStr = numStr.replace(".", "");
-      } else {
-        numStr = parts[0] + "." + parts[1];
-      }
-    }
+  const parsed = LocaleAwareNumberParser.parseLocaleAwareValue(text, "en", text, scaleHint || 1);
+  if (parsed.normalizedValue !== null && !isNaN(parsed.normalizedValue)) {
+    return parsed.normalizedValue;
   }
-
-  let num = parseFloat(numStr);
-  if (isNaN(num) || num === 0) return null;
-
-  // STAGE 6: Year-As-Value Protection Guard
-  const hasMonetaryContext = /[\$€£¥]|billion|million|thousand|mio|mrd|teur|\b[mbk]\b/i.test(text);
-  if (!hasMonetaryContext && /\b(19|20)\d\d\b/.test(text)) {
-    return null;
-  }
-
-  if (num >= 1900 && num <= 2100) {
-    const hasDirectCurrency = /[\$€£¥]\s*20\d\d|20\d\d\s*[\$€£¥]/i.test(text);
-    const hasDirectUnit = /20\d\d\s*(billion|million|thousand|mio|bn|m|k)\b/i.test(text);
-    if (!hasDirectCurrency && !hasDirectUnit) {
-      return null;
-    }
-  }
-
-  if (isNegative && num > 0) num = -num;
-
-  let multiplier = 1;
-  if (unitSuffix) {
-    if (unitSuffix === 'b' || unitSuffix === 'billion' || unitSuffix === 'mrd') multiplier = 1000000000;
-    else if (unitSuffix === 'm' || unitSuffix === 'million' || unitSuffix === 'mio') multiplier = 1000000;
-    else if (unitSuffix === 'k' || unitSuffix === 'thousand' || unitSuffix === 'teur' || unitSuffix === 't€') multiplier = 1000;
-  } else if (scaleHint && scaleHint !== 1) {
-    multiplier = scaleHint;
-  }
-
-  return num * multiplier;
+  return null;
 }
 
 // Canonical Metrics Definition & Disambiguation Rules for Semantic Extraction
@@ -1655,7 +1586,7 @@ export function extractDeterministicFacts(
   const extractedFacts: any[] = [];
   const foundKeys = new Set<string>();
 
-  const globalText = canonicalDoc.markdown || canonicalDoc.sections?.map((s: any) => s.text).join('\n') || '';
+  const globalText = canonicalDoc.markdown || (Array.isArray(canonicalDoc.sections) ? canonicalDoc.sections.map((s: any) => s.text || '').join('\n') : '') || '';
   const globalScale = detectScaleHint(globalText) || 1;
 
   let effectiveCurrency = currency;
@@ -1670,6 +1601,12 @@ export function extractDeterministicFacts(
   } else if (/presented in (swiss francs?|chf)/i.test(globalText) || /\bchf\b/i.test(globalText)) {
     effectiveCurrency = "CHF";
   }
+
+  const entityResolution = ForensicEntityResolver.resolveEntityAndScope(
+    fileName,
+    globalText,
+    fileName
+  );
 
   // 1. Scan Structured Tables with Metric Identity BEFORE Value Normalization
   if (canonicalDoc.tables && Array.isArray(canonicalDoc.tables)) {
@@ -1723,16 +1660,26 @@ export function extractDeterministicFacts(
                   normalizedSign = -1;
                 }
 
+                // Enforce natural accounting sign protection
+                computationalValue = AccountingSignResolver.enforceNaturalAccountingSign(
+                  metricDef.key,
+                  computationalValue,
+                  rowLabel
+                ) || computationalValue;
+
                 foundKeys.add(metricDef.key);
 
                 const factId = `FCT-DET-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
                 const sourceSnippet = `${rowLabel}: ${cellVal} (${tbl.name || metricDef.statementName})`;
+
+                const rawScaleLabel = tableScale === 1000000000 ? 'BILLIONS' : tableScale === 1000000 ? 'MILLIONS' : tableScale === 1000 ? 'THOUSANDS' : 'ONES';
 
                 extractedFacts.push({
                   id: factId,
                   fact_id: factId,
                   document_id: docId,
                   project_id: workspaceId,
+                  workspaceId: workspaceId,
                   source_filename: fileName,
                   page: tbl.pageNumber || 1,
                   pageNumber: tbl.pageNumber || 1,
@@ -1760,6 +1707,21 @@ export function extractDeterministicFacts(
                   validation_status: 'VERIFIED',
                   status: 'APPROVED',
                   created_at: new Date().toISOString(),
+
+                  // Phase H.2 Explicit Reliability & Lineage Fields
+                  legal_entity: entityResolution.legalEntity,
+                  reporting_entity: entityResolution.reportingEntity,
+                  parent_entity: entityResolution.parentEntity,
+                  workspace_entity: entityResolution.workspaceEntity,
+                  reporting_scope: entityResolution.reportingScope,
+                  raw_value: cellVal,
+                  raw_currency: effectiveCurrency,
+                  raw_scale: rawScaleLabel,
+                  raw_text: sourceSnippet,
+                  normalized_currency: effectiveCurrency,
+                  normalized_scale: rawScaleLabel,
+                  canonical_metric_id: metricDef.key,
+                  verification_state: 'VERIFIED',
 
                   // Provenance & Semantic Sign Fields
                   canonicalMetric: metricDef.key,
@@ -1945,7 +1907,7 @@ export function executeSelfHealingFinancialAudit(
 ): any[] {
   const factsMap = new Map<string, any>();
 
-  const globalText = canonicalDoc.markdown || canonicalDoc.sections?.map((s: any) => s.text).join('\n') || '';
+  const globalText = canonicalDoc.markdown || (Array.isArray(canonicalDoc.sections) ? canonicalDoc.sections.map((s: any) => s.text || '').join('\n') : '') || '';
   const globalScale = detectScaleHint(globalText) || 1;
   const lines = globalText.split('\n');
 
@@ -2201,7 +2163,7 @@ async function extractEntityInfo(preParsedDocs: any[], files: Express.Multer.Fil
     const p = preParsedDocs[i];
     try {
       const canonicalDoc = p.canonicalDoc;
-      const snippetText = canonicalDoc.markdown || canonicalDoc.sections?.map((s: any) => s.text).join('\n') || '';
+      const snippetText = canonicalDoc.markdown || (Array.isArray(canonicalDoc.sections) ? canonicalDoc.sections.map((s: any) => s.text || '').join('\n') : '') || '';
       textSnippets += `\n[File (${p.file.originalname})]: ${snippetText.substring(0, 3000)}`;
     } catch (err) {
       console.warn("Failed to extract preview snippet for entity extraction:", err);
@@ -2386,7 +2348,7 @@ app.post("/api/documents/upload", (req, res) => {
   req.setTimeout(600000);
   res.setTimeout(600000);
 
-  upload.array("files")(req, res, async (err) => {
+  upload.any()(req, res, async (err) => {
     if (err) {
       console.error("Multer upload error:", err);
       return res.status(400).json({ error: err.message || "File upload error" });
@@ -2867,7 +2829,7 @@ Format each item as follows:
       preParsedDocs.forEach((p, idx) => {
         const docRec = newDocs[idx];
         if (docRec) {
-          const docText = p.canonicalDoc?.markdown || p.canonicalDoc?.sections?.map((s: any) => s.text).join("\n") || p.file.buffer?.toString("utf-8") || "";
+          const docText = p.canonicalDoc?.markdown || (Array.isArray(p.canonicalDoc?.sections) ? p.canonicalDoc.sections.map((s: any) => s.text || '').join("\n") : '') || p.file.buffer?.toString("utf-8") || "";
           const job = backgroundIngestionQueue.createJob(
             ws.id,
             docRec.id,
@@ -3833,6 +3795,52 @@ const QA_BENCHMARKS: Record<string, {
         metricName: "Total Assets"
       }
     }
+  },
+  "volkswagen": {
+    name: "Volkswagen Group",
+    metrics: {
+      "revenue": {
+        authoritativeValue: 321910000000,
+        authoritativeValueFormatted: "€321.91B",
+        ocrSourceText: "Volkswagen Group Sales Revenue FY 2025: €321,910 million",
+        metricName: "Total Revenue"
+      },
+      "operating_income": {
+        authoritativeValue: 8870000000,
+        authoritativeValueFormatted: "€8.87B",
+        ocrSourceText: "Consolidated Operating Result FY 2025: €8,870 million",
+        metricName: "Operating Income"
+      },
+      "assets": {
+        authoritativeValue: 644470000000,
+        authoritativeValueFormatted: "€644.47B",
+        ocrSourceText: "Total Consolidated Assets at 31 Dec 2025: €644,470 million",
+        metricName: "Total Assets"
+      }
+    }
+  },
+  "entire ar25": {
+    name: "Volkswagen Group",
+    metrics: {
+      "revenue": {
+        authoritativeValue: 321910000000,
+        authoritativeValueFormatted: "€321.91B",
+        ocrSourceText: "Volkswagen Group Sales Revenue FY 2025: €321,910 million",
+        metricName: "Total Revenue"
+      },
+      "operating_income": {
+        authoritativeValue: 8870000000,
+        authoritativeValueFormatted: "€8.87B",
+        ocrSourceText: "Consolidated Operating Result FY 2025: €8,870 million",
+        metricName: "Operating Income"
+      },
+      "assets": {
+        authoritativeValue: 644470000000,
+        authoritativeValueFormatted: "€644.47B",
+        ocrSourceText: "Total Consolidated Assets at 31 Dec 2025: €644,470 million",
+        metricName: "Total Assets"
+      }
+    }
   }
 };
 
@@ -3954,10 +3962,13 @@ app.get("/api/audit/forensics", (req, res) => {
 
   const parseVal = (fact?: ExtractedFact) => {
     if (!fact) return 0;
-    const str = fact.valueFunctional || fact.valueOriginal;
-    const clean = String(str).replace(/[^0-9.-]/g, '');
-    const num = parseFloat(clean);
-    return isNaN(num) ? 0 : num;
+    if (typeof fact.normalizedValue === "number" && !isNaN(fact.normalizedValue) && fact.normalizedValue !== 0) {
+      return fact.normalizedValue;
+    }
+    if (typeof fact.normalized_value === "number" && !isNaN(fact.normalized_value) && fact.normalized_value !== 0) {
+      return fact.normalized_value;
+    }
+    return CanonicalFactResolver.calculateNormalizedValue(fact) || 0;
   };
 
   const metricsTraces = Object.entries(benchmark.metrics).map(([key, bm]) => {

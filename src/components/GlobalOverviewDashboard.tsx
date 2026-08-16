@@ -73,12 +73,14 @@ export const GlobalOverviewDashboard: React.FC<GlobalOverviewDashboardProps> = (
   // Helper to parse numeric string value safely
   const parseAmount = (valStr?: string) => {
     if (!valStr) return 0;
+    const lower = valStr.toLowerCase();
+    const mult = lower.includes('b') ? 1e9 : lower.includes('m') ? 1e6 : lower.includes('k') ? 1e3 : 1;
     const cleaned = valStr.replace(/[^0-9.-]+/g, '');
     const parsed = parseFloat(cleaned);
-    return isNaN(parsed) ? 0 : parsed;
+    return isNaN(parsed) ? 0 : parsed * mult;
   };
 
-  const revenueNum = parseAmount(summary?.revenue);
+  const revenueNum = summary?.revenueRaw || parseAmount(summary?.revenue);
 
   // Proportional performance chart data
   const performanceTrendData = [

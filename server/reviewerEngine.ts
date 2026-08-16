@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { DiagnosticsEngine } from './diagnosticsEngine.js';
+import { CanonicalFactResolver } from './canonicalFactResolver.js';
 import { DocumentRecord, ExtractedFact, Workspace } from '../src/types.js';
 
 export class ReviewerEngine {
@@ -273,7 +274,7 @@ export class ReviewerEngine {
         reported_label: f.labelOriginal,
         normalized_label: f.labelNormalized,
         reported_value: f.valueOriginal || String(f.valueFunctional),
-        normalized_value: (f.normalizedValue ?? f.normalized_value ?? parseFloat(String(f.valueFunctional).replace(/[^0-9.-]/g, ''))) || 0,
+        normalized_value: (f.normalizedValue ?? f.normalized_value ?? CanonicalFactResolver.calculateNormalizedValue(f)) || 0,
         functional_amount: `${f.valueFunctional} ${f.currency || 'EUR'}`,
         currency: f.currency || 'EUR',
         scale: f.scale || f.unitScale || 'Units',
@@ -310,7 +311,7 @@ export class ReviewerEngine {
       reported_label: fact.labelOriginal,
       normalized_label: fact.labelNormalized,
       reported_value: fact.valueOriginal || String(fact.valueFunctional),
-      normalized_value: (fact.normalizedValue ?? fact.normalized_value ?? parseFloat(String(fact.valueFunctional).replace(/[^0-9.-]/g, ''))) || 0,
+      normalized_value: (fact.normalizedValue ?? fact.normalized_value ?? CanonicalFactResolver.calculateNormalizedValue(fact)) || 0,
       currency: fact.currency || "EUR",
       unit_scale: fact.scale || fact.unitScale || "Millions",
       period: fact.reportingPeriod || "FY 2025",

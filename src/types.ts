@@ -184,11 +184,9 @@ export interface ExtractedFact {
 
   // Values & Scale (Crucial: never destroy raw value!)
   valueOriginal: string;
-  raw_value?: string;
   rawValue?: string;
   valueFunctional: string;
   normalizedValue?: number;
-  normalized_value?: number;
   reportedOrDerived?: 'reported' | 'derived';
   reported_or_derived?: 'reported' | 'derived';
   formulaIfDerived?: string;
@@ -278,6 +276,113 @@ export interface ExtractedFact {
   verificationStage?: 'UNVERIFIED' | 'PASS_1_MATH' | 'PASS_2_RECONCILED' | 'FLAGGED' | string;
   reconciliationVariance?: number;
   reconciliationRule?: string;
+
+  // Phase H.2 Forensic Reliability & Canonical Fact Integrity Fields
+  legal_entity?: string;
+  reporting_entity?: string;
+  parent_entity?: string;
+  workspace_entity?: string;
+  reporting_scope?: ReportingScopeType;
+  raw_value?: string;
+  raw_currency?: string;
+  raw_scale?: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' | string;
+  raw_text?: string;
+  normalized_value?: number;
+  normalized_currency?: string;
+  normalized_scale?: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' | string;
+  canonical_metric_id?: string;
+  is_derived?: boolean;
+  formula?: string;
+  parent_fact_ids?: string[];
+  verification_state?: PhaseH2VerificationState;
+}
+
+export type ReportingScopeType =
+  | 'CONSOLIDATED_GROUP'
+  | 'PARENT_ONLY'
+  | 'SUBSIDIARY'
+  | 'SEGMENT'
+  | 'UNKNOWN';
+
+export type PhaseH2VerificationState =
+  | 'RAW'
+  | 'EXTRACTED'
+  | 'NORMALIZED'
+  | 'CANONICAL_CANDIDATE'
+  | 'RECONCILED'
+  | 'VERIFIED'
+  | 'DERIVED_UNVERIFIED'
+  | 'VERIFIED_DERIVED'
+  | 'CONFLICT'
+  | 'INSUFFICIENT_EVIDENCE'
+  | 'REVIEW_REQUIRED'
+  | 'REJECTED';
+
+export type PageClassificationType =
+  | 'COVER'
+  | 'INDEX'
+  | 'NARRATIVE'
+  | 'FINANCIAL_STATEMENT'
+  | 'FINANCIAL_TABLE'
+  | 'NOTE_DISCLOSURE'
+  | 'ACCOUNTING_POLICY'
+  | 'AUDITOR_REPORT'
+  | 'MANAGEMENT_REPORT'
+  | 'OTHER';
+
+export interface SixReliabilityLayersStatus {
+  ingestion: {
+    documentsProcessed: number;
+    totalDocuments: number;
+    pagesProcessed: number;
+    totalPages: number;
+    isComplete: boolean;
+  };
+  extraction: {
+    financialPagesDetected: number;
+    factsExtracted: number;
+    candidateFactsCount: number;
+    tablesDetected: number;
+    isComplete: boolean;
+  };
+  evidenceCoverage: {
+    factsWithCoordinates: number;
+    factsWithSourceText: number;
+    coveragePct: number;
+    isComplete: boolean;
+  };
+  reconciliation: {
+    balanceSheetReconciled: boolean;
+    incomeStatementReconciled: boolean;
+    cashFlowReconciled: boolean;
+    reconciliationStatus: 'RECONCILED' | 'DISCREPANCY' | 'PENDING';
+  };
+  verification: {
+    verifiedFacts: number;
+    reviewRequiredFacts: number;
+    unresolvedConflicts: number;
+    status: 'VERIFIED' | 'REVIEW_REQUIRED' | 'CONFLICT';
+  };
+  presentationIntegrity: {
+    magnitudeMismatchCount: number;
+    signMismatchCount: number;
+    taxonomyMismatchCount: number;
+    isVerified: boolean;
+  };
+  overallStatus: 'AUDIT_READY' | 'REVIEW_REQUIRED' | 'PROCESSING' | 'INCOMPLETE_EVIDENCE';
+}
+
+export interface PageDiagnostics {
+  pageNumber: number;
+  documentId: string;
+  classification: PageClassificationType;
+  tablesDetected: number;
+  candidateFactsCount: number;
+  extractedFactsCount: number;
+  rejectedFactsCount: number;
+  factsNeedingReviewCount: number;
+  hasSuspiciousZeroExtraction: boolean;
+  warningMessage?: string;
 }
 
 export interface FactCandidate {

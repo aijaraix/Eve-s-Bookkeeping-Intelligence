@@ -421,12 +421,17 @@ export default function App() {
               signal: controller.signal
             });
             clearTimeout(timeoutId);
-            if (res) break;
+            if (res && res.ok) break;
+            // If server returned 5xx transient status, log and retry
+            if (res && res.status >= 500 && attempt < 3) {
+              console.warn(`[Upload Attempt ${attempt}/3 got server status ${res.status}], retrying...`);
+              await new Promise(r => setTimeout(r, 1000 * attempt));
+            }
           } catch (fetchErr: any) {
             lastError = fetchErr;
             console.warn(`[Upload Attempt ${attempt}/3 failed]:`, fetchErr);
             if (attempt < 3) {
-              await new Promise(r => setTimeout(r, 1500 * attempt));
+              await new Promise(r => setTimeout(r, 1000 * attempt));
             }
           }
         }
