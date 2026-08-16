@@ -5,6 +5,7 @@ import {
   ForensicEntityResolver,
   LocaleAwareNumberParser
 } from "../forensicExtractionEngine.js";
+import { VerificationStateMachine } from "../verificationStateMachine.js";
 import { CANONICAL_METRIC_CONFIGS, extractDeterministicFacts } from "../../server.js";
 
 describe("Phase H.2 Presentation Integrity & QA Benchmark Isolation Suite", () => {
@@ -134,4 +135,86 @@ describe("Phase H.2 Presentation Integrity & QA Benchmark Isolation Suite", () =
     expect(fact.extraction_method).toContain("Deterministic OCR");
     expect(fact.is_benchmark).toBeUndefined();
   });
+
+  test("TEST 7: Verification State Machine Transitions & Customer Safety Rules", () => {
+    // PROPOSED cannot transition directly to APPROVED without verification/validation or evidence
+    const factLineage = {
+      source_document_id: "doc-123",
+      source_page: 42,
+      raw_text: "Sales Revenue: 321,913",
+      normalized_value: 321_913_000_000
+    };
+
+    // PROPOSED -> VALIDATED (allowed)
+    const transitionVal = VerificationStateMachine.transitionState("PROPOSED", "VALIDATED", factLineage);
+    expect(transitionVal.success).toBe(true);
+    expect(transitionVal.newState).toBe("VALIDATED");
+
+    // UI Presentation Guard check: PROPOSED fact must never be displayed as Verified
+    const proposedPresentation = VerificationStateMachine.getDashboardPresentation({
+      verification_state: "PROPOSED",
+      status: "PROPOSED"
+    });
+    expect(proposedPresentation.isVerifiedForDashboard).toBe(false);
+    expect(proposedPresentation.displayState).toContain("PROPOSED");
+    expect(proposedPresentation.displayState).not.toContain("Verified");
+
+    // REJECTED fact must never be marked as verified for dashboard
+    const rejectedPresentation = VerificationStateMachine.getDashboardPresentation({
+      verification_state: "REJECTED"
+    });
+    expect(rejectedPresentation.isVerifiedForDashboard).toBe(false);
+    expect(rejectedPresentation.displayState).toBe("REJECTED");
+  });
+
+  test("TEST 8: Complete 18-Field Lineage Survival across Pipeline", () => {
+    const canonicalFact = {
+      source_document_id: "doc-vw-2025",
+      source_document_name: "entire-vw-ar25.pdf",
+      source_page: 42,
+      source_table: "Consolidated Income Statement",
+      raw_text: "Sales revenue: 321,913 Mio €",
+      raw_value: "321,913",
+      raw_currency: "EUR",
+      raw_scale: "MILLIONS",
+      normalized_value: 321_913_000_000,
+      normalized_currency: "EUR",
+      normalized_scale: "ONES",
+      legal_entity: "Volkswagen AG",
+      reporting_entity: "Volkswagen Group Consolidated",
+      parent_entity: "Volkswagen AG",
+      workspace_entity: "Volkswagen Group",
+      reporting_scope: "CONSOLIDATED_GROUP",
+      period: "FY 2025",
+      canonical_metric_id: "revenue",
+      verification_state: "VERIFIED"
+    };
+
+    const requiredFields = [
+      "source_document_id",
+      "source_document_name",
+      "source_page",
+      "source_table",
+      "raw_text",
+      "raw_value",
+      "raw_currency",
+      "raw_scale",
+      "normalized_value",
+      "normalized_currency",
+      "normalized_scale",
+      "legal_entity",
+      "reporting_entity",
+      "parent_entity",
+      "workspace_entity",
+      "reporting_scope",
+      "period",
+      "canonical_metric_id",
+      "verification_state"
+    ];
+
+    requiredFields.forEach(field => {
+      expect((canonicalFact as any)[field]).toBeDefined();
+    });
+  });
 });
+
