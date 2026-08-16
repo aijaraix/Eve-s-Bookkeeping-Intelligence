@@ -216,5 +216,39 @@ describe("Phase H.2 Presentation Integrity & QA Benchmark Isolation Suite", () =
       expect((canonicalFact as any)[field]).toBeDefined();
     });
   });
+
+  test("TEST 9: Forensic Workspace Entity Naming Process — Prevents Naive Tokenization ('Unilever And Accounts' / 'Entire Ar25')", () => {
+    // 1. Unilever upload test
+    const unileverFile = "unilever-nv-and-plc-accounts-2025.pdf";
+    const unileverDocText = "Unilever PLC Annual Report and Accounts 2025 Consolidated Financial Statements";
+
+    const unileverRes = ForensicEntityResolver.resolveEntityAndScope(
+      unileverFile,
+      unileverDocText,
+      unileverFile
+    );
+    expect(unileverRes.workspaceEntity).toBe("Unilever PLC");
+    expect(unileverRes.workspaceEntity).not.toBe("Unilever And Accounts");
+
+    const unileverFnRes = ForensicEntityResolver.resolveEntityFromFilename(unileverFile);
+    expect(unileverFnRes.name).toBe("Unilever PLC");
+    expect(unileverFnRes.code).toBe("UNA");
+
+    // 2. Volkswagen upload test
+    const vwFile = "entire-vw-ar25.pdf";
+    const vwDocText = "Volkswagen Group Annual Report 2025";
+
+    const vwRes = ForensicEntityResolver.resolveEntityAndScope(
+      vwFile,
+      vwDocText,
+      vwFile
+    );
+    expect(vwRes.workspaceEntity).toBe("Volkswagen Group");
+    expect(vwRes.workspaceEntity).not.toBe("Entire Ar25");
+
+    const vwFnRes = ForensicEntityResolver.resolveEntityFromFilename(vwFile);
+    expect(vwFnRes.name).toBe("Volkswagen Group");
+    expect(vwFnRes.code).toBe("VOW");
+  });
 });
 

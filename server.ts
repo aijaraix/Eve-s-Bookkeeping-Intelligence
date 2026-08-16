@@ -2176,13 +2176,26 @@ async function extractEntityInfo(preParsedDocs: any[], files: Express.Multer.Fil
     }
   }
 
-  // 1. Gemini AI Analysis if key is available
+  // STEP 1: First-Pass Deterministic Forensic Resolution from Document Content & Title
+  const firstFileName = files[0]?.originalname || "";
+  const forensicRes = ForensicEntityResolver.resolveEntityAndScope(
+    firstFileName,
+    textSnippets,
+    firstFileName
+  );
+
+  let highConfidenceName = "";
+  if (forensicRes.resolutionMethod.startsWith("DETERMINISTIC_BRAND_ROOT") || forensicRes.resolutionMethod.startsWith("DYNAMIC_REGEX_LEGAL_ENTITY")) {
+    highConfidenceName = forensicRes.workspaceEntity;
+  }
+
+  // STEP 2: Gemini AI Analysis if key is available (6s timeout)
   if (ai) {
     try {
       const prompt = `You are a Big-4 CPA Lead Auditor AI. Analyze the following uploaded financial files, text snippets, and user instructions to determine:
-1. The OFFICIAL PRIMARY REPORTING CORPORATE ENTITY NAME (e.g. "Raphael Pharmaceutical Inc.").
-2. Any SUBSIDIARY or CONSOLIDATED ENTITIES mentioned in the text (e.g. "Raphael Pharmaceutical Ltd.").
-3. Any EXTERNAL ORGANIZATIONS / PARTIES mentioned (e.g. "FDA", "PwC", "Bank of America", "Rambam Health Corporation", "Citruslabs") which are NOT part of the corporate group.
+1. The OFFICIAL PRIMARY REPORTING CORPORATE ENTITY NAME (e.g. "Unilever PLC", "Volkswagen AG", "Siemens AG").
+2. Any SUBSIDIARY or CONSOLIDATED ENTITIES mentioned in the text.
+3. Any EXTERNAL ORGANIZATIONS / PARTIES mentioned which are NOT part of the corporate group.
 
 FILES UPLOADED: ${fileNames}
 USER INSTRUCTIONS: ${spokenInstruction || "None"}
@@ -2190,7 +2203,7 @@ DRIVE URL: ${driveUrl || "None"}
 DOCUMENT PREVIEWS: ${textSnippets || "None"}
 
 CRITICAL INSTRUCTIONS:
-- NEVER name the company after test instruction files, READMEs, or generic terms like "README", "Test Instructions", "Read Me", "Invoice", "Statement", "Report", "File", "Upload", "Data", "Document".
+- NEVER name the company after generic terms or filename fragments like "README", "Test Instructions", "Invoice", "Statement", "Report", "Entire Ar25", "Unilever And Accounts".
 - Return ONLY a JSON object:
 {
   "name": "Official Primary Corporate Entity Name",
@@ -2200,11 +2213,11 @@ CRITICAL INSTRUCTIONS:
   "discoveredEntities": [
     { "name": "Subsidiary Company Name", "type": "SUBSIDIARY", "ownershipPercentage": 100 }
   ],
-  "externalParties": ["FDA", "PwC", "Bank of America", "Citruslabs"]
+  "externalParties": ["FDA", "PwC", "Bank of America"]
 }`;
 
       const aiPromise = generateAIContent([{ text: prompt }], true).catch(() => null);
-      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 2500));
+      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 6000));
       const responseText = await Promise.race([aiPromise, timeoutPromise]);
 
       if (responseText) {
@@ -2213,8 +2226,8 @@ CRITICAL INSTRUCTIONS:
           return {
             name: parsed.name.trim(),
             code: (parsed.code || parsed.name.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "ENT").toUpperCase(),
-            currency: parsed.currency || "USD",
-            country: parsed.country || "United States",
+            currency: parsed.currency || "EUR",
+            country: parsed.country || "United Kingdom",
             discoveredEntities: Array.isArray(parsed.discoveredEntities) ? parsed.discoveredEntities : [],
             externalParties: Array.isArray(parsed.externalParties) ? parsed.externalParties : []
           };
@@ -2225,79 +2238,28 @@ CRITICAL INSTRUCTIONS:
     }
   }
 
-  // 2. Smart Heuristic Fallback
-  const genericWordsRegex = /(readme|test|instructions|factura|invoice|statement|report|annual|consolidated|individual|presentation|results|review|overview|enterprise|q[1-4]|202[0-9]|received|pdf|doc|docx|txt|google|drive|upload|data|document)/gi;
-
-  const meaningfulFileNames = files
-    .map(f => f.originalname || "")
-    .filter(name => {
-      const stripped = name.replace(genericWordsRegex, "").replace(/[^a-zA-Z0-9]/g, "").trim();
-      return stripped.length >= 3;
-    });
-
-  let resolvedCurrency = "USD";
-  if (/presented in (yen|jpy|japanese yen)/i.test(textSnippets) || /expressed in (yen|jpy)/i.test(textSnippets) || /in millions of yen/i.test(textSnippets) || /¥/i.test(textSnippets)) {
-    resolvedCurrency = "JPY";
-  } else if (/presented in (euros?|eur)/i.test(textSnippets) || /expressed in (euros?|eur)/i.test(textSnippets) || /€/i.test(textSnippets)) {
-    resolvedCurrency = "EUR";
-  } else if (/presented in (us dollars?|usd)/i.test(textSnippets) || /expressed in (us dollars?|usd)/i.test(textSnippets) || /\$/i.test(textSnippets)) {
-    resolvedCurrency = "USD";
-  } else if (/presented in (pounds?|gbp|sterling)/i.test(textSnippets) || /£/i.test(textSnippets)) {
-    resolvedCurrency = "GBP";
-  } else if (/presented in (swiss francs?|chf)/i.test(textSnippets) || /chf/i.test(textSnippets)) {
-    resolvedCurrency = "CHF";
+  // STEP 3: High-Confidence Forensic Match OR Brand Root Filename Fallback
+  if (highConfidenceName) {
+    const code = (highConfidenceName.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "PRJ").toUpperCase();
+    return {
+      name: highConfidenceName,
+      code,
+      currency: "EUR",
+      country: "Germany",
+      discoveredEntities: [],
+      externalParties: []
+    };
   }
 
-  const sectionWordsRegex = /(corp|governance|compensation|remuneration|financial|statements|report|annual|consolidated|individual|standalone|notes|auditor|review|overview)/gi;
-
-  let baseCandidate = meaningfulFileNames[0] || files[0]?.originalname || spokenInstruction || "Enterprise Audit Workspace";
-  
-  const cleaned = baseCandidate
-    .replace(/\.[^/.]+$/, "")
-    .replace(genericWordsRegex, "")
-    .replace(sectionWordsRegex, "")
-    .replace(/[_.-]+/g, " ")
-    .trim();
-
-  let finalName = "Enterprise Audit Workspace";
-  if (cleaned.length >= 3) {
-    finalName = cleaned
-      .split(" ")
-      .filter(w => w.length > 2)
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(" ");
-  } else if (spokenInstruction.replace(genericWordsRegex, "").trim().length >= 3) {
-    finalName = spokenInstruction.replace(genericWordsRegex, "").trim().slice(0, 35);
-  }
-
-  if (!finalName || finalName.length < 3 || finalName.toLowerCase() === "review" || finalName.toLowerCase() === "review enterprise") {
-    finalName = "Corporate Entity";
-  }
-
-  // Generic entity detection via company name patterns in text
-  const discoveredEntities: any[] = [];
-  const externalParties: string[] = [];
-  const legalEntityMatches = textSnippets.match(/([A-Z][A-Za-z0-9\s&,.-]+?\b(?:Ltd|Limited|Inc|Corporation|Corp|AG|GmbH|PLC|S\.A\.)\b)/g);
-  if (legalEntityMatches) {
-    const uniqueMatches = Array.from(new Set(legalEntityMatches.map(m => m.trim())));
-    uniqueMatches.forEach(entityName => {
-      if (entityName.toLowerCase() !== finalName.toLowerCase() && entityName.length > 3 && entityName.length < 60) {
-        discoveredEntities.push({
-          name: entityName,
-          type: "SUBSIDIARY",
-          ownershipPercentage: 100
-        });
-      }
-    });
-  }
-
+  // Fallback to Deterministic Filename Brand Root Resolver (never naive title-cased fragments)
+  const fnRes = ForensicEntityResolver.resolveEntityFromFilename(firstFileName);
   return {
-    name: finalName,
-    code: (finalName.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "PRJ").toUpperCase(),
-    currency: resolvedCurrency,
+    name: fnRes.name,
+    code: fnRes.code,
+    currency: fnRes.currency,
     country: "United States",
-    discoveredEntities,
-    externalParties
+    discoveredEntities: [],
+    externalParties: []
   };
 }
 

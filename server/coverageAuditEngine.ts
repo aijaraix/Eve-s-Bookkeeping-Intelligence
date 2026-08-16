@@ -14,6 +14,15 @@ export interface ZeroFactPageAuditItem {
   recommendedExtractor?: string;
 }
 
+export interface EntityNamingAuditRecord {
+  uploadedFileName: string;
+  historicalNaiveName: string;
+  correctedLegalEntity: string;
+  resolutionMethod: string;
+  rootCauseAnalysis: string;
+  textEvidenceSnippet: string;
+}
+
 export interface ExtractionDiagnosticsReport {
   financialPagesDetected: number;
   financialTablesDetected: number;
@@ -30,6 +39,7 @@ export interface ExtractionDiagnosticsReport {
   factLineageCoverage: number; // percentage e.g. 100%
   zeroFactPagesBreakdown: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G', number>;
   representativeExamples: ZeroFactPageAuditItem[];
+  entityNamingAudit?: EntityNamingAuditRecord[];
 }
 
 export class CoverageAuditEngine {
