@@ -158,7 +158,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   // Build customer primary navigation + role-based extensions
   const customerNavItems: NavItem[] = [
     { id: 'overview', label: 'Home', icon: LayoutDashboard },
-    { id: 'companies', label: 'Companies', icon: Building2 },
+    { id: 'projects', label: 'Projects', icon: FolderKanban },
     { id: 'documents', label: 'Documents', icon: FileText, count: totalDocs },
     { id: 'financials', label: 'Financials', icon: DollarSign },
     { id: 'reports', label: 'Reports & AI', icon: Sparkles },
@@ -225,45 +225,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           </div>
         )}
       </div>
-
-      {/* Role Switcher Pill Bar */}
-      {!isCollapsed && onRoleChange && (
-        <div className="px-3 py-2 bg-[#060c21]/60 border-b border-[#18264d] flex items-center justify-between">
-          <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Mode:</span>
-          <div className="flex items-center space-x-1 bg-[#0d1b3f] p-0.5 rounded-lg border border-[#1e2e5c]">
-            <button
-              onClick={() => onRoleChange('customer')}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
-                activeRole === 'customer'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Customer
-            </button>
-            <button
-              onClick={() => onRoleChange('reviewer')}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
-                activeRole === 'reviewer'
-                  ? 'bg-purple-600 text-white shadow-2xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Reviewer
-            </button>
-            <button
-              onClick={() => onRoleChange('admin')}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
-                activeRole === 'admin'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Admin
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Navigation Scroll Area */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 scrollbar-thin scrollbar-thumb-[#1e2e5c]">
