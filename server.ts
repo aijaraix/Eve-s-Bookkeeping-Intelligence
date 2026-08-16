@@ -33,12 +33,12 @@ import {
   PresentationIntegrityGate
 } from "./server/forensicExtractionEngine.js";
 
-const fileRouter = new FileRouter();
-const anyDocParser = new AnyDocParser();
-const spreadsheetParser = new SpreadsheetParser();
-const ocrParser = new OCRParser();
-const webParser = new WebParser();
-const docIntelligenceAgent = new DocumentIntelligenceAgent();
+export const fileRouter = new FileRouter();
+export const anyDocParser = new AnyDocParser();
+export const spreadsheetParser = new SpreadsheetParser();
+export const ocrParser = new OCRParser();
+export const webParser = new WebParser();
+export const docIntelligenceAgent = new DocumentIntelligenceAgent();
 const wizardEngine = new DeliverableWizardEngine();
 
 const app = express();

@@ -144,6 +144,19 @@ export class LocaleAwareNumberParser {
     }
 
     const trimmed = rawStr.trim();
+
+    // STAGE 6: Year-As-Value Protection Guard
+    const hasMonetaryContext = /[\$€£¥]|billion|million|thousand|mio|mrd|teur|t€|\b[mbk]\b/i.test(rawStr) || /[\$€£¥]|billion|million|thousand|mio|mrd|teur|t€|\b[mbk]\b/i.test(contextText || "");
+    if (!hasMonetaryContext && /\b(19|20)\d\d\b/.test(rawStr)) {
+      return {
+        normalizedValue: null,
+        rawValue: trimmed,
+        isAmbiguous: true,
+        scaleMultiplier: scaleHint,
+        rawScaleLabel: "UNKNOWN",
+        parsingNotes: ["Rejected isolated year string without monetary context"]
+      };
+    }
     let isNegative = false;
     if ((trimmed.startsWith("(") && trimmed.endsWith(")")) || trimmed.startsWith("-") || trimmed.includes("–")) {
       isNegative = true;
