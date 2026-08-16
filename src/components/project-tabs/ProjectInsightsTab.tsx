@@ -28,7 +28,7 @@ export const ProjectInsightsTab: React.FC<ProjectInsightsTabProps> = ({
   const [chatHistory, setChatHistory] = useState<Array<{ sender: 'user' | 'eve'; text: string }>>([
     {
       sender: 'eve',
-      text: `Hello! I am Eve AI, grounded directly in ${workspace.name || 'Unilever PLC'}'s financial statements and working papers. Ask me anything about revenue trends, margin anomalies, or audit risk findings.`
+      text: `Hello! I am Eve AI, grounded directly in ${workspace.name || 'this workspace'}'s financial statements and working papers. Ask me anything about revenue trends, margin anomalies, or audit risk findings.`
     }
   ]);
 
@@ -45,7 +45,7 @@ export const ProjectInsightsTab: React.FC<ProjectInsightsTabProps> = ({
         ...prev,
         {
           sender: 'eve',
-          text: `Based on my analysis of 27 source documents for ${workspace.name || 'Unilever PLC'}, gross margin improved by +2.5pp YoY primarily driven by pricing power in Personal Care and lower palm oil commodity prices. However, marketing expenses spiked +18.1% in EMEA which requires ongoing oversight.`
+          text: `Based on my analysis of 27 source documents for ${workspace.name || 'Client Workspace'}, gross margin improved by +2.5pp YoY primarily driven by pricing power and lower operating overhead. However, marketing expenditures spiked +18.1% in regional divisions which requires ongoing oversight.`
         }
       ]);
     }, 600);
@@ -88,7 +88,7 @@ export const ProjectInsightsTab: React.FC<ProjectInsightsTabProps> = ({
           <h3 className="text-xs font-black uppercase tracking-wider">Eve AI Executive Intelligence Brief</h3>
         </div>
         <p className="text-sm font-medium leading-relaxed text-slate-100">
-          "Eve analyzed <strong>3,482 financial data points</strong> across <strong>27 source documents</strong> for {workspace.name || 'Unilever PLC'}. Group performance is robust with €59.60B in revenue (+6.0% YoY) and EBITDA margin reaching 16.5%. Key areas requiring auditor attention include €4.2M in cut-off journal entries near year-end, an 18.1% spike in marketing expenditures, and unhedged LatAm FX translation exposures."
+          Eve analyzed <strong>3,482 financial data points</strong> across <strong>27 source documents</strong> for <strong>{workspace.name || 'Client Workspace'}</strong>. Group performance is robust with consolidated revenue up (+6.0% YoY) and EBITDA margin reaching 16.5%. Key areas requiring auditor attention include €4.2M in cut-off journal entries near year-end, an 18.1% spike in marketing expenditures, and unhedged FX translation exposures.
         </p>
       </div>
 

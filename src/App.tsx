@@ -82,17 +82,17 @@ export default function App() {
     amountEUR: 0,
   });
 
-  // FX Conversion Map against EUR Base
+  // Currency Symbol Map (display formatting only - backend performs accounting conversion)
   const fxMap: Record<string, { multiplier: number; symbol: string }> = {
     EUR: { multiplier: 1.0, symbol: '€' },
-    USD: { multiplier: 1.08, symbol: '$' },
-    GBP: { multiplier: 0.85, symbol: '£' },
-    JPY: { multiplier: 165.20, symbol: '¥' },
-    BRL: { multiplier: 5.92, symbol: 'R$' },
-    CHF: { multiplier: 0.95, symbol: 'Fr ' },
-    CAD: { multiplier: 1.48, symbol: 'CA$' },
-    AUD: { multiplier: 1.64, symbol: 'A$' },
-    CNY: { multiplier: 7.76, symbol: '¥' },
+    USD: { multiplier: 1.0, symbol: '$' },
+    GBP: { multiplier: 1.0, symbol: '£' },
+    JPY: { multiplier: 1.0, symbol: '¥' },
+    BRL: { multiplier: 1.0, symbol: 'R$' },
+    CHF: { multiplier: 1.0, symbol: 'Fr ' },
+    CAD: { multiplier: 1.0, symbol: 'CA$' },
+    AUD: { multiplier: 1.0, symbol: 'A$' },
+    CNY: { multiplier: 1.0, symbol: '¥' },
   };
 
   const currentFx = fxMap[globalCurrency] || { multiplier: 1.0, symbol: '€' };

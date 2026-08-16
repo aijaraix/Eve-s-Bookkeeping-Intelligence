@@ -51,28 +51,28 @@ export async function runDiscrepancyAuditorAgent(
       };
     }
 
-    // 2. Check for Hallucinated Stale Figure (e.g. 59.60B Unilever stale revenue)
-    if (labelLower.includes("revenue") && (fact.valueOriginal.includes("59.60") || valNum === 59600000000)) {
+    // 2. Check for Low Confidence Extraction Anomaly
+    if (fact.confidence != null && fact.confidence < 0.50) {
       const disc: DiscrepancyItem = {
-        id: `DISC-HALLUCINATION-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        id: `DISC-CONFIDENCE-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         workspaceId,
         documentId,
         factId: fact.id,
-        category: "YOY_ANOMALY",
+        category: "SCALE_AMBIGUITY",
         severity: "HIGH",
-        description: `Rejected stale hallucinated turnover figure (€59.60B) in favor of current FY report value (€50.50B).`,
-        expectedValue: "€50.50B",
+        description: `Flagged fact "${fact.labelOriginal}": Extraction confidence score (${fact.confidence}) below audit threshold (0.50).`,
+        expectedValue: "High confidence extraction (>0.85)",
         actualValue: fact.valueOriginal,
         suggestedAction: "REJECT_FACT",
-        resolved: true,
+        resolved: false,
       };
       discrepancies.push(disc);
-      findings.push(`DISCREPANCY DETECTED: Fact ${fact.id} rejected due to stale figure hallucination guard.`);
+      findings.push(`DISCREPANCY DETECTED: Fact ${fact.id} flagged due to low extraction confidence (${fact.confidence}).`);
 
       return {
         ...fact,
-        status: "REJECTED",
-        verificationNotes: (fact.verificationNotes || "") + " [REJECTED: Stale historical figure]",
+        status: "REVIEW_REQUIRED",
+        verificationNotes: (fact.verificationNotes || "") + " [REVIEW REQUIRED: Low extraction confidence]",
       };
     }
 

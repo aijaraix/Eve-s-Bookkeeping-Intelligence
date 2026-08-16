@@ -26,92 +26,73 @@ export interface DeliverableItem {
   variation?: 'Corporate Classic' | 'Modern Advisory' | 'Executive Board';
 }
 
-// Authentic Telefónica S.A. Brand Logo SVG Component
-const TelefonicaLogo: React.FC<{ className?: string; dark?: boolean }> = ({ className = "h-8", dark = false }) => (
+// Dynamic Corporate Logo Component
+const CorporateLogo: React.FC<{ name?: string; className?: string; dark?: boolean }> = ({ name = "Corporate Client", className = "h-8", dark = false }) => (
   <div className={`inline-flex items-center space-x-2 font-sans ${className}`}>
-    {/* Iconic 5 Circles 'T' Symbol */}
-    <svg viewBox="0 0 100 100" className="w-7 h-7 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="20" cy="20" r="14" fill="#0066FF" />
-      <circle cx="50" cy="20" r="14" fill="#0066FF" />
-      <circle cx="80" cy="20" r="14" fill="#0066FF" />
-      <circle cx="50" cy="50" r="14" fill="#0066FF" />
-      <circle cx="50" cy="80" r="14" fill="#0066FF" />
-    </svg>
+    <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
+      {name.charAt(0).toUpperCase()}
+    </div>
     <div className="flex flex-col">
-      <span className={`font-extrabold text-base tracking-tight leading-none ${dark ? 'text-white' : 'text-[#003345]'}`}>
-        Telefónica
+      <span className={`font-extrabold text-base tracking-tight leading-none ${dark ? 'text-white' : 'text-slate-900'}`}>
+        {name}
       </span>
-      <span className={`text-[8px] font-bold uppercase tracking-widest ${dark ? 'text-blue-300' : 'text-[#0066FF]'}`}>
-        S.A. • Global Telecom
+      <span className={`text-[8px] font-bold uppercase tracking-widest ${dark ? 'text-blue-300' : 'text-blue-600'}`}>
+        Enterprise Client Group
       </span>
     </div>
   </div>
 );
 
-// Company Database Mapping for Dynamic Wizard Logic
-const companyDatabase = [
-  {
-    name: 'Telefónica S.A.',
-    domain: 'telefonica.com',
-    industry: 'Telecommunications & Cloud Infrastructure',
-    headquarters: 'Madrid, Spain',
-    logo: <TelefonicaLogo />,
-    brandColors: {
-      primary: '#003345',   // Telefónica Rich Navy
-      secondary: '#0066FF', // Telefónica Vivid Blue
-      accent: '#00A9E0',    // Tech Cyan
-      bg: '#F4F6F9',        // Light Executive Canvas
-    },
-    projects: [
-      {
-        id: 'proj-tel-01',
-        name: 'FY2024 Audit',
-        periods: ['Jan 1 – Dec 31, 2024 (Full Year)', 'Q4 2024 (Oct 1 – Dec 31, 2024)'],
-        currencies: ['EUR – Euro (€)', 'USD – US Dollar ($)'],
-        fiscalYears: ['FY2024', 'FY2025 (Forecast)'],
-        accountingStandards: ['IFRS / EU GAAP', 'US GAAP Reconciliation'],
-        baseReadinessScore: 92,
-        openItems: [
-          'Allowance for ECL credit risk footnote pending partner sign-off',
-          'Intercompany receivables subledger reconciliation (€420K delta)'
-        ],
-        completedItemsCount: 18,
-        totalItemsCount: 20
-      },
-      {
-        id: 'proj-tel-02',
-        name: 'Q1 2024 Interim Review',
-        periods: ['Q1 2024 (Jan 1 – Mar 31, 2024)'],
-        currencies: ['EUR – Euro (€)'],
-        fiscalYears: ['FY2024'],
-        accountingStandards: ['IFRS'],
-        baseReadinessScore: 98,
-        openItems: [
-          'Final partner sign-off on segment revenue note'
-        ],
-        completedItemsCount: 19,
-        totalItemsCount: 20
-      },
-      {
-        id: 'proj-tel-03',
-        name: 'Debt Covenant & Loan Review',
-        periods: ['Trailing 12 Months (Dec 31, 2024)'],
-        currencies: ['EUR – Euro (€)', 'USD – US Dollar ($)'],
-        fiscalYears: ['FY2024'],
-        accountingStandards: ['IFRS'],
-        baseReadinessScore: 88,
-        openItems: [
-          'Bank syndication covenant confirmation letter pending',
-          'EBITDA leverage ratio calculation verification'
-        ],
-        completedItemsCount: 16,
-        totalItemsCount: 20
-      }
-    ]
-  }
-];
-
 export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary }) => {
+  const clientName = (summary as any)?.workspaceName || (summary as any)?.entityName || 'Corporate Client Group';
+
+  const companyDatabase = [
+    {
+      name: clientName,
+      domain: 'corporate.com',
+      industry: 'Enterprise Services & Infrastructure',
+      headquarters: 'Primary Operating Jurisdiction',
+      logo: <CorporateLogo name={clientName} />,
+      brandColors: {
+        primary: '#1e293b',
+        secondary: '#2563eb',
+        accent: '#0284c7',
+        bg: '#f8fafc',
+      },
+      projects: [
+        {
+          id: 'proj-01',
+          name: 'FY2024 Audit',
+          periods: ['Jan 1 – Dec 31, 2024 (Full Year)', 'Q4 2024 (Oct 1 – Dec 31, 2024)'],
+          currencies: ['EUR – Euro (€)', 'USD – US Dollar ($)'],
+          fiscalYears: ['FY2024', 'FY2025 (Forecast)'],
+          accountingStandards: ['IFRS / EU GAAP', 'US GAAP Reconciliation'],
+          baseReadinessScore: 92,
+          openItems: [
+            'Allowance for ECL credit risk footnote pending partner sign-off',
+            'Intercompany receivables subledger reconciliation (€420K delta)'
+          ],
+          completedItemsCount: 18,
+          totalItemsCount: 20
+        },
+        {
+          id: 'proj-02',
+          name: 'Q1 2024 Interim Review',
+          periods: ['Q1 2024 (Jan 1 – Mar 31, 2024)'],
+          currencies: ['EUR – Euro (€)'],
+          fiscalYears: ['FY2024'],
+          accountingStandards: ['IFRS'],
+          baseReadinessScore: 98,
+          openItems: [
+            'Final partner sign-off on segment revenue note'
+          ],
+          completedItemsCount: 19,
+          totalItemsCount: 20
+        }
+      ]
+    }
+  ];
+
   // Navigation & Modal States
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<number>(1);
@@ -124,8 +105,8 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
   const [deliverables, setDeliverables] = useState<DeliverableItem[]>([
     {
       id: 'del-001',
-      name: 'Annual Audit Report - Telefónica S.A.',
-      company: 'Telefónica S.A.',
+      name: `Annual Audit Report - ${clientName}`,
+      company: clientName,
       project: 'FY2024 Audit',
       type: 'Annual Audit Report',
       audience: 'Board of Directors',
@@ -320,9 +301,10 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
       `2. Benford's Law Journal Entry Analysis: Evaluated 142,890 GL entries; zero fraudulent anomalies flagged.\n\n` +
       `Digitally Signed & Published by Eve's Bookkeeping & Audit Intelligence Platform.`;
 
+    const safeClientName = clientName.replace(/[^a-zA-Z0-9]/g, '_');
     const file = new Blob([fileContent], { type: 'application/pdf' });
     element.href = URL.createObjectURL(file);
-    element.download = `Telefonica_SA_${selectedDeliverableForPreview.project.replace(/[^a-zA-Z0-9]/g, '_')}_Audit_Report.pdf`;
+    element.download = `${safeClientName}_${selectedDeliverableForPreview.project.replace(/[^a-zA-Z0-9]/g, '_')}_Audit_Report.pdf`;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
@@ -331,8 +313,9 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
   // Export Word .docx trigger
   const handleExportWord = () => {
     if (!selectedDeliverableForPreview) return;
+    const safeClientName = clientName.replace(/[^a-zA-Z0-9]/g, '_');
     const element = document.createElement("a");
-    const fileContent = `TELEFÓNICA S.A. - INDEPENDENT AUDITOR'S REPORT & ADVISORY DOSSIER\n` +
+    const fileContent = `${clientName.toUpperCase()} - INDEPENDENT AUDITOR'S REPORT & ADVISORY DOSSIER\n` +
       `============================================================\n` +
       `Deliverable: ${selectedDeliverableForPreview.name}\n` +
       `Company: ${selectedDeliverableForPreview.company}\n` +
@@ -340,11 +323,11 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
       `Audience: ${selectedDeliverableForPreview.audience}\n` +
       `Date: August 6, 2026\n\n` +
       `EXECUTIVE SUMMARY:\n` +
-      `In our opinion, the consolidated financial statements present fairly, in all material respects, the financial position of Telefónica S.A. as of December 31, 2024...`;
+      `In our opinion, the consolidated financial statements present fairly, in all material respects, the financial position of ${clientName} as of December 31, 2024...`;
 
     const file = new Blob([fileContent], { type: 'application/msword' });
     element.href = URL.createObjectURL(file);
-    element.download = `Telefonica_SA_${selectedDeliverableForPreview.project.replace(/[^a-zA-Z0-9]/g, '_')}_Audit_Report.docx`;
+    element.download = `${safeClientName}_${selectedDeliverableForPreview.project.replace(/[^a-zA-Z0-9]/g, '_')}_Audit_Report.docx`;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
@@ -490,9 +473,9 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs col-span-2 md:col-span-1">
           <p className="text-[10px] font-bold text-blue-600 uppercase">Primary Entity</p>
           <div className="flex items-center space-x-1.5 mt-1">
-            <TelefonicaLogo className="h-5" />
+            <CorporateLogo name={clientName} className="h-5" />
           </div>
-          <p className="text-[10px] text-slate-500 mt-0.5">Madrid, Spain • IFRS</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">Primary Jurisdiction • IFRS</p>
         </div>
       </div>
 
@@ -1019,11 +1002,11 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
 
                     {/* Client Official Logo */}
                     <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-3 shadow-2xs">
-                      <span className="text-[10px] font-bold text-[#0066FF] uppercase tracking-wider">CLIENT OFFICIAL LOGO (TELEFÓNICA S.A.)</span>
+                      <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">CLIENT OFFICIAL LOGO ({clientName})</span>
                       <div className="flex items-center space-x-3 p-3 bg-slate-100 rounded-xl border border-slate-200">
-                        <TelefonicaLogo className="h-7" />
+                        <CorporateLogo name={clientName} className="h-7" />
                       </div>
-                      <p className="text-[10px] text-slate-500">Official logo retrieved from <strong>telefonica.com</strong> brand identity repository.</p>
+                      <p className="text-[10px] text-slate-500">Official logo generated from client brand identity repository.</p>
                     </div>
                   </div>
 
@@ -1050,7 +1033,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                     <div>
                       <p className="font-bold">Official Client Branding Verified!</p>
-                      <p className="text-[11px] text-emerald-900">Retrieved official logo and brand palette for <strong>Telefónica S.A.</strong> (telefonica.com) and embedded in document template engine.</p>
+                      <p className="text-[11px] text-emerald-900">Retrieved official logo and brand palette for <strong>{clientName}</strong> and embedded in document template engine.</p>
                     </div>
                   </div>
                 </div>
@@ -1148,7 +1131,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                         <div className="h-32 bg-gradient-to-br from-[#003345] via-[#004d66] to-[#0066FF] relative overflow-hidden p-3 text-white flex flex-col justify-between">
                           <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=600&q=80')] bg-cover bg-center opacity-25" />
                           <div className="relative z-10 flex justify-between items-start">
-                            <TelefonicaLogo dark className="h-5" />
+                            <CorporateLogo name={clientName} dark className="h-5" />
                           </div>
                           <div className="relative z-10">
                             <p className="text-xs font-bold text-cyan-300 uppercase tracking-wider">EXECUTIVE ADVISORY DOSSIER</p>
@@ -1352,7 +1335,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                   <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80')] bg-cover bg-center opacity-20" />
                   
                   <div className="relative z-10 flex items-center justify-between">
-                    <TelefonicaLogo dark className="h-10" />
+                    <CorporateLogo name={clientName} dark className="h-10" />
                     <span className="px-3 py-1 bg-white/10 backdrop-blur-xs rounded-full text-[10px] font-mono text-cyan-200 border border-white/20">
                       CONFIDENTIAL DOSSIER
                     </span>
@@ -1366,7 +1349,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                       ANNUAL AUDIT REPORT FY2024
                     </h1>
                     <p className="text-sm text-blue-100 max-w-lg">
-                      Prepared for the Board of Directors & Audit Committee of Telefónica S.A.
+                      Prepared for the Board of Directors & Audit Committee of {clientName}
                     </p>
                   </div>
 
@@ -1377,13 +1360,13 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                     </div>
                     <div className="text-right font-mono text-[11px]">
                       <p>Date: August 6, 2026</p>
-                      <p>Ref: W/P-TEL-2024-AUD</p>
+                      <p>Ref: W/P-AUDIT-2024</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="p-4 bg-slate-50 border-t text-center text-[10px] font-mono text-slate-500">
-                  Page 1 of 6 • Cover Page • Telefónica S.A. FY2024
+                  Page 1 of 6 • Cover Page • {clientName} FY2024
                 </div>
               </div>
 
@@ -1394,7 +1377,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
               >
                 <div>
                   <div className="flex items-center justify-between border-b pb-4 mb-6">
-                    <TelefonicaLogo className="h-6" />
+                    <CorporateLogo name={clientName} className="h-6" />
                     <span className="text-[10px] font-mono text-slate-500">Page 2 of 6</span>
                   </div>
 
@@ -1403,7 +1386,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                   <div className="p-5 bg-blue-50/70 border-l-4 border-[#0066FF] rounded-r-2xl space-y-2 mb-6">
                     <h3 className="font-bold text-[#003345] text-xs uppercase tracking-wider">Independent Auditor's Declaration</h3>
                     <p className="text-xs text-slate-800 leading-relaxed">
-                      In our opinion, the consolidated financial statements present fairly, in all material respects, the financial position of <strong>Telefónica S.A.</strong> as of December 31, 2024, and the results of its operations and cash flows for the year then ended in conformity with U.S. Generally Accepted Accounting Principles (US GAAP) and International Financial Reporting Standards (IFRS 15/16).
+                      In our opinion, the consolidated financial statements present fairly, in all material respects, the financial position of <strong>{clientName}</strong> as of December 31, 2024, and the results of its operations and cash flows for the year then ended in conformity with U.S. Generally Accepted Accounting Principles (US GAAP) and International Financial Reporting Standards (IFRS 15/16).
                     </p>
                   </div>
 
@@ -1440,7 +1423,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
               >
                 <div>
                   <div className="flex items-center justify-between border-b pb-4 mb-6">
-                    <TelefonicaLogo className="h-6" />
+                    <CorporateLogo name={clientName} className="h-6" />
                     <span className="text-[10px] font-mono text-slate-500">Page 3 of 6</span>
                   </div>
 
@@ -1508,7 +1491,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                 </div>
 
                 <div className="pt-4 border-t flex justify-between text-[10px] font-mono text-slate-500">
-                  <span>Confidential - Telefónica S.A.</span>
+                  <span>Confidential - {clientName}</span>
                   <span>Page 3 of 6</span>
                 </div>
               </div>
@@ -1520,7 +1503,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
               >
                 <div>
                   <div className="flex items-center justify-between border-b pb-4 mb-6">
-                    <TelefonicaLogo className="h-6" />
+                    <CorporateLogo name={clientName} className="h-6" />
                     <span className="text-[10px] font-mono text-slate-500">Page 4 of 6</span>
                   </div>
 
@@ -1543,17 +1526,17 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                   </div>
 
                   <div className="space-y-2 text-xs">
-                    <h4 className="font-bold text-[#003345]">Key Geographic Segment Contributions</h4>
+                    <h4 className="font-bold text-[#003345]">Key Operating Division Contributions</h4>
                     <ul className="list-disc pl-5 space-y-1 text-slate-700">
-                      <li><strong>Telefónica España:</strong> €12,650M revenue (31.1% of total) with 36.4% EBITDA margin.</li>
-                      <li><strong>Virgin Media O2 (UK Joint Venture):</strong> Strong ARPU growth in post-paid fiber.</li>
-                      <li><strong>Telefónica Deutschland:</strong> 5G rollout completed ahead of schedule.</li>
+                      <li><strong>Domestic Operating Division:</strong> €12,650M revenue (31.1% of total) with 36.4% EBITDA margin.</li>
+                      <li><strong>International Subsidiaries & JVs:</strong> Strong ARPU growth across core lines.</li>
+                      <li><strong>Digital Infrastructure:</strong> System upgrades completed ahead of schedule.</li>
                     </ul>
                   </div>
                 </div>
 
                 <div className="pt-4 border-t flex justify-between text-[10px] font-mono text-slate-500">
-                  <span>Confidential - Telefónica S.A.</span>
+                  <span>Confidential - {clientName}</span>
                   <span>Page 4 of 6</span>
                 </div>
               </div>
@@ -1565,7 +1548,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
               >
                 <div>
                   <div className="flex items-center justify-between border-b pb-4 mb-6">
-                    <TelefonicaLogo className="h-6" />
+                    <CorporateLogo name={clientName} className="h-6" />
                     <span className="text-[10px] font-mono text-slate-500">Page 5 of 6</span>
                   </div>
 
@@ -1596,7 +1579,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
                 </div>
 
                 <div className="pt-4 border-t flex justify-between text-[10px] font-mono text-slate-500">
-                  <span>Confidential - Telefónica S.A.</span>
+                  <span>Confidential - {clientName}</span>
                   <span>Page 5 of 6</span>
                 </div>
               </div>
@@ -1608,7 +1591,7 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ summary 
               >
                 <div>
                   <div className="flex items-center justify-between border-b pb-4 mb-6">
-                    <TelefonicaLogo className="h-6" />
+                    <CorporateLogo name={clientName} className="h-6" />
                     <span className="text-[10px] font-mono text-slate-500">Page 6 of 6</span>
                   </div>
 

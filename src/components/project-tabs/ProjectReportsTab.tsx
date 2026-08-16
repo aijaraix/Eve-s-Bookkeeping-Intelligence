@@ -40,7 +40,7 @@ export const ProjectReportsTab: React.FC<ProjectReportsTabProps> = ({
         <div className="flex justify-between items-center bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs">
           <div>
             <h2 className="text-base font-black text-slate-900">AI Deliverables Report Generator</h2>
-            <p className="text-xs text-slate-500">Pre-loaded with workspace context for {workspace.name || 'Unilever PLC'}</p>
+            <p className="text-xs text-slate-500">Pre-loaded with workspace context for {workspace.name || 'Active Client Workspace'}</p>
           </div>
           <button
             onClick={() => setShowWizard(false)}

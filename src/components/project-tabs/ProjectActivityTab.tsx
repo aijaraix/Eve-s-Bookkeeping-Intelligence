@@ -14,7 +14,7 @@ export const ProjectActivityTab: React.FC<ProjectActivityTabProps> = ({
   const [agentFilter, setAgentFilter] = useState('All Actors');
 
   const activityTrail = [
-    { time: '2026-06-07 14:32:05', actor: 'Sarah Johnson', role: 'Human Audit Manager', action: 'Uploaded Source File', object: 'Unilever FY2025 Annual Report.pdf', oldVal: '—', newVal: '14.8 MB PDF', reason: 'Annual reporting submission' },
+    { time: '2026-06-07 14:32:05', actor: 'Sarah Johnson', role: 'Human Audit Manager', action: 'Uploaded Source File', object: `${(workspace.name || 'Client').replace(/\s+/g, '_')}_Annual_Report.pdf`, oldVal: '—', newVal: '14.8 MB PDF', reason: 'Annual reporting submission' },
     { time: '2026-06-07 14:32:40', actor: 'Eve Extraction Engine', role: 'AI Agent', action: 'Extracted Financial Fact', object: 'Revenue Line Item', oldVal: '—', newVal: '€59,600,000,000', reason: 'OCR & Vision parsing complete' },
     { time: '2026-06-07 14:33:10', actor: 'Hermes Prime', role: 'AI Agent (Node 0)', action: 'Node Consensus Verification', object: 'Finding F-018 Revenue Cut-off', oldVal: 'Pending', newVal: '2/3 Partial Consensus', reason: 'Dissenting view on FOB shipping terms' },
     { time: '2026-06-07 14:35:00', actor: 'Michael Brown', role: 'Human Senior Manager', action: 'Approved Report Draft', oldVal: 'Under Review', newVal: 'Approved', reason: 'Audit committee sign-off' }

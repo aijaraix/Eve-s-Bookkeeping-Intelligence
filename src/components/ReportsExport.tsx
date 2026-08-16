@@ -19,7 +19,9 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
   const [targetLanguage, setTargetLanguage] = useState<'en' | 'es' | 'de' | 'fr' | 'ja'>('en');
   const [gaapFramework, setGaapFramework] = useState<'usgaap' | 'ifrs' | 'eugaap' | 'jgaap'>('ifrs');
 
-  // Telefónica Financial Benchmark Data
+  const clientName = (summary as any)?.workspaceName || (summary as any)?.entityName || 'Client Corporation';
+
+  // Financial Benchmark Data
   const revenueBase = 10250000000; // €10.25 Billion
   const materialityPct = 1.0; // 1.0% of Revenue
   const overallMateriality = (revenueBase * (materialityPct / 100)).toFixed(2);
@@ -46,7 +48,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
     // Sheet 1: Lead Schedule A-1 Summary with Tickmarks
     const ws1Data = [
       ["DELOITTE & TOUCHE S.L. - MASTER AUDIT WORKING PAPER PACKAGE"],
-      ["Engagement:", "Telefónica S.A. Consolidated & Individual Audit"],
+      ["Engagement:", `${clientName} Consolidated & Individual Audit`],
       ["Period Ended:", "June 30, 2026 (Q2 2026 / FY 2025)"],
       ["Working Paper Ref:", "W/P Ref: DEL-2026-TEF-LEAD"],
       ["Accounting Framework:", gaapFramework.toUpperCase()],
@@ -59,7 +61,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
       ["B-2.04", "Trade & Other Receivables", "7,280,000,000.00", "-18,500,000.00", "7,261,500,000.00", "µ", "Reconciled to Allowance for Expected Credit Loss (02_Individual_Report.pdf p.14)"],
       ["C-1.10", "Group Consolidated Revenue", "10,250,000,000.00", "0.00", "10,250,000,000.00", "®", "Recalculated per IFRS 15 5-Step Model (01_Consolidated_Report.pdf p.14)"],
       ["D-4.08", "OIBDA / EBITDA Operating Income", "3,454,000,000.00", "0.00", "3,454,000,000.00", "^", "Footed & Cross-Footed to Segment Footnotes (03_Q4_Results.pdf p.10)"],
-      ["E-1.00", "Net Financial Debt (Senior Bonds)", "27,340,000,000.00", "0.00", "27,340,000,000.00", "✓", "Confirmed via CNMV Regulatory Regulatory Disclosure (05_CNMV_Spanish.pdf p.6)"],
+      ["E-1.00", "Net Financial Debt (Senior Bonds)", "27,340,000,000.00", "0.00", "27,340,000,000.00", "✓", "Confirmed via Regulatory Disclosure (05_CNMV_Spanish.pdf p.6)"],
       [""],
       ["DELOITTE TICKMARK LEGEND:"],
       ["✓", "Vouched to original external third-party confirmation / bank confirmation"],
@@ -80,16 +82,16 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
 
     // Sheet 2: Technical Position Paper Summary
     const ws2Data = [
-      ["DELOITTE TECHNICAL ACCOUNTING POSITION PAPER - TELEFÓNICA S.A."],
+      [`DELOITTE TECHNICAL ACCOUNTING POSITION PAPER - ${clientName.toUpperCase()}`],
       ["Topic", "Accounting Standard", "Deloitte Technical Assessment", "Audit Impact"],
-      ["5G & Fiber Contract Revenue", "IFRS 15 / ASC 606", "Standalone selling prices allocated appropriately across hardware & service bundles.", "Passed - No adjustment needed."],
-      ["Telecom Tower & Fiber Leases", "IFRS 16 / ASC 842", "Capitalized Right-of-Use assets (€6.24B) & lease liabilities mathematically verified.", "Passed - Discount rates validated."],
+      ["Contract Revenue", "IFRS 15 / ASC 606", "Standalone selling prices allocated appropriately across hardware & service bundles.", "Passed - No adjustment needed."],
+      ["Leases", "IFRS 16 / ASC 842", "Capitalized Right-of-Use assets & lease liabilities mathematically verified.", "Passed - Discount rates validated."],
       ["Net Debt & Derivative Hedges", "IFRS 9 / ASC 815", "Fair value hedge accounting and FX derivative swaps verified against interbank curves.", "Passed - Cross-currency swaps balanced."]
     ];
     const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
     XLSX.utils.book_append_sheet(wb, ws2, "Technical Position Papers");
 
-    XLSX.writeFile(wb, `Deloitte_Telefónica_Master_Audit_Package_${targetLanguage.toUpperCase()}_${gaapFramework.toUpperCase()}.xlsx`);
+    XLSX.writeFile(wb, `Deloitte_Master_Audit_Package_${targetLanguage.toUpperCase()}_${gaapFramework.toUpperCase()}.xlsx`);
   };
 
   return (
@@ -104,7 +106,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
           </div>
           <h1 className="text-2xl font-extrabold text-white">Deloitte Audit Deliverables & Export Center</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Produce, view, and export the complete Big-Four audit package required by Engagement Partner Auditors (E.P.A.s) and Telefónica's Audit Committee.
+            Produce, view, and export the complete Big-Four audit package required by Engagement Partner Auditors (E.P.A.s) and {clientName}'s Audit Committee.
           </p>
         </div>
 
@@ -183,7 +185,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                   </span>
                   <h2 className="text-xl font-extrabold text-white">Audit Committee Executive Memorandum</h2>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">
-                    Client: Telefónica S.A. | Period: Q2 2026 / FY 2025 | Ref: DEL-2026-TEF-MEMO
+                    Client: {clientName} | Period: Q2 2026 / FY 2025 | Ref: DEL-2026-AUDIT-MEMO
                   </p>
                 </div>
                 <div className="flex items-center space-x-2 shrink-0">
@@ -211,7 +213,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                 <div className="border-b border-slate-800 pb-4 grid grid-cols-2 gap-4 font-mono text-[11px]">
                   <div>
                     <span className="text-slate-500 block">TO:</span>
-                    <strong className="text-white">Audit Committee & Board of Directors, Telefónica S.A.</strong>
+                    <strong className="text-white">Audit Committee & Board of Directors, {clientName}</strong>
                   </div>
                   <div>
                     <span className="text-slate-500 block">FROM:</span>
@@ -233,10 +235,10 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                     1. Unqualified Independent Audit Opinion
                   </h3>
                   <p>
-                    We have audited the consolidated financial statements of <strong>Telefónica S.A.</strong> and its subsidiaries, which comprise the Consolidated Balance Sheet as of June 30, 2026, the Consolidated Income Statement, Consolidated Statement of Cash Flows for the period then ended, and notes to the financial statements.
+                    We have audited the consolidated financial statements of <strong>{clientName}</strong> and its subsidiaries, which comprise the Consolidated Balance Sheet as of June 30, 2026, the Consolidated Income Statement, Consolidated Statement of Cash Flows for the period then ended, and notes to the financial statements.
                   </p>
                   <div className="bg-emerald-950/40 border border-emerald-800/60 p-3 rounded-lg text-emerald-300 font-mono text-[11px]">
-                    <strong>AUDIT OPINION: UNQUALIFIED (CLEAN)</strong> — In our opinion, the accompanying consolidated financial statements present fairly, in all material respects, the financial position of Telefónica S.A. in accordance with International Financial Reporting Standards (IFRS) as adopted by the European Union.
+                    <strong>AUDIT OPINION: UNQUALIFIED (CLEAN)</strong> — In our opinion, the accompanying consolidated financial statements present fairly, in all material respects, the financial position of {clientName} in accordance with International Financial Reporting Standards (IFRS) as adopted by the European Union.
                   </div>
                 </div>
 
@@ -247,9 +249,9 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                   </h3>
 
                   <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
-                    <strong className="text-blue-400 font-bold block">KAM 1: Revenue Recognition on Multi-Play Telecom Contracts (IFRS 15)</strong>
+                    <strong className="text-blue-400 font-bold block">KAM 1: Revenue Recognition on Multi-Product Contracts (IFRS 15)</strong>
                     <p className="text-slate-300">
-                      Telefónica enters into complex bundled arrangements (fiber broadband, mobile 5G, hardware handsets, and TV streaming). Allocating transaction prices to distinct performance obligations requires significant judgment.
+                      {clientName} enters into complex commercial arrangements. Allocating transaction prices to distinct performance obligations requires significant judgment.
                     </p>
                     <p className="text-slate-400 font-mono text-[10px]">
                       <strong>Deloitte Audit Procedure:</strong> Tested automated IT billing controls, sampled 1,200 consumer contracts, and recalculated standalone selling prices using Hermes 4-agent verification. Found 100% compliant.
@@ -306,7 +308,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                 </span>
                 <h2 className="text-xl font-bold text-white">Technical Accounting Position Papers</h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Formal IFRS technical memos for Telefónica S.A.'s accounting treatments across revenue recognition, lease capitalization, and financial debt hedging.
+                  Formal IFRS technical memos for {clientName}'s accounting treatments across revenue recognition, lease capitalization, and financial debt hedging.
                 </p>
               </div>
 
@@ -316,14 +318,14 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       <BookOpen className="w-4 h-4 text-emerald-400" />
-                      <span>IFRS 15 Technical Memorandum: Revenue from 5G & Fiber Customer Contracts</span>
+                      <span>IFRS 15 Technical Memorandum: Revenue Recognition & Standalone Selling Price</span>
                     </h3>
                     <span className="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800 font-mono">
                       Approved by Deloitte NAO
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    <strong>Technical Conclusion:</strong> Handset subsidies provided under 24-month service plans are recognized as contract assets under IFRS 15. The transaction price is allocated based on relative standalone selling prices (SSP). Audit testing confirms automated billing engine logic matches GAAP standards.
+                    <strong>Technical Conclusion:</strong> Customer contract allocations are recognized per IFRS 15. The transaction price is allocated based on relative standalone selling prices (SSP). Audit testing confirms automated billing engine logic matches GAAP standards.
                   </p>
                 </div>
 
@@ -331,14 +333,14 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       <BookOpen className="w-4 h-4 text-blue-400" />
-                      <span>IFRS 16 Technical Memorandum: Telecom Tower & Fiber Right-of-Use Assets (€6.24B)</span>
+                      <span>IFRS 16 Technical Memorandum: Operating Leases & Right-of-Use Assets</span>
                     </h3>
                     <span className="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800 font-mono">
                       Approved by Deloitte NAO
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    <strong>Technical Conclusion:</strong> Telefónica's master lease agreements with Telxius and Cellnex qualify as lease contracts under IFRS 16. Incremental borrowing rates (IBR) applied (3.4%–4.1%) reflect regional sovereign yield curves plus corporate credit spreads.
+                    <strong>Technical Conclusion:</strong> {clientName}'s master lease agreements qualify as lease contracts under IFRS 16. Incremental borrowing rates (IBR) applied reflect regional sovereign yield curves plus corporate credit spreads.
                   </p>
                 </div>
 
@@ -466,7 +468,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                 </span>
                 <h2 className="text-xl font-bold text-white">Management Letter & Internal Control Deficiency Report</h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Communicating deficiencies in internal control identified during the financial statement audit of Telefónica S.A.
+                  Communicating deficiencies in internal control identified during the financial statement audit of {clientName}.
                 </p>
               </div>
 
@@ -474,12 +476,12 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                 <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-400 uppercase font-mono px-2 py-0.5 bg-amber-950/60 rounded border border-amber-800">
-                      Significant Deficiency #1: IT Segregation of Duties (SAP HANA Billing)
+                      Significant Deficiency #1: IT Segregation of Duties (ERP Billing System)
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">Process Owner: Chief Information Officer</span>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    <strong>Finding:</strong> 14 elevated SAP developer accounts in Telefónica España had direct write access to automated billing rate tables without secondary supervisory approval.
+                    <strong>Finding:</strong> 14 elevated developer accounts had direct write access to automated billing rate tables without secondary supervisory approval.
                   </p>
                   <div className="bg-slate-900 p-3 rounded-lg text-xs font-mono text-slate-300 border border-slate-800">
                     <strong>Deloitte Recommendation:</strong> Enforce dual-authorization access control lists (ACL) and run automated quarterly privilege audits. Management has agreed and remediated as of July 15, 2026.
@@ -514,7 +516,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                   </span>
                   <h2 className="text-xl font-bold text-white">Prepared-by-Client (PBC) Document Tracker</h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Master list of financial records, bank confirmations, tax returns, and legal opinions requested from Telefónica S.A.
+                    Master list of financial records, bank confirmations, tax returns, and legal opinions requested from {clientName}.
                   </p>
                 </div>
                 <button
@@ -602,7 +604,7 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
                   <span className="text-emerald-400 font-bold block font-mono">1. Partner Independence & Ethics (IESBA / SEC Rules)</span>
                   <p className="text-slate-300">
-                    All audit team members confirmed zero financial interest, non-audit service conflicts, or employment relationships with Telefónica S.A.
+                    All audit team members confirmed zero financial interest, non-audit service conflicts, or employment relationships with {clientName}.
                   </p>
                   <span className="text-[10px] text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800 inline-block font-mono">
                     Status: 100% Independent
@@ -630,8 +632,8 @@ export const ReportsExport: React.FC<ReportsExportProps> = ({ summary }) => {
                   <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest block font-mono">
                     DELOITTE AUDIT COMMITTEE PRESENTATION DECK
                   </span>
-                  <h2 className="text-xl font-bold text-white">Telefónica S.A. Board Briefing Slides</h2>
-                  <p className="text-xs text-slate-400 mt-1">Executive slides formatted for Telefónica's Board of Directors</p>
+                  <h2 className="text-xl font-bold text-white">{clientName} Board Briefing Slides</h2>
+                  <p className="text-xs text-slate-400 mt-1">Executive slides formatted for {clientName}'s Board of Directors</p>
                 </div>
                 <button
                   onClick={() => window.print()}

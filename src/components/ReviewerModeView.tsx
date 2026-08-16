@@ -231,7 +231,7 @@ export const ReviewerModeView: React.FC<ReviewerModeViewProps> = ({
             <span className="text-slate-500">Untraceable Dashboard Values:</span> <span className="text-emerald-400 font-bold">0 (PASS)</span>
           </div>
           <div>
-            <span className="text-slate-500">Test Workspace:</span> <span className="text-white font-bold">Unilever PLC FY2025</span>
+            <span className="text-slate-500">Test Workspace:</span> <span className="text-white font-bold">Active Engagement Workspace</span>
           </div>
         </div>
       </div>
@@ -265,7 +265,7 @@ export const ReviewerModeView: React.FC<ReviewerModeViewProps> = ({
             <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
               <div className="text-xs text-slate-400">Test Workspaces</div>
               <div className="text-2xl font-bold text-white">{overview.counts.workspaces}</div>
-              <div className="text-[11px] text-blue-400 font-mono">Unilever PLC FY2025</div>
+              <div className="text-[11px] text-blue-400 font-mono">Project Workspace</div>
             </div>
             <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
               <div className="text-xs text-slate-400">Documents Processed</div>

@@ -298,7 +298,7 @@ export const SystemGuideView: React.FC<SystemGuideViewProps> = ({ onNavigate }) 
                 <span className="text-[10px] font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-semibold">View ID: projects</span>
               </div>
               <p className="text-xs text-slate-600">
-                Directory of client workspaces (e.g. Unilever PLC, Corporate Clients). Allows users to create new workspaces, assign fiscal periods, edit workspace settings, upload statutory files, or delete old engagements.
+                Directory of client workspaces (e.g. Enterprise Client Workspaces, Regional Subsidiaries). Allows users to create new workspaces, assign fiscal periods, edit workspace settings, upload statutory files, or delete old engagements.
               </p>
             </div>
 

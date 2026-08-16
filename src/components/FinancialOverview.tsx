@@ -72,9 +72,12 @@ export const FinancialOverview: React.FC<FinancialOverviewProps> = ({
   const companiesList = ['All Companies', ...Array.from(new Set(workspaces.map(w => w.name)))];
   const projectsList = ['All Projects', ...workspaces.map(w => `${w.code} - ${w.name}`)];
 
-  // FX Symbol & Multiplier based on currency selection
-  const currencySymbol = selectedCurrency.startsWith('USD') ? '$' : selectedCurrency.startsWith('EUR') ? '€' : '£';
-  const mult = selectedCurrency.startsWith('USD') ? 1.08 : selectedCurrency.startsWith('EUR') ? 1.0 : 0.85;
+  // FX Symbol based on currency selection (display only - backend performs accounting conversion)
+  const currencySymbol = selectedCurrency.startsWith('USD') ? '$' :
+    selectedCurrency.startsWith('EUR') ? '€' :
+    selectedCurrency.startsWith('GBP') ? '£' :
+    selectedCurrency.startsWith('JPY') ? '¥' : '$';
+  const mult = 1.0;
 
   // Formatting helpers
   const fmt = (numInMillions: number) => {

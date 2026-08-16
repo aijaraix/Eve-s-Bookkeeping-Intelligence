@@ -208,13 +208,13 @@ describe("Phase H — Customer UX, Project Workspace & Document-First Navigation
         id: "doc-h-108",
         workspaceId: "ws-default",
         filename: "FY2025_Report.pdf",
-        filesize: 1024500,
+        fileSize: 1024500,
         uploadTimestamp: new Date().toISOString(),
         mimeType: "application/pdf",
         storagePath: "/storage/docs/doc-h-108.pdf",
         status: "PROCESSED",
         pageCount: 25,
-      },
+      } as any,
     });
 
     expect(evidenceRecord.evidenceValid).toBe(true);
@@ -227,13 +227,13 @@ describe("Phase H — Customer UX, Project Workspace & Document-First Navigation
         id: "doc-h-108",
         workspaceId: "ws-default",
         filename: "FY2025_Report.pdf",
-        filesize: 1024500,
+        fileSize: 1024500,
         uploadTimestamp: new Date().toISOString(),
         mimeType: "application/pdf",
         storagePath: "/storage/docs/doc-h-108.pdf",
         status: "PROCESSED",
         pageCount: 25,
-      },
+      } as any,
     });
 
     expect(gateEvaluation.eligibilityStatus).toBe("REPORT_READY");

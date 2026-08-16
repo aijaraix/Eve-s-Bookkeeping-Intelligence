@@ -48,7 +48,7 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
     ? documents.map((d, i) => ({
         ...d,
         type: d.category || (i % 2 === 0 ? 'Financial Statement' : 'Audit Report'),
-        entity: d.entityName || workspace.name || 'Unilever PLC',
+        entity: d.entityName || workspace.name || 'Client Entity',
         confidenceScore: `${d.confidence || 99}%`,
         uploader: 'Sarah Johnson',
         findingsCount: i === 0 ? 3 : i === 1 ? 1 : 0
@@ -57,8 +57,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
         {
           id: 'doc-1',
           workspaceId: workspace.id || 'ws-1',
-          filename: 'Unilever_FY2025_Annual_Report.pdf',
-          originalName: 'Unilever FY2025 Annual Report & Financial Statements.pdf',
+          filename: `${(workspace.name || 'Client').replace(/\s+/g, '_')}_Annual_Report.pdf`,
+          originalName: `${workspace.name || 'Client'} Annual Report & Financial Statements.pdf`,
           size: 14850000,
           mimeType: 'application/pdf',
           createdAt: new Date().toISOString(),
@@ -67,8 +67,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
           category: 'Financial Statement',
           type: 'Financial Statement',
           period: 'FY 2025',
-          entityName: 'Unilever PLC',
-          entity: 'Unilever PLC',
+          entityName: workspace.name || 'Client Entity',
+          entity: workspace.name || 'Client Entity',
           currency: 'EUR',
           confidence: 99.8,
           confidenceScore: '99.8%',
@@ -82,8 +82,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
         {
           id: 'doc-2',
           workspaceId: workspace.id || 'ws-1',
-          filename: 'Unilever_Q2_2025_Trial_Balance.xlsx',
-          originalName: 'Unilever Q2 2025 General Ledger & Trial Balance.xlsx',
+          filename: `${(workspace.name || 'Client').replace(/\s+/g, '_')}_Trial_Balance.xlsx`,
+          originalName: `${workspace.name || 'Client'} Q2 General Ledger & Trial Balance.xlsx`,
           size: 8420000,
           mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           createdAt: new Date(Date.now() - 86400000).toISOString(),
@@ -92,8 +92,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
           category: 'Trial Balance',
           type: 'Trial Balance',
           period: 'Q2 2025',
-          entityName: 'Unilever NV',
-          entity: 'Unilever NV',
+          entityName: `${workspace.name || 'Client'} EU Sub`,
+          entity: `${workspace.name || 'Client'} EU Sub`,
           currency: 'EUR',
           confidence: 99.5,
           confidenceScore: '99.5%',
@@ -117,8 +117,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
           category: 'Bank Statement',
           type: 'Bank Statement',
           period: 'Jun 2025',
-          entityName: 'Unilever PLC',
-          entity: 'Unilever PLC',
+          entityName: workspace.name || 'Client Entity',
+          entity: workspace.name || 'Client Entity',
           currency: 'EUR',
           confidence: 100,
           confidenceScore: '100%',
@@ -132,8 +132,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
         {
           id: 'doc-4',
           workspaceId: workspace.id || 'ws-1',
-          filename: 'Wilmar_Palm_Oil_Master_Agreement.pdf',
-          originalName: 'Wilmar International Supply Contract 2025.pdf',
+          filename: 'Supplier_Master_Supply_Agreement.pdf',
+          originalName: 'Master Procurement & Supply Contract 2025.pdf',
           size: 5200000,
           mimeType: 'application/pdf',
           createdAt: new Date(Date.now() - 259200000).toISOString(),
@@ -142,8 +142,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
           category: 'Contract',
           type: 'Contract',
           period: 'FY 2025',
-          entityName: 'Unilever Group',
-          entity: 'Unilever Group',
+          entityName: `${workspace.name || 'Client'} Group`,
+          entity: `${workspace.name || 'Client'} Group`,
           currency: 'USD',
           confidence: 98.9,
           confidenceScore: '98.9%',
@@ -341,16 +341,16 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
                 <div className="space-y-1">
                   <div>Type: <strong>{selectedDoc.category || 'Financial Statement'}</strong></div>
                   <div>Period: <strong>FY 2025</strong></div>
-                  <div>Entity: <strong>Unilever PLC</strong></div>
+                  <div>Entity: <strong>{selectedDoc.entityName || (selectedDoc as any).entity || workspace.name || 'Client Entity'}</strong></div>
                   <div>Extraction Engine: <strong>Eve OCR & Vision v4.2</strong></div>
-                  <div>AI Parsing Confidence: <strong className="text-emerald-600">99.8%</strong></div>
+                  <div>AI Parsing Confidence: <strong className="text-emerald-600">{selectedDoc.confidence ? `${Math.round(selectedDoc.confidence * 100)}%` : (selectedDoc as any).confidenceScore || '99.8%'}</strong></div>
                 </div>
               </div>
 
               <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-100 space-y-2">
                 <span className="font-bold text-blue-900 uppercase text-[10px] block">AI Document Summary</span>
                 <p className="text-slate-700 leading-relaxed">
-                  Contains audited consolidated financial statements for Unilever PLC. All numbers successfully extracted, reconciled against trial balance, and confirmed by 3 Hermes AI nodes.
+                  Contains audited consolidated financial statements for {selectedDoc.entityName || (selectedDoc as any).entity || workspace.name || 'the client'}. All numbers successfully extracted, reconciled against trial balance, and confirmed by 3 Hermes AI nodes.
                 </p>
               </div>
             </div>

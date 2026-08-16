@@ -202,10 +202,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
   const openTrace = (
     metricName: string,
     value: string,
-    document: string = 'Unilever_FY2025_Annual_Report.pdf',
+    document: string = 'Financial_Report.pdf',
     page: string = '42',
     account: string = 'Group Revenue',
-    snippet: string = 'Consolidated sales revenue for the period reached €59,600 million compared to €56,230 million in the prior period.'
+    snippet: string = 'Consolidated sales revenue for the period reached the reported total.'
   ) => {
     setSelectedSourceMapping({
       metricName,
@@ -987,11 +987,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {[
-                    { code: '1010-00', name: 'Cash in Bank - JPMorgan', entity: 'Unilever PLC', open: '€4,200M', dr: '€18,450M', cr: '€13,740M', end: '€8,910M', status: 'Reconciled' },
-                    { code: '1200-00', name: 'Accounts Receivable - Trade', entity: 'Unilever PLC', open: '€6,180M', dr: '€59,600M', cr: '€59,360M', end: '€6,420M', status: 'Reconciled' },
-                    { code: '1300-00', name: 'Finished Goods Inventory', entity: 'Unilever NV', open: '€5,640M', dr: '€32,170M', cr: '€32,530M', end: '€5,280M', status: 'Reconciled' },
-                    { code: '2010-00', name: 'Accounts Payable - Vendors', entity: 'Unilever US', open: '€4,890M', dr: '€28,400M', cr: '€28,630M', end: '€5,120M', status: 'Reconciled' },
-                    { code: '4000-00', name: 'Consolidated Product Revenue', entity: 'Unilever Group', open: '€0M', dr: '€0M', cr: '€59,600M', end: '€59,600M', status: 'Reconciled' }
+                    { code: '1010-00', name: 'Cash in Bank - Primary Treasury', entity: workspace.name || 'Parent Group', open: '€4,200M', dr: '€18,450M', cr: '€13,740M', end: '€8,910M', status: 'Reconciled' },
+                    { code: '1200-00', name: 'Accounts Receivable - Trade', entity: workspace.name || 'Parent Group', open: '€6,180M', dr: '€59,600M', cr: '€59,360M', end: '€6,420M', status: 'Reconciled' },
+                    { code: '1300-00', name: 'Finished Goods Inventory', entity: `${workspace.name || 'Client'} EU Sub`, open: '€5,640M', dr: '€32,170M', cr: '€32,530M', end: '€5,280M', status: 'Reconciled' },
+                    { code: '2010-00', name: 'Accounts Payable - Vendors', entity: `${workspace.name || 'Client'} US Sub`, open: '€4,890M', dr: '€28,400M', cr: '€28,630M', end: '€5,120M', status: 'Reconciled' },
+                    { code: '4000-00', name: 'Consolidated Product Revenue', entity: `${workspace.name || 'Client'} Group`, open: '€0M', dr: '€0M', cr: '€59,600M', end: '€59,600M', status: 'Reconciled' }
                   ].map((row, i) => (
                     <tr key={i} className="hover:bg-slate-50 transition cursor-pointer" onClick={() => openTrace(row.name, row.end)}>
                       <td className="py-2.5 px-2 font-mono font-bold text-slate-500">{row.code}</td>
@@ -1160,9 +1160,9 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {[
-                    { name: 'Unilever PLC', country: 'United Kingdom', own: '100% Parent', rev: '€28,400M', net: '€3,120M', status: 'Full Consolidation' },
-                    { name: 'Unilever NV', country: 'Netherlands', own: '100% Sub', rev: '€18,200M', net: '€2,010M', status: 'Full Consolidation' },
-                    { name: 'Unilever United States Inc.', country: 'United States', own: '100% Sub', rev: '€13,000M', net: '€1,360M', status: 'Full Consolidation' }
+                    { name: workspace.name || 'Parent Entity', country: 'Primary Jurisdiction', own: '100% Parent', rev: '€28,400M', net: '€3,120M', status: 'Full Consolidation' },
+                    { name: `${workspace.name || 'Client'} Europe B.V.`, country: 'Netherlands', own: '100% Sub', rev: '€18,200M', net: '€2,010M', status: 'Full Consolidation' },
+                    { name: `${workspace.name || 'Client'} Americas Inc.`, country: 'United States', own: '100% Sub', rev: '€13,000M', net: '€1,360M', status: 'Full Consolidation' }
                   ].map((e, i) => (
                     <tr key={i} className="hover:bg-slate-50">
                       <td className="py-2.5 px-3 font-bold text-slate-900">{e.name}</td>

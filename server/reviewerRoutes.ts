@@ -84,13 +84,13 @@ export function createReviewerRouter(getDb: () => any): Router {
   // 8. Derived Metrics Review (/api/review/derived-metrics & /api/review/derived-metrics/:metricId)
   router.get('/derived-metrics', (req: Request, res: Response) => {
     const db = getDb();
-    const ws = db.workspaces?.[0] || { id: "ws-unilever-2025" };
+    const ws = db.workspaces?.[0] || { id: "ws-default" };
     res.json(ReviewerEngine.exportReviewBundle(db).derived_metrics);
   });
 
   router.get('/derived-metrics/:metricId', (req: Request, res: Response) => {
     const db = getDb();
-    const ws = db.workspaces?.[0] || { id: "ws-unilever-2025" };
+    const ws = db.workspaces?.[0] || { id: "ws-default" };
     const metrics = ReviewerEngine.exportReviewBundle(db).derived_metrics;
     const match = metrics.find((m: any) => m.derived_metric_id === req.params.metricId);
     if (!match) return res.status(404).json({ error: `Derived metric ${req.params.metricId} not found.` });
@@ -133,21 +133,28 @@ export function createReviewerRouter(getDb: () => any): Router {
   // 15. Report Lineage Review (/api/review/report-lineage)
   router.get('/report-lineage', (req: Request, res: Response) => {
     const db = getDb();
+    const ws = db.workspaces?.[0] || { id: "ws-default" };
+    const facts = ReviewerEngine.getFactsReview(db);
+    const claims = facts.slice(0, 5).map(f => ({
+      claim: `${f.normalized_label} was reported as ${f.reported_value} ${f.currency} (${(f as any).period || 'FY 2025'}).`,
+      supporting_fact_id: f.fact_id,
+      verified: f.verification_status === "VALIDATED" || f.verification_status === "APPROVED"
+    }));
+
     res.json([
       {
-        report_id: "RPT-CPA-ws-unilever-2025",
-        workspace_id: "ws-unilever-2025",
+        report_id: `RPT-CPA-${ws.id}`,
+        workspace_id: ws.id,
         report_type: "CPA Financial Audit Working Paper",
         generation_date: new Date().toISOString(),
         template_version: "v2.0-auditable",
-        facts_used: ReviewerEngine.getFactsReview(db).slice(0, 10).map(f => f.fact_id),
+        facts_used: facts.slice(0, 10).map(f => f.fact_id),
         derived_metrics_used: ["DM-GM-1", "DM-DE-1"],
-        source_blocks_used: ["BLK-1-FCT-1", "BLK-1-FCT-2"],
-        ai_claims: [
-          { claim: "Turnover of continuing operations reached €50.503B in FY 2025.", supporting_fact_id: "FCT-1", verified: true },
-          { claim: "Gross profit was €23.709B representing a gross margin of 46.94%.", supporting_fact_id: "FCT-2", verified: true }
+        source_blocks_used: facts.slice(0, 5).map(f => `BLK-${f.fact_id}`),
+        ai_claims: claims.length > 0 ? claims : [
+          { claim: "No AI claims generated - insufficient grounded evidence.", supporting_fact_id: undefined, verified: false }
         ],
-        citations: ["Unilever PLC Annual Report & Accounts 2025, Page 1", "Unilever PLC Annual Report & Accounts 2025, Page 112"]
+        citations: facts.slice(0, 3).map(f => `${(f as any).complete_provenance_chain?.document?.filename || 'Source Document'}, Page ${(f as any).complete_provenance_chain?.page?.page_number || 1}`)
       }
     ]);
   });

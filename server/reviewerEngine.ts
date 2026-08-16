@@ -12,7 +12,7 @@ export class ReviewerEngine {
       pipeline_version: "v3.7-sonnet-hybrid",
       last_deployment: "2026-08-12T12:00:00Z",
       access_mode: "READ_ONLY_REVIEWER",
-      public_test_workspace_id: "ws-unilever-2025",
+      public_test_workspace_id: "ws-default-2025",
       review_capabilities: [
         "architecture_inspection",
         "route_mapping",
@@ -316,8 +316,8 @@ export class ReviewerEngine {
       period: fact.reportingPeriod || "FY 2025",
       verification_status: fact.status || "VALIDATED",
       complete_provenance_chain: {
-        workspace: { id: fact.workspaceId || "ws-unilever-2025", name: "Unilever PLC FY 2025 Workspace" },
-        document: { id: fact.documentId || "doc-1", filename: fact.sourceDocument || "Unilever_Annual_Report_2025.pdf", file_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+        workspace: { id: fact.workspaceId || "ws-default", name: "Project Workspace" },
+        document: { id: fact.documentId || "doc-1", filename: fact.sourceDocument || "Source_Document.pdf", file_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
         page: { page_number: page, printed_page: page, native_text_available: true, ocr_used: false },
         section: { name: fact.statementType || "Financial Statements", section_id: `SEC-${page}` },
         source_block: { block_id: `BLK-${fact.documentId || 'doc-1'}-FCT-${fact.id}`, block_type: fact.tableName ? "Table" : "Paragraph" },
@@ -364,7 +364,7 @@ export class ReviewerEngine {
     });
 
     return {
-      workspace_id: workspaceId || "ws-unilever-2025",
+      workspace_id: workspaceId || "ws-default",
       total_facts_extracted: facts.length,
       total_facts_verified: facts.length,
       categories_covered: categories.length,
@@ -376,12 +376,19 @@ export class ReviewerEngine {
   public static getDashboardLineageReview(db: any) {
     const facts: ExtractedFact[] = db.facts || [];
 
-    const lineage = [
-      { component_id: "WGT-REV", component_name: "Revenue Card", route: "/overview", metric: "Revenue", value: "€50,503M", source_type: "FACT_REGISTRY", fact_id: facts[0]?.id || "FCT-1", verification_status: "VERIFIED", lineage_status: "CONNECTED", is_untraceable: false },
-      { component_id: "WGT-GP", component_name: "Gross Profit Card", route: "/overview", metric: "Gross Profit", value: "€23,709M", source_type: "FACT_REGISTRY", fact_id: facts[1]?.id || "FCT-2", verification_status: "VERIFIED", lineage_status: "CONNECTED", is_untraceable: false },
-      { component_id: "WGT-GM", component_name: "Gross Margin % Widget", route: "/overview", metric: "Gross Margin (%)", value: "46.94%", source_type: "DERIVED_METRIC", derived_metric_id: "DM-GM-1", verification_status: "VERIFIED", lineage_status: "CONNECTED", is_untraceable: false },
-      { component_id: "WGT-FCF", component_name: "Free Cash Flow Card", route: "/overview", metric: "Free Cash Flow", value: "€6,890M", source_type: "FACT_REGISTRY", fact_id: facts[2]?.id || "FCT-3", verification_status: "VERIFIED", lineage_status: "CONNECTED", is_untraceable: false },
-      { component_id: "WGT-NI", component_name: "Net Income Card", route: "/overview", metric: "Net Income", value: "€6,211M", source_type: "FACT_REGISTRY", fact_id: facts[3]?.id || "FCT-4", verification_status: "VERIFIED", lineage_status: "CONNECTED", is_untraceable: false }
+    const lineage = facts.length > 0 ? facts.slice(0, 5).map((fact, idx) => ({
+      component_id: `WGT-${idx + 1}`,
+      component_name: `${fact.labelNormalized} Widget`,
+      route: "/overview",
+      metric: fact.labelNormalized,
+      value: fact.valueOriginal || String(fact.valueFunctional),
+      source_type: "FACT_REGISTRY",
+      fact_id: fact.id,
+      verification_status: "VERIFIED",
+      lineage_status: "CONNECTED",
+      is_untraceable: false
+    })) : [
+      { component_id: "WGT-REV", component_name: "Revenue Card", route: "/overview", metric: "Revenue", value: "INSUFFICIENT_EVIDENCE", source_type: "FACT_REGISTRY", fact_id: undefined, verification_status: "UNVERIFIED", lineage_status: "DISCONNECTED", is_untraceable: true }
     ];
 
     const untraceableCount = lineage.filter(item => item.is_untraceable).length;
@@ -398,6 +405,11 @@ export class ReviewerEngine {
   public static getAskEveReview(db: any) {
     const facts = db.facts || [];
     const factIds = facts.slice(0, 4).map((f: any) => f.id);
+    const docTitles = Array.from(new Set(facts.map((f: any) => f.sourceDocument).filter(Boolean)));
+
+    const answerSummary = facts.length > 0
+      ? `Extracted ${facts.length} grounded facts across ${docTitles.length || 1} source document(s).`
+      : "INSUFFICIENT_EVIDENCE: No grounded source facts available for query.";
 
     return {
       system: "Ask Eve Financial RAG Assistant",
@@ -407,12 +419,12 @@ export class ReviewerEngine {
       queries: [
         {
           query_id: "QRY-101",
-          question: "What was Unilever's total turnover and gross margin for FY 2025?",
+          question: "What are the primary financial metrics and statement results for the active workspace?",
           retrieved_fact_ids: factIds,
-          retrieved_source_blocks: ["BLK-1-FCT-1", "BLK-1-FCT-2"],
-          documents_used: ["Unilever PLC Annual Report & Accounts 2025"],
-          citations_used: ["Page 1, Turnover €50,503M", "Page 112, Gross Profit €23,709M"],
-          answer_summary: "Unilever PLC recorded a turnover of €50.503B with a gross profit of €23.709B, yielding a gross margin of 46.94%.",
+          retrieved_source_blocks: factIds.map((id: string) => `BLK-${id}`),
+          documents_used: docTitles.length > 0 ? docTitles : ["Source Document"],
+          citations_used: facts.slice(0, 2).map((f: any) => `Page ${f.pageNumber || 1}, ${f.labelOriginal}: ${f.valueOriginal}`),
+          answer_summary: answerSummary,
           processing_duration_ms: 640
         }
       ]
@@ -444,7 +456,7 @@ export class ReviewerEngine {
 
   // 13. Read-Only Export Bundle Package
   public static exportReviewBundle(db: any) {
-    const ws = db.workspaces?.[0] || { id: "ws-unilever-2025", name: "Unilever PLC FY 2025 Workspace" };
+    const ws = db.workspaces?.[0] || { id: "ws-default", name: "Project Engagement Workspace" };
     return {
       bundle_metadata: {
         application_name: "Eve's Bookkeeping Intelligence",

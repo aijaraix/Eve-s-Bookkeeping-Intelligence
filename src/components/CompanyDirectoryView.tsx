@@ -293,28 +293,6 @@ export const CompanyDirectoryView: React.FC<CompanyDirectoryViewProps> = ({
   // Dynamic Subsidiaries Data based on active company
   const getDynamicSubs = () => {
     const name = currentWs.name || 'Corporate Entity';
-    const nameLower = name.toLowerCase();
-
-    if (nameLower.includes('apple')) {
-      return [
-        { name: 'Apple Operations International', country: 'Ireland', ownership: '100%', rev: '$120.4B', role: 'Holding & Global Operations Sub' },
-        { name: 'Apple Sales International Ltd', country: 'Ireland', ownership: '100%', rev: '$85.2B', role: 'Global Sales & Distribution Unit' },
-        { name: 'Apple Retail UK Ltd', country: 'United Kingdom', ownership: '100%', rev: '£4.1B', role: 'Retail Store Operations' },
-        { name: 'Apple Japan Inc.', country: 'Japan', ownership: '100%', rev: '¥3.2T', role: 'Regional APAC Operating Sub' }
-      ];
-    } else if (nameLower.includes('microsoft')) {
-      return [
-        { name: 'Microsoft Ireland Operations Ltd', country: 'Ireland', ownership: '100%', rev: '$52.0B', role: 'EMEA Regional Operations Sub' },
-        { name: 'LinkedIn Corporation', country: 'United States', ownership: '100%', rev: '$15.2B', role: 'Professional Platform Unit' },
-        { name: 'GitHub Inc.', country: 'United States', ownership: '100%', rev: '$1.2B', role: 'Developer Ecosystem Unit' }
-      ];
-    } else if (nameLower.includes('unilever')) {
-      return [
-        { name: 'Unilever NV / BV', country: 'Netherlands', ownership: '100%', rev: '€22.4B', role: 'European Operating Division' },
-        { name: 'Unilever United States Inc.', country: 'United States', ownership: '100%', rev: '$12.8B', role: 'North America Operating Sub' },
-        { name: 'Hindustan Unilever Ltd', country: 'India', ownership: '61.9%', rev: '₹590B', role: 'Listed Operating Subsidiary' }
-      ];
-    }
     const c = currentWs.country || 'United States';
     const curr = currentWs.currency || 'USD';
     return [
@@ -957,7 +935,7 @@ export const CompanyDirectoryView: React.FC<CompanyDirectoryViewProps> = ({
                 <div>
                   <span className="text-[10px] text-slate-400 font-semibold block">Website</span>
                   <a href={companyDetails.website} target="_blank" rel="noreferrer" className="font-bold text-blue-600 hover:underline">
-                    telefonica.com
+                    {companyDetails.website.replace('https://', '').replace('http://', '') || 'corporate-site.com'}
                   </a>
                 </div>
                 <div>
@@ -1704,16 +1682,16 @@ export const CompanyDirectoryView: React.FC<CompanyDirectoryViewProps> = ({
 
             <div className="space-y-3 text-xs">
               <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 space-y-1">
-                <span className="font-bold text-blue-900">Revenue & EBITDA Margin Outlook</span>
+                <span className="font-bold text-blue-900">Revenue & Operations Outlook</span>
                 <p className="text-slate-600 leading-relaxed">
-                  Revenue is projected to reach €41.8B in FY 2024 (+2.8% YoY growth), driven by digital transformation services in Telefónica Tech and strong LatAm mobile subscriber growth.
+                  Financial trajectory for {currentWs.name} is continuously evaluated from ingested statements and verified source facts.
                 </p>
               </div>
 
               <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 space-y-1">
                 <span className="font-bold text-emerald-900">Cash Flow & Liquidity Coverage</span>
                 <p className="text-slate-600 leading-relaxed">
-                  Free Cash Flow generation remains strong at €1.45B. Liquid cash reserves (€6.85B) fully cover debt maturities through Q3 2026.
+                  Solvency ratios and liquid reserves are reconciled against primary bank and balance sheet disclosures.
                 </p>
               </div>
             </div>
