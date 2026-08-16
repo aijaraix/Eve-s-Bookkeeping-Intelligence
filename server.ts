@@ -349,7 +349,9 @@ async function generateAIContent(promptOrParts: string | any[], jsonMode = true)
   return null;
 }
 
-const STORAGE_FILE = path.join(process.cwd(), "ai_cpa_storage.json");
+function getStorageFile(): string {
+  return process.env.STORAGE_FILE || path.join(process.cwd(), "ai_cpa_storage.json");
+}
 
 interface Workspace {
   id: string;
@@ -527,7 +529,7 @@ function saveStorage() {
     } catch {
       jsonStr = JSON.stringify(db);
     }
-    fs.writeFileSync(STORAGE_FILE, jsonStr);
+    fs.writeFileSync(getStorageFile(), jsonStr);
   } catch (err) {
     console.error("Failed to save storage:", err);
   }
@@ -902,8 +904,9 @@ export function evaluateWorkspaceReadiness(workspaceId: string) {
 
 function loadStorage() {
   try {
-    if (fs.existsSync(STORAGE_FILE)) {
-      const data = fs.readFileSync(STORAGE_FILE, "utf-8");
+    const storageFile = getStorageFile();
+    if (fs.existsSync(storageFile)) {
+      const data = fs.readFileSync(storageFile, "utf-8");
       db = JSON.parse(data);
       if (db && Array.isArray(db.facts)) {
         db.facts = db.facts.filter((f: any) => {

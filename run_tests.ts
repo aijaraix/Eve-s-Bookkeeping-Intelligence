@@ -86,7 +86,7 @@ assert(
 );
 
 // Test Case 1: Search Workspace Storage and Verify Zero Seeded Mock Data
-const storagePath = path.join(process.cwd(), "ai_cpa_storage.json");
+const storagePath = process.env.STORAGE_FILE || path.join(process.cwd(), "ai_cpa_storage.json");
 console.log(`${colors.bold}[SUITE 1: PERSISTENCE INTEGRITY & MOCK PURGE]${colors.reset}`);
 try {
   const rawStorage = fs.readFileSync(storagePath, "utf-8");

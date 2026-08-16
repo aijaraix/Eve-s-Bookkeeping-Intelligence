@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { executeSwarmPipeline } from './server/swarm/SwarmOrchestrator.js';
 
-const STORAGE_FILE = path.join(process.cwd(), 'db.storage.json');
+const STORAGE_FILE = process.env.STORAGE_FILE || path.join(process.cwd(), 'server', 'tests', 'fixtures', 'sample_audit_seed.json');
 
 async function runLiveForensicAudit() {
   console.log('====================================================');

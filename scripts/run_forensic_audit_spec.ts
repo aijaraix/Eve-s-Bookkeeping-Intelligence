@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const STORAGE_FILE = path.join(process.cwd(), "ai_cpa_storage.json");
+const STORAGE_FILE = process.env.STORAGE_FILE || path.join(process.cwd(), "ai_cpa_storage.json");
 
 export function runMasterForensicAuditPipeline() {
   console.log("=== RUNNING MASTER FORENSIC AUDIT & FACT REGISTRY ENRICHMENT PIPELINE ===");

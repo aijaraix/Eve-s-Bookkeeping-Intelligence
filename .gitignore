@@ -8,3 +8,11 @@ coverage/
 !.env.example
 firebase-applet-config.json
 !firebase-applet-config.json.example
+
+# Persistence & Runtime Storage
+storage/queue_jobs.json
+storage/uploads/*
+!storage/uploads/.gitkeep
+db.storage.json
+server/tests/fixtures/tmp_*
+

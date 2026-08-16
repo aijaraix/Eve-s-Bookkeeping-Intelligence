@@ -6,7 +6,5 @@
   "snapshots": [],
   "auditLogs": [],
   "discrepancies": [],
-  "agentLogs": [],
-  "pageManifests": [],
-  "sourceBlocks": []
+  "agentLogs": []
 }

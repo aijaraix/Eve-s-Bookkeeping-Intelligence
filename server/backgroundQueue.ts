@@ -13,7 +13,9 @@ import {
   QueueJobRecord
 } from "../src/types.js";
 
-const QUEUE_FILE = path.join(process.cwd(), "storage", "queue_jobs.json");
+function getQueueFile(): string {
+  return process.env.QUEUE_FILE || path.join(process.cwd(), "storage", "queue_jobs.json");
+}
 
 export interface ProcessingUnit extends ProcessingUnitRecord {
   unit_text?: string;
@@ -37,9 +39,22 @@ export class BackgroundIngestionQueue {
     this.onJobCompletedListener = listener;
   }
 
+  public clearQueue(): void {
+    this.jobs.clear();
+    const queueFile = getQueueFile();
+    try {
+      if (fs.existsSync(queueFile)) {
+        fs.writeFileSync(queueFile, "[]");
+      }
+    } catch (err) {
+      console.error("[Hermes Queue] Failed to clear queue on disk:", err);
+    }
+  }
+
   private saveQueueToDisk() {
     try {
-      const storageDir = path.dirname(QUEUE_FILE);
+      const queueFile = getQueueFile();
+      const storageDir = path.dirname(queueFile);
       if (!fs.existsSync(storageDir)) {
         fs.mkdirSync(storageDir, { recursive: true });
       }
@@ -98,7 +113,7 @@ export class BackgroundIngestionQueue {
         jsonString = JSON.stringify(trimmed);
       }
 
-      fs.writeFileSync(QUEUE_FILE, jsonString);
+      fs.writeFileSync(queueFile, jsonString);
     } catch (err) {
       console.error("[Hermes Queue] Failed to save queue to disk:", err);
     }
@@ -106,8 +121,9 @@ export class BackgroundIngestionQueue {
 
   private loadQueueFromDisk() {
     try {
-      if (fs.existsSync(QUEUE_FILE)) {
-        const raw = fs.readFileSync(QUEUE_FILE, "utf-8");
+      const queueFile = getQueueFile();
+      if (fs.existsSync(queueFile)) {
+        const raw = fs.readFileSync(queueFile, "utf-8");
         const list: QueueJob[] = JSON.parse(raw);
         if (Array.isArray(list)) {
           list.forEach(job => {
