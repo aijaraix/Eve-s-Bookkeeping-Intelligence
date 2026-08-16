@@ -37,8 +37,19 @@ const wizardEngine = new DeliverableWizardEngine();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+// Configure CORS and headers for iframe and preview compatibility
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-email");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+app.use(express.json({ limit: "100mb" }));
+app.use(express.urlencoded({ extended: true, limit: "100mb" }));
 
 const aiApiKey = process.env.GEMINI_API_KEY;
 const ai = aiApiKey ? new GoogleGenAI({
@@ -1379,9 +1390,9 @@ function getPrioritizedDocumentContent(doc: any, maxChars = 90000): string {
 // Helper functions for scale detection and financial number parsing
 export function detectScaleHint(str: string): number {
   const l = (str || '').toLowerCase();
-  if (l.includes('in millions') || l.includes('in million') || l.includes('amounts in millions') || l.includes('dollars in millions') || l.includes('yen in millions') || l.includes('€m') || l.includes('$m') || l.includes('£m') || l.includes('(in millions') || l.includes('mio.') || l.includes('mio €') || l.includes('mio. €') || l.includes('millionen') || l.includes('in mio')) return 1000000;
+  if (l.includes('in millions') || l.includes('in million') || l.includes('amounts in millions') || l.includes('dollars in millions') || l.includes('yen in millions') || l.includes('€m') || l.includes('$m') || l.includes('£m') || l.includes('(in millions') || l.includes('mio.') || l.includes('mio €') || l.includes('mio. €') || l.includes('millionen') || l.includes('in mio') || l.includes('angaben in mio') || l.includes('in mio. euro')) return 1000000;
   if (l.includes('in billions') || l.includes('in billion') || l.includes('amounts in billions') || l.includes('dollars in billions') || l.includes('€b') || l.includes('$b') || l.includes('£b') || l.includes('(in billions') || l.includes('mrd.') || l.includes('milliarden')) return 1000000000;
-  if (l.includes('in thousands') || l.includes('in thousand') || l.includes('amounts in thousands') || l.includes('dollars in thousands') || l.includes('€k') || l.includes('$k') || l.includes('£k') || l.includes('(in thousands') || l.includes('teur') || l.includes('t€') || l.includes('tausend')) return 1000;
+  if (l.includes('in thousands') || l.includes('in thousand') || l.includes('amounts in thousands') || l.includes('dollars in thousands') || l.includes('€k') || l.includes('$k') || l.includes('£k') || l.includes('(in thousands') || l.includes('teur') || l.includes('t€') || l.includes('tausend') || l.includes('in t€') || l.includes('in tsd')) return 1000;
   return 0; // Return 0 so caller falls back to globalScale
 }
 
@@ -1392,8 +1403,8 @@ export function parseValWithScale(text: string, scaleHint = 1): number | null {
   // 1. Never parse percentages as monetary amounts
   if (lower.includes('%')) return null;
 
-  // 2. Reject table-of-contents / SEC page reference patterns
-  if (/^f-\d+$/i.test(lower) || /^page\s*\d+$/i.test(lower) || /^item\s*\d+[a-z]?$/i.test(lower) || /^\d+\s*-\s*\d+$/.test(lower)) {
+  // 2. Reject table-of-contents / SEC / glossary page reference patterns
+  if (/^f-\d+$/i.test(lower) || /^page\s*\d+$/i.test(lower) || /^item\s*\d+[a-z]?$/i.test(lower) || /^\d+\s*-\s*\d+$/.test(lower) || /^glossary\b/i.test(lower) || /^additional information\b/i.test(lower)) {
     return null;
   }
 
@@ -1403,43 +1414,80 @@ export function parseValWithScale(text: string, scaleHint = 1): number | null {
     return null;
   }
 
-  // 4. Extract token containing digits with grouping/decimals and optional attached/detached unit suffix
-  const numMatch = text.match(/\(?-?\s*[\$€£¥]?\s*(\d{1,3}(?:[.,]\d{3})+|\d+)(?:[.,](\d+))?\s*(billion|million|thousand|[mbk])?\)?/i);
-  if (!numMatch) return null;
+  // 4. Smart Multi-National Number Parser (Supports German/European e.g. 51.243,00 / 97.968 and US e.g. 51,243.00 / 97,968)
+  const isNegative = lower.startsWith("–") || lower.startsWith("-") || (text.includes("(") && text.includes(")"));
+  
+  const unitMatch = text.match(/\b(billion|million|thousand|mio|mrd|teur|t€|bn|m|k)\b/i);
+  const unitSuffix = unitMatch ? unitMatch[1].toLowerCase() : null;
 
-  let rawDigits = numMatch[1].replace(/,/g, '');
-  let decimals = numMatch[2] ? `.${numMatch[2]}` : '';
-  let fullNumStr = `${rawDigits}${decimals}`;
+  const numTokenMatch = text.match(/[\(\-–]?\s*[\$€£¥]?\s*([\d.,]+)\s*[\$€£¥]?/);
+  if (!numTokenMatch) return null;
 
-  const isNegative = numMatch[0].startsWith('(') && numMatch[0].endsWith(')');
-  let num = parseFloat(fullNumStr);
+  let numStr = numTokenMatch[1];
+  if (!numStr || !/\d/.test(numStr)) return null;
 
-  if (isNaN(num) || num === 0) return null;
+  // Disambiguate European vs US format
+  const hasComma = numStr.includes(",");
+  const hasDot = numStr.includes(".");
 
-  // STAGE 6: Year-As-Value Protection Guard
-  // Reject isolated years or strings like "Note 12 - 2025" / "FY 2025" unless attached to explicit monetary currency or unit
-  const hasMonetaryContext = /[\$€£¥]|billion|million|thousand|\b[mbk]\b/i.test(text);
-  if (!hasMonetaryContext && /\b(19|20)\d\d\b/.test(text)) {
-    // If the text contains a 4-digit year (1900-2099) and lacks explicit currency or monetary unit, it is a period or year header
-    return null;
-  }
-
-  const unitSuffix = numMatch[3] ? numMatch[3].toLowerCase() : null;
-  if (num >= 1900 && num <= 2100) {
-    const hasDirectCurrency = /[\$€£¥]\s*20\d\d|20\d\d\s*[\$€£¥]/i.test(text);
-    const hasDirectUnit = /20\d\d\s*(billion|million|thousand|bn|m|k)\b/i.test(text);
-    if (!hasDirectCurrency && !hasDirectUnit) {
-      return null; // Must never enter monetary fact registry as a dollar/euro value
+  if (hasComma && hasDot) {
+    const lastComma = numStr.lastIndexOf(",");
+    const lastDot = numStr.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      // European: 1.234,56
+      numStr = numStr.replace(/\./g, "").replace(",", ".");
+    } else {
+      // US: 1,234.56
+      numStr = numStr.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    const parts = numStr.split(",");
+    if (parts.length > 2) {
+      numStr = numStr.replace(/,/g, "");
+    } else if (parts.length === 2) {
+      if (parts[1].length === 3 && parts[0].length <= 3) {
+        numStr = numStr.replace(",", "");
+      } else {
+        numStr = parts[0] + "." + parts[1];
+      }
+    }
+  } else if (hasDot) {
+    const parts = numStr.split(".");
+    if (parts.length > 2) {
+      numStr = numStr.replace(/\./g, "");
+    } else if (parts.length === 2) {
+      if (parts[1].length === 3 && parts[0].length <= 3) {
+        numStr = numStr.replace(".", "");
+      } else {
+        numStr = parts[0] + "." + parts[1];
+      }
     }
   }
 
-  if (isNegative) num = -num;
+  let num = parseFloat(numStr);
+  if (isNaN(num) || num === 0) return null;
+
+  // STAGE 6: Year-As-Value Protection Guard
+  const hasMonetaryContext = /[\$€£¥]|billion|million|thousand|mio|mrd|teur|\b[mbk]\b/i.test(text);
+  if (!hasMonetaryContext && /\b(19|20)\d\d\b/.test(text)) {
+    return null;
+  }
+
+  if (num >= 1900 && num <= 2100) {
+    const hasDirectCurrency = /[\$€£¥]\s*20\d\d|20\d\d\s*[\$€£¥]/i.test(text);
+    const hasDirectUnit = /20\d\d\s*(billion|million|thousand|mio|bn|m|k)\b/i.test(text);
+    if (!hasDirectCurrency && !hasDirectUnit) {
+      return null;
+    }
+  }
+
+  if (isNegative && num > 0) num = -num;
 
   let multiplier = 1;
   if (unitSuffix) {
-    if (unitSuffix === 'b' || unitSuffix === 'billion') multiplier = 1000000000;
-    else if (unitSuffix === 'm' || unitSuffix === 'million') multiplier = 1000000;
-    else if (unitSuffix === 'k' || unitSuffix === 'thousand') multiplier = 1000;
+    if (unitSuffix === 'b' || unitSuffix === 'billion' || unitSuffix === 'mrd') multiplier = 1000000000;
+    else if (unitSuffix === 'm' || unitSuffix === 'million' || unitSuffix === 'mio') multiplier = 1000000;
+    else if (unitSuffix === 'k' || unitSuffix === 'thousand' || unitSuffix === 'teur' || unitSuffix === 't€') multiplier = 1000;
   } else if (scaleHint && scaleHint !== 1) {
     multiplier = scaleHint;
   }
@@ -1453,8 +1501,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "revenue",
     normalizedLabel: "Revenue",
     accountingRole: "revenue",
-    exactRowMatches: [/^(group\s+)?turnover$/i, /^revenue(s)?$/i, /^(group\s+)?sales$/i, /^net\s+sales$/i, /^total\s+revenue$/i, /^umsatzerlöse$/i, /^umsatzerloese$/i, /^umsatz$/i],
-    partialRowMatches: ["turnover", "group turnover", "group sales", "sales", "net sales", "total revenue", "umsatzerlöse", "umsatzerloese", "umsatz"],
+    exactRowMatches: [/^(group\s+)?turnover$/i, /^revenue(s)?$/i, /^(group\s+)?sales$/i, /^net\s+sales$/i, /^total\s+revenue$/i, /^umsatzerlöse$/i, /^umsatzerloese$/i, /^umsatz$/i, /^erträge\s+aus\s+umsatz$/i],
+    partialRowMatches: ["turnover", "group turnover", "group sales", "sales", "net sales", "total revenue", "umsatzerlöse", "umsatzerloese", "umsatz", "erträge aus umsatz"],
     excludeRowPatterns: [/turnover\s+in/i, /turnover\s+growth/i, /increase\s+in/i, /segment/i, /non-underlying/i, /per\s+share/i, /by\s+region/i, /by\s+category/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1462,8 +1510,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "cost_of_sales",
     normalizedLabel: "Cost of Sales",
     accountingRole: "expense",
-    exactRowMatches: [/^cost\s+of\s+sales$/i, /^cost\s+of\s+goods\s+sold$/i, /^cogs$/i, /^cost\s+of\s+revenue$/i, /^herstellungskosten$/i],
-    partialRowMatches: ["cost of sales", "cost of goods sold", "cogs", "cost of revenue", "herstellungskosten"],
+    exactRowMatches: [/^cost\s+of\s+sales$/i, /^cost\s+of\s+goods\s+sold$/i, /^cogs$/i, /^cost\s+of\s+revenue$/i, /^herstellungskosten$/i, /^herstellungs-\s*und\s*anschaffungskosten/i, /^aufwendungen\s+für\s+material$/i],
+    partialRowMatches: ["cost of sales", "cost of goods sold", "cogs", "cost of revenue", "herstellungskosten", "herstellungs- und anschaffungskosten", "materialaufwand"],
     excludeRowPatterns: [/sub-line/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1471,7 +1519,7 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "gross_profit",
     normalizedLabel: "Gross Profit",
     accountingRole: "profit",
-    exactRowMatches: [/^gross\s+profit$/i, /^gross\s+margin\s+\(amount\)$/i, /^bruttoergebnis\s+vom\s+umsatz$/i],
+    exactRowMatches: [/^gross\s+profit$/i, /^gross\s+margin\s+\(amount\)$/i, /^bruttoergebnis\s+vom\s+umsatz$/i, /^bruttoergebnis$/i],
     partialRowMatches: ["gross profit", "bruttoergebnis"],
     excludeRowPatterns: [/gross\s+margin\s+%/i, /gross\s+margin\s+percentage/i, /strong\s+gross\s+margin/i],
     statementName: "Consolidated Income Statement"
@@ -1480,8 +1528,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "operating_profit",
     normalizedLabel: "Operating Income",
     accountingRole: "profit",
-    exactRowMatches: [/^operating\s+profit$/i, /^operating\s+income$/i, /^operating\s+result$/i, /^profit\s+from\s+operations$/i, /^operatives\s+ergebnis$/i, /^betriebsergebnis$/i],
-    partialRowMatches: ["operating profit", "operating income", "profit from operations", "operatives ergebnis", "betriebsergebnis"],
+    exactRowMatches: [/^operating\s+profit$/i, /^operating\s+income$/i, /^operating\s+result$/i, /^profit\s+from\s+operations$/i, /^operatives\s+ergebnis$/i, /^betriebsergebnis$/i, /^ergebnis\s+der\s+betrieblichen\s+tätigkeit$/i],
+    partialRowMatches: ["operating profit", "operating income", "profit from operations", "operatives ergebnis", "betriebsergebnis", "ergebnis der betrieblichen tätigkeit"],
     excludeRowPatterns: [/operating\s+margin/i, /operating\s+profit\s+after\s+tax/i, /non-underlying/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1498,8 +1546,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "profit_before_tax",
     normalizedLabel: "Profit Before Tax",
     accountingRole: "profit",
-    exactRowMatches: [/^profit\s+before\s+tax(ation)?$/i, /^income\s+before\s+tax(es)?$/i, /^ergebnis\s+vor\s+steuern$/i],
-    partialRowMatches: ["profit before tax", "profit before taxation", "income before tax", "ergebnis vor steuern"],
+    exactRowMatches: [/^profit\s+before\s+tax(ation)?$/i, /^income\s+before\s+tax(es)?$/i, /^ergebnis\s+vor\s+steuern$/i, /^ergebnis\s+vor\s+ertragsteuern$/i, /^ergebnis\s+der\s+gewöhnlichen\s+geschäftstätigkeit$/i],
+    partialRowMatches: ["profit before tax", "profit before taxation", "income before tax", "ergebnis vor steuern", "ergebnis vor ertragsteuern"],
     excludeRowPatterns: [],
     statementName: "Consolidated Income Statement"
   },
@@ -1507,8 +1555,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "net_income",
     normalizedLabel: "Net Income",
     accountingRole: "profit",
-    exactRowMatches: [/^net\s+profit\s+from\s+continuing\s+operations$/i, /^profit\s+for\s+the\s+year(\s+from\s+continuing\s+operations)?$/i, /^net\s+profit$/i, /^net\s+income$/i, /^profit\s+attributable\s+to\s+equity\s+holders$/i, /^jahresüberschuss$/i, /^jahresueberschuss$/i, /^bilanzgewinn$/i],
-    partialRowMatches: ["net profit from continuing operations", "profit for the year", "net profit", "net income", "profit for the period", "jahresüberschuss", "jahresueberschuss", "bilanzgewinn"],
+    exactRowMatches: [/^net\s+profit\s+from\s+continuing\s+operations$/i, /^profit\s+for\s+the\s+year(\s+from\s+continuing\s+operations)?$/i, /^net\s+profit$/i, /^net\s+income$/i, /^profit\s+attributable\s+to\s+equity\s+holders$/i, /^jahresüberschuss$/i, /^jahresueberschuss$/i, /^konzernergebnis$/i, /^bilanzgewinn$/i, /^ergebnis\s+nach\s+steuern/i],
+    partialRowMatches: ["net profit from continuing operations", "profit for the year", "net profit", "net income", "profit for the period", "jahresüberschuss", "jahresueberschuss", "konzernergebnis", "bilanzgewinn", "ergebnis nach steuern"],
     excludeRowPatterns: [/non-underlying/i, /operating\s+profit\s+after\s+tax/i, /per\s+share/i, /before\s+tax/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1516,8 +1564,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "total_assets",
     normalizedLabel: "Total Assets",
     accountingRole: "asset",
-    exactRowMatches: [/^total\s+assets$/i, /^assets\s+total$/i, /^bilanzsumme$/i, /^summe\s+aktiva$/i],
-    partialRowMatches: ["total assets", "bilanzsumme", "summe aktiva"],
+    exactRowMatches: [/^total\s+assets$/i, /^assets\s+total$/i, /^bilanzsumme$/i, /^summe\s+aktiva$/i, /^aktiva$/i, /^gesamtvermögen$/i],
+    partialRowMatches: ["total assets", "bilanzsumme", "summe aktiva", "aktiva", "gesamtvermögen"],
     excludeRowPatterns: [/goodwill/i, /intangible/i, /current\s+assets/i, /non-current\s+assets/i],
     statementName: "Consolidated Balance Sheet"
   },
@@ -1525,8 +1573,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "total_liabilities",
     normalizedLabel: "Total Liabilities",
     accountingRole: "liability",
-    exactRowMatches: [/^total\s+liabilities$/i, /^liabilities\s+total$/i, /^verbindlichkeiten$/i, /^fremdkapital$/i],
-    partialRowMatches: ["total liabilities", "verbindlichkeiten", "fremdkapital"],
+    exactRowMatches: [/^total\s+liabilities$/i, /^liabilities\s+total$/i, /^verbindlichkeiten$/i, /^fremdkapital$/i, /^summe\s+passiva$/i, /^schulden$/i],
+    partialRowMatches: ["total liabilities", "verbindlichkeiten", "fremdkapital", "summe passiva", "schulden"],
     excludeRowPatterns: [/current\s+liabilities/i, /non-current\s+liabilities/i, /trade\s+payables/i],
     statementName: "Consolidated Balance Sheet"
   },
@@ -1534,10 +1582,28 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "total_equity",
     normalizedLabel: "Total Equity",
     accountingRole: "equity",
-    exactRowMatches: [/^total\s+equity$/i, /^(total\s+)?shareholders['’]\s+equity$/i, /^(total\s+)?stockholders['’]\s+equity$/i, /^eigenkapital$/i],
-    partialRowMatches: ["total equity", "shareholders’ equity", "shareholders' equity", "stockholders' equity", "eigenkapital"],
+    exactRowMatches: [/^total\s+equity$/i, /^(total\s+)?shareholders['’]\s+equity$/i, /^(total\s+)?stockholders['’]\s+equity$/i, /^eigenkapital$/i, /^summe\s+eigenkapital$/i],
+    partialRowMatches: ["total equity", "shareholders’ equity", "shareholders' equity", "stockholders' equity", "eigenkapital", "summe eigenkapital"],
     excludeRowPatterns: [/per\s+share/i, /attributable/i],
     statementName: "Consolidated Balance Sheet"
+  },
+  {
+    key: "cash",
+    normalizedLabel: "Cash and Cash Equivalents",
+    accountingRole: "asset",
+    exactRowMatches: [/^cash\s+and\s+cash\s+equivalents$/i, /^cash\s+balance$/i, /^flüssige\s+mittel$/i, /^fluessige\s+mittel$/i, /^kassenbestand$/i, /^kassenbestand,\s*guthaben\s+bei\s+kreditinstituten$/i, /^zahlungsmittel$/i],
+    partialRowMatches: ["cash and cash equivalents", "cash balance", "flüssige mittel", "fluessige mittel", "kassenbestand", "zahlungsmittel"],
+    excludeRowPatterns: [],
+    statementName: "Consolidated Balance Sheet"
+  },
+  {
+    key: "income_taxes",
+    normalizedLabel: "Income Taxes",
+    accountingRole: "expense",
+    exactRowMatches: [/^income\s+tax(es)?$/i, /^tax\s+expense$/i, /^steuern\s+vom\s+einkommen\s+und\s+(vom\s+)?ertrag$/i, /^ertragsteuern$/i],
+    partialRowMatches: ["income tax", "income taxes", "tax expense", "steuern vom einkommen", "ertragsteuern"],
+    excludeRowPatterns: [],
+    statementName: "Consolidated Income Statement"
   },
   {
     key: "operating_cash_flow",
@@ -1601,7 +1667,7 @@ export function extractDeterministicFacts(
     effectiveCurrency = "USD";
   } else if (/presented in (pounds?|gbp|sterling)/i.test(globalText) || /expressed in (pounds?|gbp)/i.test(globalText) || /figures in pounds/i.test(globalText) || /£/.test(globalText)) {
     effectiveCurrency = "GBP";
-  } else if (/presented in (swiss francs?|chf)/i.test(globalText) || /chf/i.test(globalText)) {
+  } else if (/presented in (swiss francs?|chf)/i.test(globalText) || /\bchf\b/i.test(globalText)) {
     effectiveCurrency = "CHF";
   }
 
@@ -1635,6 +1701,9 @@ export function extractDeterministicFacts(
 
               // Reject standalone year numbers (e.g., 2024, 2025)
               if (/^(202[0-9]|201[0-9])$/.test(cellVal.replace(/,/g, ''))) continue;
+
+              // Reject footnote/Anhang note reference numbers (e.g. "12", "1", "2") when followed by a financial value
+              if (/^\d{1,2}$/.test(cellVal) && c < row.length - 1 && /[\d.,]{3,}/.test(String(row[c + 1] || ''))) continue;
 
               let parsedNum = parseValWithScale(cellVal, tableScale);
               if (parsedNum !== null && !isNaN(parsedNum) && parsedNum !== 0) {

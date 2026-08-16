@@ -382,31 +382,46 @@ export default function App() {
       for (let i = 0; i < totalFilesList.length; i++) {
         const fileItem = totalFilesList[i];
 
+        if (fileItem && fileItem.size > 25 * 1024 * 1024) {
+          throw new Error(`File "${fileItem.name}" exceeds maximum upload payload limit (25MB). Please upload smaller files or use a Google Drive link.`);
+        }
+
+        setIngestionStatus({
+          isIngesting: true,
+          progress: Math.min(90, 10 + Math.round((i / totalFilesList.length) * 80)),
+          stepNumber: 1,
+          stepName: totalFilesList.length > 1
+            ? `Uploading document ${i + 1} of ${totalFilesList.length}: ${fileItem?.name || 'Document'}...`
+            : 'Uploading & Hash Verification (SHA-256)...',
+          error: null,
+          result: null
+        });
+
+        const formData = new FormData();
+        if (fileItem) formData.append('files', fileItem);
+
+        if (i === 0) {
+          if (instructions) formData.append('description', instructions);
+          if (driveUrl) formData.append('driveUrl', driveUrl);
+        }
+        if (userEmail) formData.append('userEmail', userEmail);
+        if (confirmAttach || i > 0) formData.append('confirmAttachToExisting', 'true');
+        if (currentWorkspaceId) formData.append('workspaceId', currentWorkspaceId);
+
         let res: Response | null = null;
         let lastError: any = null;
+
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-            const formData = new FormData();
-            if (i === 0) {
-              formData.append('description', instructions || '');
-              if (driveUrl) formData.append('driveUrl', driveUrl);
-            }
-            if (userEmail) formData.append('userEmail', userEmail);
-            if (confirmAttach) formData.append('confirmAttachToExisting', 'true');
-            if (currentWorkspaceId) formData.append('workspaceId', currentWorkspaceId);
-            if (fileItem) formData.append('files', fileItem);
-
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout for bulk uploads
+            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
             res = await fetch('/api/documents/upload', {
               method: 'POST',
               body: formData,
               signal: controller.signal
             });
             clearTimeout(timeoutId);
-            if (res.ok || res.status === 413 || res.status === 400 || res.status === 404) {
-              break;
-            }
+            if (res) break;
           } catch (fetchErr: any) {
             lastError = fetchErr;
             console.warn(`[Upload Attempt ${attempt}/3 failed]:`, fetchErr);
@@ -420,13 +435,13 @@ export default function App() {
           throw new Error(`Upload connection error: Unable to reach processing server (${lastError?.message || 'Failed to fetch'}). If uploading a large file, try uploading smaller batches or using a Google Drive link.`);
         }
 
-        const contentType = res.headers.get('content-type');
-        if (res.status === 413 || (contentType && !contentType.includes('application/json'))) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.status === 413 || !contentType.includes('application/json')) {
           const errText = await res.text();
           if (res.status === 413 || errText.toLowerCase().includes('413') || errText.toLowerCase().includes('payload too large')) {
-            throw new Error(`File "${fileItem?.name || 'attachment'}" exceeds maximum upload payload limit (25MB). Please upload smaller files or use a Google Drive link.`);
+            throw new Error(`Uploaded payload exceeds maximum size limit (25MB). Please upload smaller files or use a Google Drive link.`);
           }
-          throw new Error(`Server returned error (${res.status}): ${errText.slice(0, 100)}`);
+          throw new Error(`Server returned status ${res.status}: ${errText.slice(0, 100)}`);
         }
 
         const data = await res.json();
@@ -435,6 +450,7 @@ export default function App() {
         }
 
         lastData = data;
+
         if (data.workspace?.id) {
           currentWorkspaceId = data.workspace.id;
           setActiveWorkspace(data.workspace);
@@ -443,14 +459,22 @@ export default function App() {
           }
         }
 
-        if (data.requiresConfirmation && data.existingWorkspace) {
+        if (data.requiresConfirmation && data.existingWorkspace && i === 0) {
           setMatchingWorkspace(data.existingWorkspace);
           setExtractedName(data.extractedInfo?.name || '');
           setPendingFiles(files || []);
           setPendingInstructions(instructions);
           setPendingDriveUrl(driveUrl || '');
           setIsAuthModalOpen(true);
-          break;
+          setIngestionStatus({
+            isIngesting: false,
+            progress: 0,
+            stepNumber: 0,
+            stepName: '',
+            error: null,
+            result: null
+          });
+          return;
         }
       }
 
@@ -458,6 +482,9 @@ export default function App() {
 
       if (data.workspace) {
         setActiveWorkspace(data.workspace);
+        if (userEmail) {
+          setCurrentView('project_detail');
+        }
       }
 
       await fetchInitialData();

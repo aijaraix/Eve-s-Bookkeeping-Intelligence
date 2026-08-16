@@ -112,9 +112,26 @@ async function extractPdfPages(buffer: Buffer): Promise<{ pages: ExtractedPdfPag
         try {
           page = await doc.getPage(i);
           const textContent = await page.getTextContent();
-          const pageText = sanitizeExtractedText(
-            textContent.items.map((item: any) => item.str || "").join(" ")
-          ).trim();
+          
+          let lastY: number | null = null;
+          const pageLines: string[] = [];
+          let currentLine = "";
+
+          for (const item of textContent.items) {
+            const str = (item as any).str || "";
+            if (!str) continue;
+            const y = (item as any).transform ? (item as any).transform[5] : null;
+            if (lastY !== null && y !== null && Math.abs(y - lastY) > 3) {
+              if (currentLine.trim()) pageLines.push(currentLine.trim());
+              currentLine = str;
+            } else {
+              currentLine += (currentLine.length > 0 && !currentLine.endsWith(" ") ? " " : "") + str;
+            }
+            if (y !== null) lastY = y;
+          }
+          if (currentLine.trim()) pageLines.push(currentLine.trim());
+
+          const pageText = sanitizeExtractedText(pageLines.join("\n")).trim();
 
           pages.push({
             pageNumber: i,
@@ -253,7 +270,7 @@ export class AnyDocParser implements DocumentParser {
     };
   }
 
-  public async parse(file: FileInput, inspection: FileInspectionResult): Promise<CanonicalDocumentModel> {
+  public async parse(file: FileInput, inspection?: FileInspectionResult): Promise<CanonicalDocumentModel> {
     const docId = `DOC-${Math.floor(1000 + Math.random() * 9000)}`;
     const buffer = file.buffer || Buffer.from('');
     const ext = (file.filename || '').split('.').pop()?.toLowerCase() || '';
@@ -264,7 +281,7 @@ export class AnyDocParser implements DocumentParser {
     const sections: SectionModel[] = [];
     const tables: TableModel[] = [];
 
-    if (ext === 'pdf' || inspection.detectedType === 'pdf') {
+    if (ext === 'pdf' || inspection?.detectedType === 'pdf') {
       try {
         const pdfData = await extractPdfPages(buffer);
         rawText = pdfData.fullText || '';
@@ -273,7 +290,7 @@ export class AnyDocParser implements DocumentParser {
       } catch (err) {
         console.warn("pdfParse error, fallback to ascii extraction:", err);
       }
-    } else if (['docx', 'docm', 'doc', 'pptx', 'xlsx'].includes(ext) || ['docx', 'doc', 'pptx'].includes(inspection.detectedType)) {
+    } else if (['docx', 'docm', 'doc', 'pptx', 'xlsx'].includes(ext) || (inspection && ['docx', 'doc', 'pptx'].includes(inspection.detectedType))) {
       try {
         const docxRes = await extractDocxContent(buffer);
         rawText = docxRes.rawText;
@@ -360,91 +377,84 @@ export class AnyDocParser implements DocumentParser {
       });
     });
 
-    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
-    let currentSectionTitle = 'Document Summary';
-    let currentText = '';
+    // Build Page-Accurate Tables & Sections
+    if (extractedPages && extractedPages.length > 0) {
+      extractedPages.forEach((pg) => {
+        const pLines = (pg.text || "").split('\n').map(l => l.trim()).filter(Boolean);
+        if (pLines.length === 0) return;
 
-    lines.forEach((line, index) => {
-      if (line.length < 80 && (line.endsWith(':') || line === line.toUpperCase() || line.startsWith('#') || line.startsWith('Note ') || line.toLowerCase().includes('statement') || line.toLowerCase().includes('balance sheet') || line.toLowerCase().includes('income'))) {
-        if (currentText.length > 0) {
-          sections.push({
-            id: `sec-${sections.length + 1}`,
-            title: currentSectionTitle,
-            level: line.startsWith('#') ? 1 : 2,
-            text: currentText.trim(),
-            pageNumber: Math.floor((index / Math.max(1, lines.length)) * pdfNumPages) + 1
-          });
-          currentText = '';
-        }
-        currentSectionTitle = line.replace(/^#+\s*/, '');
-      } else {
-        currentText += ' ' + line;
-      }
-    });
+        let pTitle = `Page ${pg.pageNumber} Content`;
+        let pText = '';
 
-    if (currentText.length > 0) {
-      sections.push({
-        id: `sec-${sections.length + 1}`,
-        title: currentSectionTitle,
-        level: 2,
-        text: currentText.trim(),
-        pageNumber: pdfNumPages
-      });
-    }
+        const pageTableLines: string[] = [];
 
-    const tableLines = lines.filter(l => {
-      if (l.includes('\t') || l.includes('|')) return true;
-      const cleanLine = l.trim();
-      const hasLetters = /[a-zA-Z]{2,}/.test(cleanLine);
-      const matches = cleanLine.match(/(?:\d+[\.,\d]*|\b\d+\b|[\-\(]?\d+[\.,\d]*\)?|—)/g);
-      const hasNumbers = matches && matches.length >= 1;
-      if (hasLetters && hasNumbers) {
-        const words = cleanLine.split(/\s+/);
-        const lastWord = words[words.length - 1];
-        const isLastWordNumeric = /[\-\(]?\d+[\.,\d]*\)?|—/.test(lastWord);
-        if (isLastWordNumeric || (matches && matches.length >= 2) || cleanLine.length < 100) {
-          return true;
-        }
-      }
-      return false;
-    });
+        pLines.forEach((line) => {
+          if (line.length < 80 && (line.endsWith(':') || line === line.toUpperCase() || line.startsWith('#') || line.toLowerCase().includes('statement') || line.toLowerCase().includes('balance sheet') || line.toLowerCase().includes('income') || line.toLowerCase().includes('bilanz') || line.toLowerCase().includes('gewinn'))) {
+            pTitle = line.replace(/^#+\s*/, '');
+          } else {
+            pText += ' ' + line;
+          }
 
-    if (tableLines.length > 0) {
-      const rootTableId = `tbl-${tables.length + 1}`;
-      for (let i = 0; i < tableLines.length; i += 25) {
-        const chunk = tableLines.slice(i, i + 25);
-        const isContinuation = i > 0;
-        const currentTblId = `tbl-${tables.length + 1}`;
-        const pgNum = Math.floor((i / Math.max(1, tableLines.length)) * pdfNumPages) + 1;
-        
-        tables.push({
-          table_id: currentTblId,
-          name: isContinuation ? `Extracted Financial Table (Continuation Page ${pgNum})` : `Extracted Financial Table ${tables.length + 1}`,
-          pageNumber: pgNum,
-          headers: ['Line Item / Description', 'Amount / Details'],
-          isContinuation,
-          parentTableId: isContinuation ? rootTableId : undefined,
-          rows: chunk.map(line => {
-            const cleanLine = line.trim();
-            const parts = cleanLine.split(/\s{2,}|\t|\|/);
-            if (parts.length >= 2) {
-              return [parts[0].trim(), parts.slice(1).join(' ').trim()];
+          // Check if line is a table candidate
+          const cleanLine = line.trim();
+          if (cleanLine.includes('\t') || cleanLine.includes('|')) {
+            pageTableLines.push(cleanLine);
+          } else {
+            const hasLetters = /[a-zA-ZäöüÄÖÜß]{2,}/.test(cleanLine);
+            const matches = cleanLine.match(/(?:\d+[\.,\d]*|\b\d+\b|[\-–\(]?\d+[\.,\d]*\)?|—)/g);
+            if (hasLetters && matches && matches.length >= 1) {
+              const words = cleanLine.split(/\s+/);
+              const lastWord = words[words.length - 1];
+              const isLastWordNumeric = /[\-–\(]?\d+[\.,\d]*\)?|—/.test(lastWord);
+              if (isLastWordNumeric || matches.length >= 2 || cleanLine.length < 120) {
+                pageTableLines.push(cleanLine);
+              }
             }
-            
-            const numMatch = cleanLine.match(/^(.*?)\s+((?:[\$€£]|[\(\-]?\d+|—).*)$/);
-            if (numMatch && numMatch[1] && numMatch[2]) {
-              return [numMatch[1].trim(), numMatch[2].trim()];
-            }
-
-            const firstNumIdx = cleanLine.search(/(?:[\$€£]|[\(\-]?\d{1,3}(?:,\d{3})+|\b\d+\b|—)/);
-            if (firstNumIdx > 3) {
-              return [cleanLine.substring(0, firstNumIdx).trim(), cleanLine.substring(firstNumIdx).trim()];
-            }
-
-            return [cleanLine, ''];
-          })
+          }
         });
-      }
+
+        if (pText.trim()) {
+          sections.push({
+            id: `sec-p${pg.pageNumber}`,
+            title: pTitle,
+            level: 2,
+            text: pText.trim(),
+            pageNumber: pg.pageNumber
+          });
+        }
+
+        if (pageTableLines.length > 0) {
+          tables.push({
+            table_id: `tbl-p${pg.pageNumber}`,
+            name: `Page ${pg.pageNumber} Table`,
+            pageNumber: pg.pageNumber,
+            headers: ['Line Item / Description', 'Amount / Details'],
+            rows: pageTableLines.map(line => {
+              const cleanLine = line.trim();
+              if (!cleanLine) return [cleanLine, ''];
+
+              const parts = cleanLine.split(/\s{2,}|\t|\|/);
+              if (parts.length >= 2) {
+                return [parts[0].trim(), ...parts.slice(1).map(p => p.trim())];
+              }
+
+              const match = cleanLine.match(/^([a-zA-ZäöüÄÖÜß\s\-\/\(\)=,.\x27]+?)\s+((?:[\$€£]|[\-–\(]?\d[\d.,]*|—).*)$/);
+              if (match) {
+                const label = match[1].trim();
+                const tail = match[2].trim();
+                const tokens = tail.split(/\s+/).filter(t => t.length > 0);
+                let values = tokens;
+                if (tokens.length >= 2 && /^\d{1,2}$/.test(tokens[0]) && /[\d.,]{3,}/.test(tokens[1])) {
+                  values = tokens.slice(1);
+                }
+                return [label, ...values];
+              }
+
+              return [cleanLine, ''];
+            }).filter(row => Array.isArray(row) && row.length >= 2)
+          });
+        }
+      });
     }
 
     const estimatedPages = pdfNumPages > 1 ? pdfNumPages : Math.max(1, Math.ceil(buffer.length / 3000));
@@ -474,8 +484,8 @@ export class AnyDocParser implements DocumentParser {
       source: {
         filename: file.filename,
         originalName: file.originalName || file.filename,
-        format: inspection.detectedType || 'pdf',
-        hash: inspection.hash,
+        format: inspection?.detectedType || 'pdf',
+        hash: inspection?.hash || '',
         original_url: file.url || null,
         access_timestamp: new Date().toISOString()
       },
