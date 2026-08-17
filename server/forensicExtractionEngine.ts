@@ -586,19 +586,21 @@ export class LocaleAwareNumberParser {
     // STAGE 6: Year-As-Value & Note-Reference Protection Guard
     const hasMonetaryContext = /[\$€£¥]|billion|million|thousand|mio|mrd|teur|t€|\b[mbk]\b/i.test(rawStr) || /[\$€£¥]|billion|million|thousand|mio|mrd|teur|t€|\b[mbk]\b/i.test(contextText || "");
     
-    // CRITICAL PHASE H.5 FIX 14: Note-Number False Positive Disambiguation
-    if (/^(note|anhang|see note|ref\.?)\s*\d{1,3}$/i.test(trimmed) || (/^\d{1,2}$/.test(trimmed) && !hasMonetaryContext)) {
+    // CRITICAL PHASE H.6 FIX: Note-Number & Alphanumeric Reference Protection
+    const isNoteReference = /^(\d{1,3}[a-zA-Z]{1,2}|note\s*\d+[a-zA-Z]?|see\s*note\s*\d+|ref\.?\s*\d+|item\s*\d+[a-zA-Z]?|f-\d+|fy\d{4})$/i.test(trimmed) ||
+                            (/^(anhang|note|footnote|ref\.?)\s*\d+[a-zA-Z]?$/i.test(trimmed));
+    if (isNoteReference || (/^\d{1,2}$/.test(trimmed) && !hasMonetaryContext)) {
       return {
         normalizedValue: null,
         rawValue: trimmed,
         isAmbiguous: true,
         scaleMultiplier: scaleHint,
         rawScaleLabel: "UNKNOWN",
-        parsingNotes: ["Rejected isolated note reference / footnote index string"]
+        parsingNotes: ["Rejected isolated note reference / footnote index string: " + trimmed]
       };
     }
 
-    if (!hasMonetaryContext && /\b(19|20)\d\d\b/.test(rawStr)) {
+    if (!hasMonetaryContext && /\b(19|20)\d\d\b/.test(rawStr) && !/[\$€£¥]/.test(rawStr)) {
       return {
         normalizedValue: null,
         rawValue: trimmed,
@@ -609,12 +611,28 @@ export class LocaleAwareNumberParser {
       };
     }
     let isNegative = false;
-    if ((trimmed.startsWith("(") && trimmed.endsWith(")")) || trimmed.startsWith("-") || trimmed.includes("–")) {
+    if ((trimmed.startsWith("(") && trimmed.endsWith(")")) || trimmed.startsWith("-") || trimmed.includes("–") || trimmed.includes("—")) {
       isNegative = true;
     }
 
+    // Detect Scale Label directly from raw string or context text
+    const combinedText = (rawStr + " " + (contextText || "")).toLowerCase();
+    let rawScaleLabel: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' = "ONES";
+    let scaleMultiplier = scaleHint;
+
+    if (/\b\d+(\.\d+)?\s*(bn|billion|mrd|\$b|€b|£b)\b/i.test(rawStr) || combinedText.includes("billion") || combinedText.includes("mrd") || combinedText.includes("€b") || combinedText.includes("$b") || combinedText.includes("in billions")) {
+      rawScaleLabel = "BILLIONS";
+      scaleMultiplier = 1_000_000_000;
+    } else if (/\b\d+(\.\d+)?\s*(mn|million|mio|\$m|€m|£m)\b/i.test(rawStr) || combinedText.includes("million") || combinedText.includes("mio") || combinedText.includes("€m") || combinedText.includes("$m") || combinedText.includes("in millions")) {
+      rawScaleLabel = "MILLIONS";
+      scaleMultiplier = 1_000_000;
+    } else if (/\b\d+(\.\d+)?\s*(k|thousand|teur|t€|\$k|€k|£k)\b/i.test(rawStr) || combinedText.includes("thousand") || combinedText.includes("t€") || combinedText.includes("teur") || combinedText.includes("€k") || combinedText.includes("$k") || combinedText.includes("in thousands")) {
+      rawScaleLabel = "THOUSANDS";
+      scaleMultiplier = 1_000;
+    }
+
     let clean = trimmed.replace(/[^0-9.,]/g, "");
-    // CRITICAL PHASE H.5 FIX: Strip trailing sentence/phrase punctuation (commas, dots)
+    // Strip trailing sentence/phrase punctuation (commas, dots)
     clean = clean.replace(/[,.]+$/, "");
     if (!clean) {
       return {
@@ -627,34 +645,10 @@ export class LocaleAwareNumberParser {
       };
     }
 
-    // Detect language context
-    const fullText = (contextText || "").toLowerCase();
-    const isGerman = (docLanguage || "").toLowerCase().startsWith("de") ||
-      fullText.includes("mio €") ||
-      fullText.includes("t€") ||
-      fullText.includes("umsatzerlöse") ||
-      fullText.includes("jahresabschluss") ||
-      fullText.includes("bilanzsumme") ||
-      fullText.includes("gewinn- und verlustrechnung");
-
-    // Detect Scale Label from text
-    let rawScaleLabel: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' = "ONES";
-    let scaleMultiplier = scaleHint;
-
-    if (fullText.includes("billion") || fullText.includes("mrd") || fullText.includes("€b") || fullText.includes("$b")) {
-      rawScaleLabel = "BILLIONS";
-      scaleMultiplier = 1_000_000_000;
-    } else if (fullText.includes("million") || fullText.includes("mio") || fullText.includes("€m") || fullText.includes("$m")) {
-      rawScaleLabel = "MILLIONS";
-      scaleMultiplier = 1_000_000;
-    } else if (fullText.includes("thousand") || fullText.includes("t€") || fullText.includes("teur") || fullText.includes("€k") || fullText.includes("$k") || fullText.includes("in thousands")) {
-      rawScaleLabel = "THOUSANDS";
-      scaleMultiplier = 1_000;
-    }
-
     let isAmbiguous = false;
 
     // German / EU separator handling
+    const isGerman = (docLanguage || "").toLowerCase() === "de" || (contextText || "").toLowerCase().includes("mio") || (contextText || "").toLowerCase().includes("mrd") || (contextText || "").toLowerCase().includes("tsde");
     if (clean.includes(",") && clean.includes(".")) {
       if (clean.lastIndexOf(",") > clean.lastIndexOf(".")) {
         // German style: 1.234,56 -> 1234.56

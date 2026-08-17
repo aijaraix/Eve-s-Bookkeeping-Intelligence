@@ -446,8 +446,8 @@ export class CanonicalFactResolver {
       fullContext.includes("note footnote") ||
       fullContext.includes("refer note");
 
-    if (isSubcomponent && ["revenue", "net_income", "total_assets", "total_liabilities", "total_equity", "gross_profit"].includes(targetMetric.toLowerCase())) {
-      score -= 80; // Heavy penalty for subcomponents competing for primary totals
+    if (isSubcomponent && ["revenue", "net_income", "total_assets", "total_liabilities", "total_equity", "gross_profit", "operating_profit", "cash", "free_cash_flow", "cost_of_sales", "profit_before_tax"].includes(targetMetric.toLowerCase())) {
+      score -= 250; // Severe penalty for subcomponents competing for primary totals
     }
 
     // CRITICAL PHASE H.5 FIX 11: Materiality-Aware Accounting Identity Assistance

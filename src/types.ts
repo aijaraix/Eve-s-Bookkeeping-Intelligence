@@ -659,10 +659,16 @@ export interface FinancialSummary {
   accountsReceivable: string;
   accountsPayable: string;
   operatingCashFlow: string;
+  investingCashFlow?: string;
+  financingCashFlow?: string;
   netInvestingCashFlow?: string;
   netFinancingCashFlow?: string;
   freeCashFlow: string;
+  grossMarginPct?: string;
   operatingMarginPct?: string;
+  netMarginPct?: string;
+  debtToEquity?: number;
+  returnOnEquity?: number;
   underlyingOperatingMarginPct?: string;
   currency: string;
   period: string;
@@ -694,7 +700,6 @@ export interface FinancialSummary {
   currentAssetsRaw?: number;
   currentLiabilitiesRaw?: number;
   unitScale?: string;
-  grossMarginPct?: string;
   validationStatus?: 'VERIFIED' | 'UNVERIFIED' | 'DATA_VERIFICATION_REQUIRED';
   validationMessage?: string;
   kpiProvenanceMap?: Record<string, ExtractedFact>;

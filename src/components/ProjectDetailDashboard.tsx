@@ -768,48 +768,56 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-slate-600 font-medium">Current Ratio</span>
                     <div className="text-right font-mono">
-                      <strong className="text-slate-900">1.33</strong>
-                      <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 0.12</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1.5">
-                    <span className="text-slate-600 font-medium">Quick Ratio</span>
-                    <div className="text-right font-mono">
-                      <strong className="text-slate-900">1.15</strong>
-                      <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 0.09</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1.5">
-                    <span className="text-slate-600 font-medium">Debt to Equity</span>
-                    <div className="text-right font-mono">
-                      <strong className="text-slate-900">3.07</strong>
-                      <span className="text-[10px] text-rose-600 font-bold ml-2">▼ -0.05</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1.5">
-                    <span className="text-slate-600 font-medium">ROA (Return on Assets)</span>
-                    <div className="text-right font-mono">
-                      <strong className="text-slate-900">2.27%</strong>
-                      <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 0.6%</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1.5">
-                    <span className="text-slate-600 font-medium">ROE (Return on Equity)</span>
-                    <div className="text-right font-mono">
-                      <strong className="text-slate-900">9.22%</strong>
-                      <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 1.1%</span>
+                      <strong className="text-slate-900">
+                        {summary?.currentAssetsRaw && summary?.currentLiabilitiesRaw && summary.currentLiabilitiesRaw > 0
+                          ? (summary.currentAssetsRaw / summary.currentLiabilitiesRaw).toFixed(2)
+                          : '—'}
+                      </strong>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-1.5">
                     <span className="text-slate-600 font-medium">Gross Margin</span>
                     <div className="text-right font-mono">
-                      <strong className="text-slate-900">53.6%</strong>
-                      <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 1.8%</span>
+                      <strong className="text-slate-900">
+                        {summary?.grossMarginPct !== null && summary?.grossMarginPct !== undefined ? `${summary.grossMarginPct}%` : '—'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1.5">
+                    <span className="text-slate-600 font-medium">Operating Margin</span>
+                    <div className="text-right font-mono">
+                      <strong className="text-slate-900">
+                        {summary?.operatingMarginPct !== null && summary?.operatingMarginPct !== undefined ? `${summary.operatingMarginPct}%` : '—'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1.5">
+                    <span className="text-slate-600 font-medium">Net Margin</span>
+                    <div className="text-right font-mono">
+                      <strong className="text-slate-900">
+                        {summary?.netMarginPct !== null && summary?.netMarginPct !== undefined ? `${summary.netMarginPct}%` : '—'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1.5">
+                    <span className="text-slate-600 font-medium">Debt to Equity</span>
+                    <div className="text-right font-mono">
+                      <strong className="text-slate-900">
+                        {summary?.debtToEquity !== null && summary?.debtToEquity !== undefined ? summary.debtToEquity.toFixed(2) : '—'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1.5">
+                    <span className="text-slate-600 font-medium">ROE (Return on Equity)</span>
+                    <div className="text-right font-mono">
+                      <strong className="text-slate-900">
+                        {summary?.returnOnEquity !== null && summary?.returnOnEquity !== undefined ? `${summary.returnOnEquity}%` : '—'}
+                      </strong>
                     </div>
                   </div>
                 </div>
@@ -954,32 +962,28 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
                     <div className="flex justify-between items-center border-b border-slate-50 pb-1.5">
                       <span className="text-slate-600 font-semibold">Operating Cash Flow</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">€9.85B</strong>
-                        <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 12.3%</span>
+                        <strong className="text-slate-900">{summary?.operatingCashFlow && summary.operatingCashFlow !== "—" ? summary.operatingCashFlow : '—'}</strong>
                       </div>
                     </div>
 
                     <div className="flex justify-between items-center border-b border-slate-50 pb-1.5">
                       <span className="text-slate-600 font-semibold">Investing Cash Flow</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">€(3.20B)</strong>
-                        <span className="text-[10px] text-rose-600 font-bold ml-2">▼ 4.2%</span>
+                        <strong className="text-slate-900">{summary?.investingCashFlow && summary.investingCashFlow !== "—" ? summary.investingCashFlow : '—'}</strong>
                       </div>
                     </div>
 
                     <div className="flex justify-between items-center border-b border-slate-50 pb-1.5">
                       <span className="text-slate-600 font-semibold">Financing Cash Flow</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">€(4.10B)</strong>
-                        <span className="text-[10px] text-rose-600 font-bold ml-2">▼ 7.8%</span>
+                        <strong className="text-slate-900">{summary?.financingCashFlow && summary.financingCashFlow !== "—" ? summary.financingCashFlow : '—'}</strong>
                       </div>
                     </div>
 
                     <div className="flex justify-between items-center">
                       <span className="text-slate-600 font-semibold">Free Cash Flow</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">€6.65B</strong>
-                        <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 18.4%</span>
+                        <strong className="text-slate-900">{summary?.freeCashFlow && summary.freeCashFlow !== "—" ? summary.freeCashFlow : '—'}</strong>
                       </div>
                     </div>
                   </div>

@@ -177,23 +177,23 @@ export class BackgroundIngestionQueue {
 
   public checkStalledJobs(): void {
     const now = Date.now();
-    const STALL_TIMEOUT_MS = 300000; // 5 minutes heartbeat timeout for large PDF pages
+    const STALL_TIMEOUT_MS = 30000; // 30 seconds heartbeat timeout
     let updated = false;
 
     for (const job of this.jobs.values()) {
       if (job.status === "PROCESSING") {
         const lastBeat = new Date(job.heartbeatAt || job.updatedAt || job.createdAt).getTime();
         if (now - lastBeat > STALL_TIMEOUT_MS) {
-          console.warn(`[Hermes Queue] Detected stalled job ${job.id} (silent for ${Math.round((now - lastBeat) / 1000)}s), resetting processing flag and auto-requeuing...`);
+          console.warn(`[Hermes Queue] Detected stalled job ${job.id} (silent for ${Math.round((now - lastBeat) / 1000)}s), resetting processing flag...`);
           this.isProcessingQueue = false; // CRITICAL: Reset processing flag so queue loop is unblocked
-          job.status = "QUEUED";
-          job.lastError = `Heartbeat timed out (${Math.round((now - lastBeat) / 1000)}s silent). Auto-requeued for execution.`;
+          job.status = "STALLED";
+          job.lastError = `Heartbeat timed out (${Math.round((now - lastBeat) / 1000)}s silent). Worker heartbeat timed out.`;
           this.advanceJobStage(
             job,
             job.stage || "PHYSICAL_EXTRACTION_IN_PROGRESS",
-            "IN_PROGRESS",
-            `Auto-resuming extraction after timeout (${Math.round((now - lastBeat) / 1000)}s silent)...`,
-            "Worker heartbeat timed out. Job automatically re-queued."
+            "FAILED",
+            `Worker heartbeat timed out (${Math.round((now - lastBeat) / 1000)}s silent).`,
+            "Worker heartbeat timed out. Job marked as stalled."
           );
           updated = true;
         }
@@ -470,79 +470,85 @@ export class BackgroundIngestionQueue {
       const allAuditLogs: AuditTrailRecord[] = [];
       let totalExecutionMs = 0;
 
-      for (let i = 0; i < queuedJob.processingUnits.length; i++) {
-        const unit = queuedJob.processingUnits[i];
-        if (unit.status === "COMPLETED") continue;
+      // Process units in bounded parallel batches (concurrency: 5) to prevent sequential single-thread bottlenecking
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < queuedJob.processingUnits.length; i += BATCH_SIZE) {
+        const batch = queuedJob.processingUnits.slice(i, i + BATCH_SIZE);
 
-        unit.status = "PROCESSING";
-        unit.started_at = new Date().toISOString();
-        unit.attempt_count += 1;
+        await Promise.all(
+          batch.map(async (unit, batchIdx) => {
+            const unitGlobalIdx = i + batchIdx;
+            if (unit.status === "COMPLETED" || unit.status === "NO_TEXT") return;
+
+            if (!unit.textData || !unit.textData.trim()) {
+              unit.status = "NO_TEXT";
+              unit.completed_at = new Date().toISOString();
+              return;
+            }
+
+            unit.status = "PROCESSING";
+            unit.started_at = new Date().toISOString();
+            unit.attempt_count += 1;
+
+            const pageStr = unit.actual_page_start === unit.actual_page_end
+              ? `Page ${unit.actual_page_start}`
+              : `Pages ${unit.actual_page_start}-${unit.actual_page_end}`;
+
+            const unitHeartbeatTimer = setInterval(() => {
+              const nowStr = new Date().toISOString();
+              queuedJob.heartbeatAt = nowStr;
+              queuedJob.updatedAt = nowStr;
+            }, 3000);
+
+            try {
+              const unitTimeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Unit execution timeout after 20000ms on ${pageStr}`)), 20000)
+              );
+
+              const res = await Promise.race([
+                executeSwarmPipeline(
+                  workspaceId,
+                  documentId,
+                  `${documentTitle} [Unit ${unitGlobalIdx + 1}: p.${unit.actual_page_start}-${unit.actual_page_end}]`,
+                  unit.textData,
+                  functionalCurrency
+                ),
+                unitTimeoutPromise
+              ]);
+
+              unit.status = "COMPLETED";
+              unit.completed_at = new Date().toISOString();
+              queuedJob.unitsCompleted += 1;
+
+              allUnitFacts.push(...res.facts);
+              allDiscrepancies.push(...res.discrepancies);
+              allAgentLogs.push(...res.agentLogs);
+              allAuditLogs.push(...res.auditLogs);
+              totalExecutionMs += res.totalExecutionTimeMs;
+            } catch (unitErr: any) {
+              unit.status = "FAILED";
+              unit.last_error = unitErr?.message || "Unit extraction failed";
+              console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed (${unitErr?.message}), advancing queue...`);
+            } finally {
+              clearInterval(unitHeartbeatTimer);
+            }
+          })
+        );
 
         queuedJob.heartbeatAt = new Date().toISOString();
-        queuedJob.updatedAt = new Date().toISOString();
+        queuedJob.pagesCompleted = queuedJob.processingUnits.filter(u =>
+          u.status === 'COMPLETED' || u.status === 'NO_TEXT'
+        ).length;
+        queuedJob.tasksCompleted = queuedJob.pagesCompleted;
+        queuedJob.progress = Math.round((queuedJob.pagesCompleted / Math.max(1, queuedJob.pagesTotal)) * 70);
 
-        const pageStr = unit.actual_page_start === unit.actual_page_end
-          ? `Page ${unit.actual_page_start}`
-          : `Pages ${unit.actual_page_start}-${unit.actual_page_end}`;
-
+        const currentUnitIdx = Math.min(i + BATCH_SIZE, queuedJob.unitsTotal);
         this.advanceJobStage(
           queuedJob,
           "PHYSICAL_EXTRACTION_IN_PROGRESS",
           "IN_PROGRESS",
-          `Extracting physical page ${i + 1}/${queuedJob.unitsTotal} (${pageStr})...`
+          `Extracted physical pages ${queuedJob.pagesCompleted}/${queuedJob.pagesTotal}...`
         );
-
-        queuedJob.pagesCompleted = queuedJob.processingUnits.filter(u =>
-          u.status === 'COMPLETED' || u.status === 'NO_TEXT'
-        ).length;
-        queuedJob.tasksCompleted = queuedJob.pagesCompleted;
-        queuedJob.progress = Math.round((queuedJob.pagesCompleted / Math.max(1, queuedJob.pagesTotal)) * 70);
-
-        const unitHeartbeatTimer = setInterval(() => {
-          const nowStr = new Date().toISOString();
-          queuedJob.heartbeatAt = nowStr;
-          queuedJob.updatedAt = nowStr;
-        }, 3000);
-
-        try {
-          const unitTimeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`Unit execution timeout after 20000ms on ${pageStr}`)), 20000)
-          );
-
-          const res = await Promise.race([
-            executeSwarmPipeline(
-              workspaceId,
-              documentId,
-              `${documentTitle} [Unit ${i + 1}: p.${unit.actual_page_start}-${unit.actual_page_end}]`,
-              unit.textData,
-              functionalCurrency
-            ),
-            unitTimeoutPromise
-          ]);
-
-          unit.status = "COMPLETED";
-          unit.completed_at = new Date().toISOString();
-          queuedJob.unitsCompleted += 1;
-
-          allUnitFacts.push(...res.facts);
-          allDiscrepancies.push(...res.discrepancies);
-          allAgentLogs.push(...res.agentLogs);
-          allAuditLogs.push(...res.auditLogs);
-          totalExecutionMs += res.totalExecutionTimeMs;
-        } catch (unitErr: any) {
-          unit.status = "FAILED";
-          unit.last_error = unitErr?.message || "Unit extraction failed";
-          console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed (${unitErr?.message}), advancing queue...`);
-        } finally {
-          clearInterval(unitHeartbeatTimer);
-        }
-
-        queuedJob.heartbeatAt = new Date().toISOString();
-        queuedJob.pagesCompleted = queuedJob.processingUnits.filter(u =>
-          u.status === 'COMPLETED' || u.status === 'NO_TEXT'
-        ).length;
-        queuedJob.tasksCompleted = queuedJob.pagesCompleted;
-        queuedJob.progress = Math.round((queuedJob.pagesCompleted / Math.max(1, queuedJob.pagesTotal)) * 70);
         this.saveQueueToDisk();
       }
 

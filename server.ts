@@ -2110,54 +2110,49 @@ export function executeSelfHealingFinancialAudit(
     factsMap.set("Income Taxes", createFact("Income Taxes", "Provision for Income Taxes", 0, "$0", "Inferred $0 Income Taxes for Period", "Self-Healing Inference Engine"));
   }
 
-  // STEP 8: Retrace Total Assets
+  // STEP 8: Retrace Total Assets (Strict matching only)
   if (!factsMap.has("Total Assets")) {
-    const astLine = lines.find(l => l.toLowerCase().includes("total assets") && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
+    const astLine = lines.find(l => /^\s*(total\s+assets|balance\s+sheet\s+total)\b/i.test(l) && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
     if (astLine) {
       let val = parseValWithScale(astLine, globalScale);
-      if (val !== null && val !== 0) {
-        factsMap.set("Total Assets", createFact("Total Assets", "Total Assets", val, `$${val.toLocaleString()}`, astLine.trim(), "Self-Healing Narrative Retrace"));
+      if (val !== null && val !== 0 && Math.abs(val) > 1000) {
+        factsMap.set("Total Assets", createFact("Total Assets", "Total Assets", val, `${val.toLocaleString()}`, astLine.trim(), "Self-Healing Narrative Retrace"));
       }
     }
   }
 
-  // STEP 9: Retrace Total Liabilities
+  // STEP 9: Retrace Total Liabilities (Strict matching only)
   if (!factsMap.has("Total Liabilities")) {
-    const liabLine = lines.find(l => l.toLowerCase().includes("total liabilities") && !l.toLowerCase().includes("and stockholders") && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
+    const liabLine = lines.find(l => /^\s*(total\s+liabilities)\b/i.test(l) && !l.toLowerCase().includes("and stockholders") && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
     if (liabLine) {
       let val = parseValWithScale(liabLine, globalScale);
-      if (val !== null && val !== 0) {
-        factsMap.set("Total Liabilities", createFact("Total Liabilities", "Total Liabilities", val, `$${val.toLocaleString()}`, liabLine.trim(), "Self-Healing Narrative Retrace"));
+      if (val !== null && val !== 0 && Math.abs(val) > 1000) {
+        factsMap.set("Total Liabilities", createFact("Total Liabilities", "Total Liabilities", val, `${val.toLocaleString()}`, liabLine.trim(), "Self-Healing Narrative Retrace"));
       }
     }
   }
 
-  // STEP 10: Retrace Total Equity
+  // STEP 10: Retrace Total Equity (Strict matching only if Assets and Liabilities exist and balance)
   if (!factsMap.has("Total Equity")) {
     const ast = factsMap.get("Total Assets");
     const liab = factsMap.get("Total Liabilities");
     if (ast && liab) {
-      const eqVal = (parseFloat(ast.normalized_value) || 0) - (parseFloat(liab.normalized_value) || 0);
-      factsMap.set("Total Equity", createFact("Total Equity", eqVal < 0 ? "Stockholders' Deficit" : "Total Stockholders' Equity", eqVal, eqVal < 0 ? `$(${Math.abs(eqVal).toLocaleString()})` : `$${eqVal.toLocaleString()}`, `Reconciled Total Equity from Assets (${ast.original_value}) minus Liabilities (${liab.original_value})`, "Self-Healing Math Reconciliation"));
-    } else {
-      const eqLine = lines.find(l => (l.toLowerCase().includes("stockholders' equity") || l.toLowerCase().includes("stockholders' deficit") || l.toLowerCase().includes("shareholders' equity")) && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
-      if (eqLine) {
-        let val = parseValWithScale(eqLine, globalScale);
-        if (val !== null && val !== 0) {
-          if (eqLine.toLowerCase().includes("deficit") && val > 0) val = -val;
-          factsMap.set("Total Equity", createFact("Total Equity", val < 0 ? "Stockholders' Deficit" : "Total Stockholders' Equity", val, val < 0 ? `$(${Math.abs(val).toLocaleString()})` : `$${val.toLocaleString()}`, eqLine.trim(), "Self-Healing Narrative Retrace"));
-        }
+      const astVal = parseFloat(ast.normalized_value) || 0;
+      const liabVal = parseFloat(liab.normalized_value) || 0;
+      if (astVal > 0 && liabVal > 0 && astVal > liabVal) {
+        const eqVal = astVal - liabVal;
+        factsMap.set("Total Equity", createFact("Total Equity", "Total Stockholders' Equity", eqVal, `${eqVal.toLocaleString()}`, `Reconciled Total Equity from Assets (${ast.original_value}) minus Liabilities (${liab.original_value})`, "Self-Healing Math Reconciliation"));
       }
     }
   }
 
-  // STEP 11: Retrace Cash
+  // STEP 11: Retrace Cash (Strict matching only)
   if (!factsMap.has("Cash")) {
-    const cashLine = lines.find(l => (l.toLowerCase().includes("cash and cash equivalents") || l.toLowerCase().includes("cash balance")) && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
+    const cashLine = lines.find(l => /^\s*(cash\s+and\s+cash\s+equivalents|cash\s+at\s+bank|cash\s+balance)\b/i.test(l) && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
     if (cashLine) {
       let val = parseValWithScale(cashLine, globalScale);
-      if (val !== null && val !== 0) {
-        factsMap.set("Cash", createFact("Cash", "Cash and cash equivalents", val, `$${val.toLocaleString()}`, cashLine.trim(), "Self-Healing Narrative Retrace"));
+      if (val !== null && val !== 0 && Math.abs(val) > 1000) {
+        factsMap.set("Cash", createFact("Cash", "Cash and cash equivalents", val, `${val.toLocaleString()}`, cashLine.trim(), "Self-Healing Narrative Retrace"));
       }
     }
   }
@@ -2559,12 +2554,15 @@ app.post("/api/documents/upload", (req, res) => {
       // Process pre-parsed files in PARALLEL using Promise.all
       const uploadPromises = preParsedDocs.map(async (p) => {
         const { file, inspection, canonicalDoc } = p;
+        const fileHash = inspection.hash || crypto.createHash('sha256').update(file.buffer || Buffer.from(file.originalname)).digest('hex');
+        const docId = `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        let classification: any = null;
+
         try {
           if (!inspection.isSupported) {
             console.warn("Unsupported or corrupted file during upload:", inspection.unsupportedReason);
           }
 
-          const fileHash = inspection.hash || crypto.createHash('sha256').update(file.buffer || Buffer.from(file.originalname)).digest('hex');
           const existingDoc = db.documents.find(d => d.workspaceId === ws.id && ((d as any).sha256 === fileHash || (d as any).hash === fileHash));
 
           if (existingDoc) {
@@ -2578,8 +2576,7 @@ app.post("/api/documents/upload", (req, res) => {
           }
 
           // Send Canonical Model to Document Intelligence Agent
-          const classification = docIntelligenceAgent.classifyAndExtract(canonicalDoc);
-          const docId = `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          classification = docIntelligenceAgent.classifyAndExtract(canonicalDoc);
 
           const factsToAdd: any[] = [];
 
@@ -2731,7 +2728,29 @@ Format each item as follows:
           return { success: true, newDoc, factsToAdd, canonicalDoc, filePath: storedFile.filePath };
         } catch (err: any) {
           console.error(`Error processing file ${file.originalname}:`, err);
-          return { success: false, error: err?.message || "File parsing failed" };
+          const failedDoc: DocumentRecord = {
+            id: docId,
+            workspaceId: ws.id,
+            filename: file.originalname || "file",
+            originalName: file.originalname || "file",
+            mimeType: file.mimetype || "application/pdf",
+            size: file.size || 0,
+            sha256: fileHash,
+            status: "Failed",
+            category: "OTHER",
+            language: "UNKNOWN",
+            currency: ws.currency,
+            entityName: ws.name,
+            period: classification?.reportingPeriod || undefined,
+            confidence: 0,
+            extractedFactsCount: 0,
+            reviewStatus: "unresolved",
+            createdAt: new Date().toISOString(),
+            summary: `Extraction failed: ${err?.message || "Internal parser error"}. Recorded in UploadManifest.`,
+            pageCount: 1,
+            ingestionVersion: "v2.0-immutable"
+          };
+          return { success: false, newDoc: failedDoc, error: err?.message || "File parsing failed" };
         }
       });
 
@@ -2740,10 +2759,11 @@ Format each item as follows:
 
       // Save processed documents, page manifests, source blocks, and facts sequentially
       for (const result of uploadResults) {
-        if (!result.success || !result.newDoc) continue;
-
-        db.documents.unshift(result.newDoc);
-        newDocs.push(result.newDoc);
+        if (result.newDoc) {
+          db.documents.unshift(result.newDoc);
+          newDocs.push(result.newDoc);
+        }
+        if (!result.success || !result.newDoc || result.newDoc.status === "Failed") continue;
 
         // Store Page Manifests
         if (result.canonicalDoc?.pageManifests && Array.isArray(result.canonicalDoc.pageManifests)) {
