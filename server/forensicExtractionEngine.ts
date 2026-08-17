@@ -4,7 +4,9 @@ import {
   PhaseH2VerificationState,
   PageClassificationType,
   PageDiagnostics,
-  SixReliabilityLayersStatus
+  SixReliabilityLayersStatus,
+  GeneralizedDocumentEntityModel,
+  EntityEvidenceLineage
 } from "../src/types.js";
 
 /**
@@ -20,12 +22,19 @@ const BOILERPLATE_ENTITY_PATTERNS = [
   /district court/i,
   /handelsregister/i,
   /amtsgericht/i,
-  /registergericht/i
+  /registergericht/i,
+  /independent auditor/i,
+  /annual report/i,
+  /financial statement/i,
+  /balance sheet/i,
+  /income statement/i
 ];
 
 export class ForensicEntityResolver {
   /**
    * Brand Root Dictionary mapping common file/text tokens to canonical corporate entity names.
+   * CRITICAL PHASE H.3 RULE: This dictionary is strictly a LOW-CONFIDENCE LAST-RESORT HINT (confidence 0.20).
+   * It must NEVER override stronger evidence inside source documents.
    */
   public static readonly BRAND_ROOT_MAP: Record<string, { legalName: string; workspaceName: string; code: string; defaultCurrency: string }> = {
     unilever: { legalName: "Unilever PLC", workspaceName: "Unilever PLC", code: "UNA", defaultCurrency: "EUR" },
@@ -51,7 +60,422 @@ export class ForensicEntityResolver {
   };
 
   /**
-   * Deterministically resolves legal entity, brand root, and reporting scope from document text, headers, and filename.
+   * Generalized Evidence-Priority Driven Document Entity Resolver.
+   * Evaluates document text according to strict evidence priority (Section 3) before considering dictionary or filename hints.
+   */
+  public static resolveDocumentEntities(
+    docTitle?: string,
+    docContext?: string,
+    fileName?: string,
+    tableContext?: string
+  ): GeneralizedDocumentEntityModel & { lineage: EntityEvidenceLineage } {
+    const titleText = (docTitle || "").trim();
+    const contextText = (docContext || "").trim();
+    const fileText = (fileName || "").trim();
+    const tableText = (tableContext || "").trim();
+
+    const fullText = [titleText, contextText, tableText].filter(Boolean).join("\n");
+    const lowerFull = fullText.toLowerCase();
+
+    // 1. Determine Scope
+    let reportingScope: ReportingScopeType = "CONSOLIDATED_GROUP";
+    let consolidationScopeStr = "Consolidated Group";
+
+    if (
+      lowerFull.includes("consolidated financial statements") ||
+      lowerFull.includes("group annual report") ||
+      lowerFull.includes("konzernabschluss") ||
+      lowerFull.includes("group financial statements") ||
+      lowerFull.includes("consolidated balance sheet") ||
+      lowerFull.includes("consolidated income statement") ||
+      lowerFull.includes("annual report and accounts") ||
+      lowerFull.includes("volkswagen group") ||
+      lowerFull.includes("unilever group")
+    ) {
+      reportingScope = "CONSOLIDATED_GROUP";
+      consolidationScopeStr = "Consolidated Group";
+    } else if (
+      lowerFull.includes("standalone") ||
+      lowerFull.includes("parent company") ||
+      lowerFull.includes("jahresabschluss der volkswagen ag") ||
+      lowerFull.includes("holding company accounts") ||
+      lowerFull.includes("parent financial statements") ||
+      lowerFull.includes("ag standalone") ||
+      lowerFull.includes("company balance sheet")
+    ) {
+      reportingScope = "PARENT_ONLY";
+      consolidationScopeStr = "Parent Company Standalone";
+    } else if (lowerFull.includes("subsidiary") || lowerFull.includes("audi ag") || lowerFull.includes("porsche ag")) {
+      reportingScope = "SUBSIDIARY";
+      consolidationScopeStr = "Subsidiary";
+    } else if (lowerFull.includes("segment") || lowerFull.includes("passenger cars") || lowerFull.includes("commercial vehicles") || lowerFull.includes("beauty & wellbeing")) {
+      reportingScope = "SEGMENT";
+      consolidationScopeStr = "Segment / Business Unit";
+    } else if (lowerFull.includes("continuing operations")) {
+      reportingScope = "CONTINUING_OPERATIONS";
+      consolidationScopeStr = "Continuing Operations";
+    } else if (lowerFull.includes("discontinued operations")) {
+      reportingScope = "DISCONTINUED_OPERATIONS";
+      consolidationScopeStr = "Discontinued Operations";
+    } else if (lowerFull.includes("associate")) {
+      reportingScope = "ASSOCIATE";
+      consolidationScopeStr = "Associate";
+    } else if (lowerFull.includes("joint venture")) {
+      reportingScope = "JOINT_VENTURE";
+      consolidationScopeStr = "Joint Venture";
+    }
+
+    // Referenced Entities Extraction (Auditors, Regulators, Subsidiaries)
+    const referencedEntities: GeneralizedDocumentEntityModel["referencedEntities"] = [];
+    const lowerAll = `${fileText} ${fullText}`.toLowerCase();
+
+    // Auditor detection
+    if (lowerAll.includes("pwc") || lowerAll.includes("pricewaterhousecoopers")) {
+      referencedEntities.push({ name: "PwC", type: "AUDITOR", evidenceText: "PwC mentioned as auditor", confidence: 0.95 });
+    }
+    if (lowerAll.includes("kpmg")) {
+      referencedEntities.push({ name: "KPMG", type: "AUDITOR", evidenceText: "KPMG mentioned as auditor", confidence: 0.95 });
+    }
+    if (lowerAll.includes("ernst & young") || lowerAll.includes("ey")) {
+      referencedEntities.push({ name: "Ernst & Young", type: "AUDITOR", evidenceText: "EY mentioned as auditor", confidence: 0.95 });
+    }
+    if (lowerAll.includes("deloitte")) {
+      referencedEntities.push({ name: "Deloitte", type: "AUDITOR", evidenceText: "Deloitte mentioned as auditor", confidence: 0.95 });
+    }
+
+    // Regulators / Authorities
+    if (lowerAll.includes("bafin")) {
+      referencedEntities.push({ name: "BaFin", type: "REGULATOR", evidenceText: "BaFin regulatory references", confidence: 0.90 });
+    }
+    if (lowerAll.includes("sec") || lowerAll.includes("securities and exchange commission")) {
+      referencedEntities.push({ name: "SEC", type: "REGULATOR", evidenceText: "US SEC regulatory filings", confidence: 0.90 });
+    }
+    if (lowerAll.includes("fda")) {
+      referencedEntities.push({ name: "FDA", type: "REGULATOR", evidenceText: "FDA mentioned in disclosures", confidence: 0.90 });
+    }
+
+    // ESEF / XBRL LEI Tag Extraction e.g., 549300MKFYEKVRWML317
+    let leiNameMatch: string | null = null;
+    if (/549300MKFYEKVRWML317/i.test(`${fileText} ${titleText}`)) {
+      leiNameMatch = "Unilever PLC";
+    }
+
+    // EVIDENCE PRIORITY RESOLUTION
+
+    // Priority 1: Audited Financial Statement Headings / Legal Entity Names in Document Text
+    const companyLegalPattern = /\b([A-Z][A-Za-z0-9&.-]+(?:\s+[A-Z0-9&.-]+){0,4}\s+\b(?:PLC|P\.L\.C\.|N\.V\.|AG|GmbH|SE|Inc|Corp|Corporation|Limited|Ltd|S\.A\.)\b)/g;
+    const cleanMatches = fullText.match(companyLegalPattern);
+
+    if (cleanMatches && cleanMatches.length > 0) {
+      // Find the first valid clean legal entity match
+      for (const candidate of cleanMatches) {
+        const trimmed = candidate.trim();
+        if (
+          trimmed.length >= 4 &&
+          trimmed.length <= 60 &&
+          !/annual report|financial statement|independent auditor|balance sheet|income statement|operating procedure|corporate reporting/i.test(trimmed)
+        ) {
+          const legalEntity = trimmed.replace(/^(OF|FOR|ZUM|DER|DES|DE)\s+/i, '').trim();
+          const workspaceEntity = legalEntity.replace(/\b(AG|GmbH|Inc|Corp|Corporation|PLC|N\.V\.|SE|Ltd|Limited|S\.A\.)\b/gi, '').trim() || legalEntity;
+          const reportingEntity = reportingScope === "PARENT_ONLY" ? `${legalEntity} (Standalone)` : `${workspaceEntity} Group`;
+          return this.buildResolvedResult({
+            legalEntity,
+            reportingEntity,
+            parentEntity: legalEntity,
+            workspaceEntity,
+            reportingScope,
+            consolidationScopeStr,
+            evidenceText: `Document text evidence for legal entity '${legalEntity}'`,
+            resolutionMethod: "EVIDENCE_PRIORITY_1_AUDITED_STATEMENT_HEADER",
+            confidenceScore: 0.98,
+            verificationState: "VERIFIED",
+            docTitle: fileText || titleText,
+            referencedEntities
+          });
+        }
+      }
+    }
+
+    // Priority 2: Auditor's Report
+    const auditorRegex = /(?:independent auditor's report|bestätigungsvermerk des unabhängigen abschlussprüfers)\s+(?:to|for|des|der)\s+([A-Z][A-Za-z0-9\s&,.-]+?\b(?:PLC|P\.L\.C\.|N\.V\.|AG|GmbH|SE|Inc|Corp|Corporation|Limited|Ltd|S\.A\.)\b)/i;
+    const auditorMatch = fullText.match(auditorRegex);
+    if (auditorMatch && auditorMatch[1]) {
+      const legalEntity = auditorMatch[1].trim();
+      const workspaceEntity = legalEntity.replace(/\b(AG|GmbH|Inc|Corp|Corporation|PLC|N\.V\.|SE|Ltd|Limited|S\.A\.)\b/gi, '').trim() || legalEntity;
+      const reportingEntity = reportingScope === "PARENT_ONLY" ? `${legalEntity} (Standalone)` : `${workspaceEntity} Group`;
+      return this.buildResolvedResult({
+        legalEntity,
+        reportingEntity,
+        parentEntity: legalEntity,
+        workspaceEntity,
+        reportingScope,
+        consolidationScopeStr,
+        evidenceText: auditorMatch[0],
+        resolutionMethod: "EVIDENCE_PRIORITY_2_AUDITOR_REPORT",
+        confidenceScore: 0.95,
+        verificationState: "VERIFIED",
+        docTitle: fileText || titleText,
+        referencedEntities
+      });
+    }
+
+    // Priority 3: Directors' Responsibilities / Management Report
+    const directorsRegex = /(?:statement of directors' responsibilities|report of the board of directors|lagebericht)\s+(?:for|des|der)\s+([A-Z][A-Za-z0-9\s&,.-]+?\b(?:PLC|P\.L\.C\.|N\.V\.|AG|GmbH|SE|Inc|Corp|Corporation|Limited|Ltd|S\.A\.)\b)/i;
+    const directorsMatch = fullText.match(directorsRegex);
+    if (directorsMatch && directorsMatch[1]) {
+      const legalEntity = directorsMatch[1].trim();
+      const workspaceEntity = legalEntity.replace(/\b(AG|GmbH|Inc|Corp|Corporation|PLC|N\.V\.|SE|Ltd|Limited|S\.A\.)\b/gi, '').trim() || legalEntity;
+      const reportingEntity = reportingScope === "PARENT_ONLY" ? `${legalEntity} (Standalone)` : `${workspaceEntity} Group`;
+      return this.buildResolvedResult({
+        legalEntity,
+        reportingEntity,
+        parentEntity: legalEntity,
+        workspaceEntity,
+        reportingScope,
+        consolidationScopeStr,
+        evidenceText: directorsMatch[0],
+        resolutionMethod: "EVIDENCE_PRIORITY_3_DIRECTORS_REPORT",
+        confidenceScore: 0.90,
+        verificationState: "VERIFIED",
+        docTitle: fileText || titleText,
+        referencedEntities
+      });
+    }
+
+    // Priority 4: Cover Title and Filing Metadata
+    if (titleText && titleText.length >= 5) {
+      const titleEntityMatch = titleText.match(/([A-Z][A-Za-z0-9\s&,.-]+?\b(?:PLC|P\.L\.C\.|N\.V\.|AG|GmbH|SE|Inc|Corp|Corporation|Limited|Ltd|S\.A\.)\b)/);
+      if (titleEntityMatch) {
+        const legalEntity = titleEntityMatch[1].trim();
+        const workspaceEntity = legalEntity.replace(/\b(AG|GmbH|Inc|Corp|Corporation|PLC|N\.V\.|SE|Ltd|Limited|S\.A\.)\b/gi, '').trim() || legalEntity;
+        const reportingEntity = reportingScope === "PARENT_ONLY" ? `${legalEntity} (Standalone)` : `${workspaceEntity} Group`;
+        return this.buildResolvedResult({
+          legalEntity,
+          reportingEntity,
+          parentEntity: legalEntity,
+          workspaceEntity,
+          reportingScope,
+          consolidationScopeStr,
+          evidenceText: titleText,
+          resolutionMethod: "EVIDENCE_PRIORITY_4_COVER_TITLE_METADATA",
+          confidenceScore: 0.85,
+          verificationState: "VALIDATED",
+          docTitle: fileText || titleText,
+          referencedEntities
+        });
+      }
+    }
+
+    // Priority 5: Registration / Legal Info
+    const regRegex = /(?:registered office|commercial register|handelsregister|amtsgericht)\s*:\s*([A-Z][A-Za-z0-9\s&,.-]+?\b(?:PLC|P\.L\.C\.|N\.V\.|AG|GmbH|SE|Inc|Corp|Corporation|Limited|Ltd|S\.A\.)\b)/i;
+    const regMatch = fullText.match(regRegex);
+    if (regMatch && regMatch[1]) {
+      const legalEntity = regMatch[1].trim();
+      const workspaceEntity = legalEntity.replace(/\b(AG|GmbH|Inc|Corp|Corporation|PLC|N\.V\.|SE|Ltd|Limited|S\.A\.)\b/gi, '').trim() || legalEntity;
+      return this.buildResolvedResult({
+        legalEntity,
+        reportingEntity: `${workspaceEntity} Group`,
+        parentEntity: legalEntity,
+        workspaceEntity,
+        reportingScope,
+        consolidationScopeStr,
+        evidenceText: regMatch[0],
+        resolutionMethod: "EVIDENCE_PRIORITY_5_REGISTRATION_METADATA",
+        confidenceScore: 0.85,
+        verificationState: "VALIDATED",
+        docTitle: fileText || titleText,
+        referencedEntities
+      });
+    }
+
+    // Priority 6: ESEF / XBRL LEI Tag
+    if (leiNameMatch) {
+      const legalEntity = leiNameMatch;
+      const workspaceEntity = "Unilever PLC";
+      return this.buildResolvedResult({
+        legalEntity,
+        reportingEntity: "Unilever Group",
+        parentEntity: legalEntity,
+        workspaceEntity,
+        reportingScope,
+        consolidationScopeStr,
+        evidenceText: `ESEF LEI Registration for ${leiNameMatch}`,
+        resolutionMethod: "EVIDENCE_PRIORITY_6_ESEF_XBRL_LEI",
+        confidenceScore: 0.90,
+        verificationState: "VERIFIED",
+        docTitle: fileText || titleText,
+        referencedEntities
+      });
+    }
+
+    // Priority 7: Dynamic Legal Entity Scanner in Full Document Text
+    const legalEntityPattern = /([A-Z][A-Za-z0-9\s&,.-]+?\b(?:PLC|P\.L\.C\.|N\.V\.|AG|GmbH|SE|Inc|Corp|Corporation|Limited|Ltd|S\.A\.|Group)\b)/g;
+    const textMatches = fullText.match(legalEntityPattern);
+    if (textMatches && textMatches.length > 0) {
+      for (const rawMatch of textMatches) {
+        const trimmed = rawMatch.trim();
+        if (
+          trimmed.length >= 4 &&
+          trimmed.length <= 60 &&
+          !BOILERPLATE_ENTITY_PATTERNS.some(p => p.test(trimmed))
+        ) {
+          const legalEntity = trimmed;
+          const workspaceEntity = trimmed.replace(/\b(AG|GmbH|Inc|Corp|Corporation|PLC|N\.V\.|SE|Ltd|Limited|S\.A\.)\b/gi, '').trim() || trimmed;
+          const reportingEntity = reportingScope === "PARENT_ONLY" ? `${legalEntity} (Standalone)` : `${workspaceEntity} Group`;
+          return this.buildResolvedResult({
+            legalEntity,
+            reportingEntity,
+            parentEntity: legalEntity,
+            workspaceEntity,
+            reportingScope,
+            consolidationScopeStr,
+            evidenceText: trimmed,
+            resolutionMethod: "EVIDENCE_PRIORITY_7_DYNAMIC_REGEX_LEGAL_ENTITY",
+            confidenceScore: 0.80,
+            verificationState: "VALIDATED",
+            docTitle: fileText || titleText,
+            referencedEntities
+          });
+        }
+      }
+    }
+
+    // Priority 8: Contextual Document Headers
+    if (fullText.length > 50) {
+      const contextMatch = fullText.match(/\b([A-Z][A-Za-z0-9&.-]+(?:\s+[A-Z][A-Za-z0-9&.-]+){0,3}\s+(?:Group|Corporation|Holdings|Company))\b/);
+      if (contextMatch) {
+        const entity = contextMatch[1].trim();
+        return this.buildResolvedResult({
+          legalEntity: entity,
+          reportingEntity: `${entity} (Consolidated)`,
+          parentEntity: entity,
+          workspaceEntity: entity,
+          reportingScope,
+          consolidationScopeStr,
+          evidenceText: contextMatch[0],
+          resolutionMethod: "EVIDENCE_PRIORITY_8_DOCUMENT_TEXT_CONTEXT",
+          confidenceScore: 0.70,
+          verificationState: "PROPOSED",
+          docTitle: fileText || titleText,
+          referencedEntities
+        });
+      }
+    }
+
+    // Priority 9 (LOW-CONFIDENCE LAST-RESORT HINT): Dictionary Matching
+    // Note: Dictionary match runs ONLY if no document text evidence was found above, and gets a low confidence score (0.20)
+    for (const [key, meta] of Object.entries(this.BRAND_ROOT_MAP)) {
+      if (fileText.toLowerCase().includes(key) || fullText.toLowerCase().includes(key)) {
+        return this.buildResolvedResult({
+          legalEntity: meta.legalName,
+          reportingEntity: `${meta.workspaceName} (Consolidated)`,
+          parentEntity: meta.legalName,
+          workspaceEntity: meta.workspaceName,
+          reportingScope,
+          consolidationScopeStr,
+          evidenceText: `Brand root token hint '${key}' found in metadata`,
+          resolutionMethod: "EVIDENCE_PRIORITY_9_LOW_CONFIDENCE_DICTIONARY_HINT",
+          confidenceScore: 0.20,
+          verificationState: "UNRESOLVED", // Low confidence -> UNRESOLVED state
+          docTitle: fileText || titleText,
+          candidateEntities: [
+            { name: meta.workspaceName, confidence: 0.20, evidence: `Filename token '${key}' hint` }
+          ],
+          referencedEntities
+        });
+      }
+    }
+
+    // Priority 10 (FINAL FALLBACK): Filename Tokenizer
+    // Yields UNRESOLVED state with candidate
+    const noiseWords = /(readme|test|instructions|factura|invoice|statement|report|annual|accounts|consolidated|individual|presentation|results|review|overview|enterprise|q[1-4]|202[0-9]|received|pdf|doc|docx|txt|google|drive|upload|data|document|entire|ar25|ar24|ar26|fy25|fy24|fy26)/gi;
+    const stripped = fileText
+      .replace(/\.[^/.]+$/, "")
+      .replace(noiseWords, "")
+      .replace(/[_.-]+/g, " ")
+      .trim();
+
+    const formattedName = stripped
+      .split(" ")
+      .filter(w => w.length > 2 && !/^(and|the|for|cum|zum|mit|und)$/i.test(w))
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+
+    const candidateName = formattedName.length >= 3 ? formattedName : "Unresolved Corporate Entity";
+
+    return this.buildResolvedResult({
+      legalEntity: candidateName,
+      reportingEntity: `${candidateName} (Unresolved)`,
+      parentEntity: candidateName,
+      workspaceEntity: candidateName,
+      reportingScope,
+      consolidationScopeStr,
+      evidenceText: `Raw filename '${fileText}' fallback tokenizer`,
+      resolutionMethod: "EVIDENCE_PRIORITY_10_LOW_CONFIDENCE_FILENAME_FALLBACK",
+      confidenceScore: 0.15,
+      verificationState: "UNRESOLVED",
+      docTitle: fileText || titleText,
+      candidateEntities: [
+        { name: candidateName, confidence: 0.15, evidence: `Raw filename tokenizer '${fileText}'` }
+      ],
+      referencedEntities
+    });
+  }
+
+  private static buildResolvedResult(params: {
+    legalEntity: string;
+    reportingEntity: string;
+    parentEntity: string;
+    workspaceEntity: string;
+    reportingScope: ReportingScopeType;
+    consolidationScopeStr: string;
+    evidenceText: string;
+    resolutionMethod: string;
+    confidenceScore: number;
+    verificationState: GeneralizedDocumentEntityModel["verificationState"];
+    docTitle: string;
+    candidateEntities?: GeneralizedDocumentEntityModel["candidateEntities"];
+    referencedEntities: GeneralizedDocumentEntityModel["referencedEntities"];
+  }): GeneralizedDocumentEntityModel & { lineage: EntityEvidenceLineage } {
+    const lineage: EntityEvidenceLineage = {
+      canonical_entity_id: `ENTITY_${params.legalEntity.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase()}`,
+      canonical_entity_name: params.workspaceEntity,
+      legal_entity: params.legalEntity,
+      reporting_entity: params.reportingEntity,
+      parent_entity: params.parentEntity,
+      consolidation_scope: params.consolidationScopeStr,
+      reporting_scope: params.reportingScope,
+      source_document_id: params.docTitle,
+      source_document_name: params.docTitle,
+      source_page: 1,
+      evidence_text: params.evidenceText,
+      resolution_method: params.resolutionMethod,
+      confidence_score: params.confidenceScore,
+      verification_state: params.verificationState,
+      raw_entity_text: params.evidenceText,
+      canonical_entity: params.legalEntity
+    };
+
+    return {
+      documentIssuer: params.legalEntity,
+      reportingEntity: params.reportingEntity,
+      parentEntity: params.parentEntity,
+      workspaceEntity: params.workspaceEntity,
+      consolidationScope: params.reportingScope,
+      reportingScope: params.reportingScope,
+      referencedEntities: params.referencedEntities,
+      evidenceText: params.evidenceText,
+      evidenceSource: { pageNumber: 1, section: "Cover / Header" },
+      resolutionMethod: params.resolutionMethod,
+      confidenceScore: params.confidenceScore,
+      verificationState: params.verificationState,
+      candidateEntities: params.candidateEntities,
+      lineage
+    };
+  }
+
+  /**
+   * Legacy interface wrapper returning old structure for backward compatibility.
    */
   public static resolveEntityAndScope(
     docTitle?: string,
@@ -66,108 +490,19 @@ export class ForensicEntityResolver {
     reportingScope: ReportingScopeType;
     resolutionMethod: string;
   } {
-    const textToScan = [
-      docTitle,
-      docContext,
-      fileName,
-      tableContext
-    ].filter(Boolean).join(" ");
-
-    const lower = textToScan.toLowerCase();
-
-    // 1. Scope Determination
-    let reportingScope: ReportingScopeType = "UNKNOWN";
-
-    if (
-      lower.includes("consolidated financial statements") ||
-      lower.includes("group annual report") ||
-      lower.includes("konzernabschluss") ||
-      lower.includes("group financial statements") ||
-      lower.includes("consolidated balance sheet") ||
-      lower.includes("consolidated income statement") ||
-      lower.includes("annual report and accounts") ||
-      lower.includes("volkswagen group") ||
-      lower.includes("unilever group")
-    ) {
-      reportingScope = "CONSOLIDATED_GROUP";
-    } else if (
-      lower.includes("standalone") ||
-      lower.includes("parent company") ||
-      lower.includes("jahresabschluss der volkswagen ag") ||
-      lower.includes("volkswagen ag standalone") ||
-      lower.includes("holding company") ||
-      lower.includes("parent financial statements") ||
-      lower.includes("ag standalone")
-    ) {
-      reportingScope = "PARENT_ONLY";
-    } else if (lower.includes("subsidiary") || lower.includes("audi ag") || lower.includes("porsche ag")) {
-      reportingScope = "SUBSIDIARY";
-    } else if (lower.includes("segment") || lower.includes("passenger cars") || lower.includes("commercial vehicles") || lower.includes("beauty & wellbeing")) {
-      reportingScope = "SEGMENT";
-    } else {
-      reportingScope = "CONSOLIDATED_GROUP";
-    }
-
-    // 2. Deterministic Brand Root Dictionary Matching
-    for (const [key, meta] of Object.entries(this.BRAND_ROOT_MAP)) {
-      const regex = new RegExp(`\\b${key}\\b`, 'i');
-      if (regex.test(lower)) {
-        const legalEntity = meta.legalName;
-        const workspaceEntity = meta.workspaceName;
-        const parentEntity = meta.legalName;
-        const reportingEntity = reportingScope === "PARENT_ONLY" ? `${legalEntity} (Standalone)` : `${workspaceEntity} (Consolidated)`;
-        return {
-          legalEntity,
-          reportingEntity,
-          parentEntity,
-          workspaceEntity,
-          reportingScope,
-          resolutionMethod: `DETERMINISTIC_BRAND_ROOT (${key.toUpperCase()})`
-        };
-      }
-    }
-
-    // 3. Dynamic Legal Entity Extraction via Regex
-    const legalEntityPattern = /([A-Z][A-Za-z0-9\s&,.-]+?\b(PLC|P\.L\.C\.|N\.V\.|AG|GmbH|SE|Inc|Corp|Corporation|Limited|Ltd|S\.A\.|Aktiengesellschaft|Group)\b)/g;
-    const matches = textToScan.match(legalEntityPattern);
-    if (matches && matches.length > 0) {
-      for (const rawMatch of matches) {
-        const trimmed = rawMatch.trim();
-        if (
-          trimmed.length >= 4 &&
-          trimmed.length <= 60 &&
-          !BOILERPLATE_ENTITY_PATTERNS.some(p => p.test(trimmed)) &&
-          !/annual report|financial statement|independent auditor|balance sheet|income statement/i.test(trimmed)
-        ) {
-          const legalEntity = trimmed;
-          const workspaceEntity = trimmed.replace(/\b(AG|GmbH|Inc|Corp|Corporation|PLC|N\.V\.|SE|Ltd|Limited|S\.A\.)\b/gi, '').trim() || trimmed;
-          return {
-            legalEntity,
-            reportingEntity: reportingScope === "PARENT_ONLY" ? `${legalEntity} (Standalone)` : `${workspaceEntity} (Consolidated)`,
-            parentEntity: legalEntity,
-            workspaceEntity,
-            reportingScope,
-            resolutionMethod: "DYNAMIC_REGEX_LEGAL_ENTITY"
-          };
-        }
-      }
-    }
-
-    // Fallback default
-    const fallbackEntity = docTitle && docTitle.length > 3 ? docTitle : "Corporate Entity";
+    const resolved = this.resolveDocumentEntities(docTitle, docContext, fileName, tableContext);
     return {
-      legalEntity: fallbackEntity,
-      reportingEntity: `${fallbackEntity} (Consolidated)`,
-      parentEntity: fallbackEntity,
-      workspaceEntity: fallbackEntity,
-      reportingScope,
-      resolutionMethod: "GENERIC_FALLBACK"
+      legalEntity: resolved.documentIssuer,
+      reportingEntity: resolved.reportingEntity,
+      parentEntity: resolved.parentEntity,
+      workspaceEntity: resolved.workspaceEntity,
+      reportingScope: resolved.reportingScope,
+      resolutionMethod: resolved.resolutionMethod
     };
   }
 
   /**
-   * Deterministically resolves corporate entity name from raw uploaded filename.
-   * Prevents naive filename string tokenization failures like 'Unilever And Accounts' or 'Entire Ar25'.
+   * Low-confidence filename brand root resolver (Priority 9 & 10 hint).
    */
   public static resolveEntityFromFilename(filename: string): {
     name: string;
@@ -180,13 +515,12 @@ export class ForensicEntityResolver {
 
     // Check Brand Root Map
     for (const [key, meta] of Object.entries(this.BRAND_ROOT_MAP)) {
-      const regex = new RegExp(`\\b${key}\\b|_|-`, 'i');
       if (cleanFilename.includes(key)) {
         return {
           name: meta.workspaceName,
           code: meta.code,
           currency: meta.defaultCurrency,
-          resolutionMethod: `FILENAME_BRAND_ROOT (${key.toUpperCase()})`
+          resolutionMethod: `FILENAME_BRAND_ROOT_HINT (${key.toUpperCase()})`
         };
       }
     }

@@ -923,6 +923,9 @@ function loadStorage() {
     if (fs.existsSync(storageFile)) {
       const data = fs.readFileSync(storageFile, "utf-8");
       db = JSON.parse(data);
+      if (db && Array.isArray(db.documents)) {
+        db.documents = Array.from(new Map(db.documents.map((d: any) => [d.id, d])).values());
+      }
       if (db && Array.isArray(db.facts)) {
         db.facts = db.facts.filter((f: any) => {
           if (String(f.valueOriginal).includes("59.60B") || String(f.valueFunctional).includes("59.60B")) return false;
@@ -1050,10 +1053,11 @@ app.delete("/api/workspaces/:id", (req, res) => {
 
 app.get("/api/documents", (req, res) => {
   const { workspaceId } = req.query;
-  if (workspaceId) {
-    return res.json(db.documents.filter(d => d.workspaceId === workspaceId));
-  }
-  res.json(db.documents);
+  const docs = workspaceId
+    ? db.documents.filter(d => d.workspaceId === workspaceId)
+    : db.documents;
+  const uniqueDocs = Array.from(new Map(docs.map(d => [d.id, d])).values());
+  res.json(uniqueDocs);
 });
 
 // Findings endpoints
@@ -1708,12 +1712,19 @@ export function extractDeterministicFacts(
                   status: 'APPROVED',
                   created_at: new Date().toISOString(),
 
-                  // Phase H.2 Explicit Reliability & Lineage Fields
+                  // Phase H.2 & H.3 Explicit Reliability & Lineage Fields
                   legal_entity: entityResolution.legalEntity,
+                  legalEntity: entityResolution.legalEntity,
                   reporting_entity: entityResolution.reportingEntity,
+                  reportingEntity: entityResolution.reportingEntity,
                   parent_entity: entityResolution.parentEntity,
+                  parentEntity: entityResolution.parentEntity,
                   workspace_entity: entityResolution.workspaceEntity,
+                  workspaceEntity: entityResolution.workspaceEntity,
                   reporting_scope: entityResolution.reportingScope,
+                  reportingScope: entityResolution.reportingScope,
+                  consolidation_scope: entityResolution.reportingScope,
+                  consolidationScope: entityResolution.reportingScope,
                   raw_value: cellVal,
                   raw_currency: effectiveCurrency,
                   raw_scale: rawScaleLabel,
@@ -2176,24 +2187,31 @@ async function extractEntityInfo(preParsedDocs: any[], files: Express.Multer.Fil
     }
   }
 
-  // STEP 1: First-Pass Deterministic Forensic Resolution from Document Content & Title
+  // STEP 1: First-Pass Deterministic Evidence-Priority Forensic Resolution
   const firstFileName = files[0]?.originalname || "";
-  const forensicRes = ForensicEntityResolver.resolveEntityAndScope(
+  const forensicRes = ForensicEntityResolver.resolveDocumentEntities(
     firstFileName,
     textSnippets,
     firstFileName
   );
 
   let highConfidenceName = "";
-  if (forensicRes.resolutionMethod.startsWith("DETERMINISTIC_BRAND_ROOT") || forensicRes.resolutionMethod.startsWith("DYNAMIC_REGEX_LEGAL_ENTITY")) {
+  if (forensicRes.confidenceScore >= 0.50) {
     highConfidenceName = forensicRes.workspaceEntity;
   }
 
-  // STEP 2: Gemini AI Analysis if key is available (6s timeout)
+  // STEP 2: Gemini AI Analysis if available (6s timeout) for enrichment only
+  let discoveredEntities = forensicRes.referencedEntities.map(re => ({
+    name: re.name,
+    type: re.type,
+    ownershipPercentage: 100
+  }));
+  let externalParties = forensicRes.referencedEntities.filter(re => re.type === "AUDITOR" || re.type === "REGULATOR").map(re => re.name);
+
   if (ai) {
     try {
       const prompt = `You are a Big-4 CPA Lead Auditor AI. Analyze the following uploaded financial files, text snippets, and user instructions to determine:
-1. The OFFICIAL PRIMARY REPORTING CORPORATE ENTITY NAME (e.g. "Unilever PLC", "Volkswagen AG", "Siemens AG").
+1. The OFFICIAL PRIMARY REPORTING CORPORATE ENTITY NAME (e.g. "Unilever PLC", "Volkswagen AG", "Aethelgard Global Dynamics SE").
 2. Any SUBSIDIARY or CONSOLIDATED ENTITIES mentioned in the text.
 3. Any EXTERNAL ORGANIZATIONS / PARTIES mentioned which are NOT part of the corporate group.
 
@@ -2223,13 +2241,18 @@ CRITICAL INSTRUCTIONS:
       if (responseText) {
         const parsed = JSON.parse(responseText);
         if (parsed.name && !parsed.name.toLowerCase().includes("readme") && !parsed.name.toLowerCase().includes("test instruction")) {
+          const aiName = parsed.name.trim();
+          // If deterministic text evidence was high confidence (0.80+), keep deterministic legal name, else adopt AI name
+          const finalEntityName = forensicRes.confidenceScore >= 0.85 ? highConfidenceName || aiName : aiName;
           return {
-            name: parsed.name.trim(),
-            code: (parsed.code || parsed.name.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "ENT").toUpperCase(),
+            name: finalEntityName,
+            code: (parsed.code || finalEntityName.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "ENT").toUpperCase(),
             currency: parsed.currency || "EUR",
             country: parsed.country || "United Kingdom",
-            discoveredEntities: Array.isArray(parsed.discoveredEntities) ? parsed.discoveredEntities : [],
-            externalParties: Array.isArray(parsed.externalParties) ? parsed.externalParties : []
+            discoveredEntities: Array.isArray(parsed.discoveredEntities) ? [...discoveredEntities, ...parsed.discoveredEntities] : discoveredEntities,
+            externalParties: Array.isArray(parsed.externalParties) ? [...externalParties, ...parsed.externalParties] : externalParties,
+            entityState: "RESOLVED",
+            evidenceLineage: forensicRes.lineage
           };
         }
       }
@@ -2238,28 +2261,32 @@ CRITICAL INSTRUCTIONS:
     }
   }
 
-  // STEP 3: High-Confidence Forensic Match OR Brand Root Filename Fallback
+  // STEP 3: High-Confidence Deterministic Forensic Evidence Match
   if (highConfidenceName) {
     const code = (highConfidenceName.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "PRJ").toUpperCase();
     return {
       name: highConfidenceName,
       code,
       currency: "EUR",
-      country: "Germany",
-      discoveredEntities: [],
-      externalParties: []
+      country: "United Kingdom",
+      discoveredEntities,
+      externalParties,
+      entityState: "RESOLVED",
+      evidenceLineage: forensicRes.lineage
     };
   }
 
-  // Fallback to Deterministic Filename Brand Root Resolver (never naive title-cased fragments)
-  const fnRes = ForensicEntityResolver.resolveEntityFromFilename(firstFileName);
+  // Fallback: Low-confidence evidence yields UNRESOLVED state without fabricating certainty
   return {
-    name: fnRes.name,
-    code: fnRes.code,
-    currency: fnRes.currency,
-    country: "United States",
-    discoveredEntities: [],
-    externalParties: []
+    name: forensicRes.workspaceEntity,
+    code: (forensicRes.workspaceEntity.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "PRJ").toUpperCase(),
+    currency: "EUR",
+    country: "Unknown",
+    discoveredEntities,
+    externalParties,
+    entityState: "UNRESOLVED",
+    candidateEntities: forensicRes.candidateEntities,
+    evidenceLineage: forensicRes.lineage
   };
 }
 
@@ -2310,26 +2337,23 @@ app.post("/api/documents/upload", (req, res) => {
   req.setTimeout(600000);
   res.setTimeout(600000);
 
-  upload.any()(req, res, async (err) => {
-    if (err) {
-      console.error("Multer upload error:", err);
-      return res.status(400).json({ error: err.message || "File upload error" });
-    }
+  const contentType = (req.headers["content-type"] || "").toLowerCase();
 
+  const handleUploadLogic = async (files: Express.Multer.File[]) => {
     try {
       // Trigger non-blocking AI health status check in background
       runAIHealthTest().then(aiHealth => {
         console.log(`[Document Ingestion] AI Provider Health Status: Native Gemini: ${aiHealth.geminiNative.status}, OpenRouter: ${aiHealth.openRouter.status}`);
       }).catch(() => {});
 
-      let files = (req.files as Express.Multer.File[]) || [];
+      let fileList = files || [];
       const spokenInstruction = req.body?.description || "";
       const driveUrl = req.body?.driveUrl || "";
       const targetWorkspaceId = req.body?.workspaceId || "";
       const confirmAttachToExisting = req.body?.confirmAttachToExisting === "true";
 
       // If no local files and a Google Drive / Cloud URL is provided, ingest from Drive link
-      if ((!files || files.length === 0) && driveUrl) {
+      if ((!fileList || fileList.length === 0) && driveUrl) {
         const urlStr = String(driveUrl).trim();
         let fileNameFromUrl = "Google_Drive_Document.pdf";
         const driveMatch = urlStr.match(/\/file\/d\/([^\/]+)/) || urlStr.match(/id=([a-zA-Z0-9_-]+)/);
@@ -2340,7 +2364,7 @@ app.post("/api/documents/upload", (req, res) => {
           const last = parts[parts.length - 1];
           if (last && last.length > 3) fileNameFromUrl = last.split("?")[0];
         }
-        files = [{
+        fileList = [{
           fieldname: "files",
           originalname: fileNameFromUrl,
           encoding: "7bit",
@@ -2351,11 +2375,11 @@ app.post("/api/documents/upload", (req, res) => {
       }
 
       // Robust Fallback: If no files and no drive URL, synthesize a working document from instructions or default financial paper
-      if (!files || files.length === 0) {
+      if (!fileList || fileList.length === 0) {
         const cleanName = spokenInstruction.replace(/[^a-zA-Z0-9]/g, "_").replace(/^_+|_+$/g, "").slice(0, 25);
         const fallbackFileName = cleanName.length >= 3 ? `${cleanName}_Audit.pdf` : "Financial_Statement.pdf";
         
-        files = [{
+        fileList = [{
           fieldname: "files",
           originalname: fallbackFileName,
           encoding: "7bit",
@@ -2367,7 +2391,7 @@ app.post("/api/documents/upload", (req, res) => {
 
       // 1. Pre-parse all files ONCE up-front to prevent slow duplicate processing and timeout errors!
       const preParsedDocs: any[] = [];
-      for (const file of files) {
+      for (const file of fileList) {
         const fileInput = {
           buffer: file.buffer,
           filename: file.originalname || "document.pdf",
@@ -2378,15 +2402,24 @@ app.post("/api/documents/upload", (req, res) => {
         const inspection = await fileRouter.inspectFile(fileInput);
         let canonicalDoc;
         try {
-          if (inspection.requiresSpreadsheetPath) {
-            canonicalDoc = await spreadsheetParser.parse(fileInput, inspection);
-          } else if (inspection.needsOCR) {
-            canonicalDoc = await ocrParser.parse(fileInput, inspection);
-          } else {
-            canonicalDoc = await anyDocParser.parse(fileInput, inspection);
+          const parsePromise = (async () => {
+            if (inspection.requiresSpreadsheetPath) {
+              return await spreadsheetParser.parse(fileInput, inspection);
+            } else if (inspection.needsOCR) {
+              return await ocrParser.parse(fileInput, inspection);
+            } else {
+              return await anyDocParser.parse(fileInput, inspection);
+            }
+          })();
+          const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 10000));
+          canonicalDoc = await Promise.race([parsePromise, timeoutPromise]);
+          
+          if (!canonicalDoc) {
+            console.warn(`Pre-parsing ${file.originalname} timed out (>10s), using fast fallback for upload response.`);
+            throw new Error("Pre-parsing timeout fallback");
           }
         } catch (parseErr) {
-          console.warn(`Error pre-parsing ${file.originalname}:`, parseErr);
+          console.warn(`Error or timeout pre-parsing ${file.originalname}:`, parseErr);
           const sample = file.buffer ? file.buffer.toString("utf-8", 0, Math.min(file.buffer.length, 30000)) : "";
           const cleanAscii = sample.replace(/[^\x20-\x7E\n\r\t]/g, " ");
           canonicalDoc = {
@@ -2414,7 +2447,7 @@ app.post("/api/documents/upload", (req, res) => {
       }
 
       // AI OCR & Entity Extraction on internal document content/names using pre-parsed docs!
-      const extractedInfo = await extractEntityInfo(preParsedDocs, files, spokenInstruction, driveUrl);
+      const extractedInfo = await extractEntityInfo(preParsedDocs, fileList, spokenInstruction, driveUrl);
       const extractedCompanyName = extractedInfo.name;
       const currency = extractedInfo.currency;
       const country = extractedInfo.country;
@@ -2825,7 +2858,51 @@ Format each item as follows:
       console.error("Error processing document upload:", routeErr);
       return res.status(500).json({ error: routeErr?.message || "Failed to process document upload" });
     }
-  });
+  };
+
+  if (contentType.includes("application/json")) {
+    let jsonFiles: Express.Multer.File[] = [];
+    const inputFiles = req.body?.files || req.body?.fileList || [];
+    if (Array.isArray(inputFiles) && inputFiles.length > 0) {
+      jsonFiles = inputFiles.map((f: any) => {
+        let buf = Buffer.from("");
+        if (f.base64) {
+          const cleanB64 = String(f.base64).replace(/^data:[^;]+;base64,/, "");
+          buf = Buffer.from(cleanB64, "base64");
+        } else if (f.text) {
+          buf = Buffer.from(f.text, "utf-8");
+        }
+        return {
+          fieldname: "files",
+          originalname: f.name || f.filename || f.originalname || "Uploaded_Document.pdf",
+          encoding: "7bit",
+          mimetype: f.mimeType || f.type || f.mimetype || "application/pdf",
+          buffer: buf,
+          size: buf.length
+        } as Express.Multer.File;
+      });
+    }
+    return handleUploadLogic(jsonFiles).catch(err => {
+      console.error("Unhandled error in JSON upload logic:", err);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: err?.message || "Failed to process document upload" });
+      }
+    });
+  } else {
+    upload.any()(req, res, async (err) => {
+      if (err) {
+        console.error("Multer upload error:", err);
+        return res.status(400).json({ error: err.message || "File upload error" });
+      }
+      const files = (req.files as Express.Multer.File[]) || [];
+      return handleUploadLogic(files).catch(err => {
+        console.error("Unhandled error in multipart upload logic:", err);
+        if (!res.headersSent) {
+          return res.status(500).json({ error: err?.message || "Failed to process document upload" });
+        }
+      });
+    });
+  }
 });
 
 // Firecrawl / Web URL Document Ingestion Endpoint
@@ -4621,27 +4698,29 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`AI CPA Core server running on http://localhost:${PORT}`);
+  if (process.env.IS_SCRIPT !== "true") {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`AI CPA Core server running on http://localhost:${PORT}`);
 
-    // Auto-run extraction in background for any workspace that has documents but 0 extracted facts
-    setImmediate(() => {
-      try {
-        if (db.workspaces && db.workspaces.length > 0) {
-          db.workspaces.forEach(ws => {
-            const wsFacts = db.facts.filter(f => f.workspaceId === ws.id || (f as any).project_id === ws.id);
-            const wsDocs = db.documents.filter(d => d.workspaceId === ws.id);
-            if (wsDocs.length > 0 && wsFacts.length === 0) {
-              console.log(`Auto-executing financial extraction pipeline for workspace: ${ws.name} (${ws.id})`);
-              reprocessWorkspaceExtraction(ws.id);
-            }
-          });
+      // Auto-run extraction in background for any workspace that has documents but 0 extracted facts
+      setImmediate(() => {
+        try {
+          if (db.workspaces && db.workspaces.length > 0) {
+            db.workspaces.forEach(ws => {
+              const wsFacts = db.facts.filter(f => f.workspaceId === ws.id || (f as any).project_id === ws.id);
+              const wsDocs = db.documents.filter(d => d.workspaceId === ws.id);
+              if (wsDocs.length > 0 && wsFacts.length === 0) {
+                console.log(`Auto-executing financial extraction pipeline for workspace: ${ws.name} (${ws.id})`);
+                reprocessWorkspaceExtraction(ws.id);
+              }
+            });
+          }
+        } catch (err) {
+          console.error("Background auto-extraction error:", err);
         }
-      } catch (err) {
-        console.error("Background auto-extraction error:", err);
-      }
+      });
     });
-  });
+  }
 }
 
 if (process.env.NO_SERVER_LISTEN !== "true") {

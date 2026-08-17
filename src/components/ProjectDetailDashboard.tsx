@@ -1043,8 +1043,8 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
                           <td colSpan={4} className="py-4 text-center text-slate-400 text-xs">No documents uploaded yet.</td>
                         </tr>
                       ) : (
-                        documents.slice(0, 5).map((doc) => (
-                          <tr key={doc.id} className="hover:bg-slate-50 transition">
+                        documents.slice(0, 5).map((doc, idx) => (
+                          <tr key={`${doc.id}-${idx}`} className="hover:bg-slate-50 transition">
                             <td className="py-2.5 px-1 font-semibold text-slate-800 flex items-center space-x-2">
                               <FileText className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
                               <span className="truncate max-w-[180px]">{doc.originalName || doc.filename}</span>

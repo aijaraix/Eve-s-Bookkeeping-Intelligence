@@ -278,8 +278,8 @@ export const ProjectDocumentsTab: React.FC<ProjectDocumentsTabProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
-              {filteredDocs.map((doc) => (
-                <tr key={doc.id} className="hover:bg-slate-50 transition cursor-pointer" onClick={() => setSelectedDoc(doc)}>
+              {filteredDocs.map((doc, idx) => (
+                <tr key={`${doc.id}-${idx}`} className="hover:bg-slate-50 transition cursor-pointer" onClick={() => setSelectedDoc(doc)}>
                   <td className="py-3 px-3 flex items-center gap-2.5 font-bold text-slate-900">
                     <FileText className="w-4 h-4 text-blue-600 shrink-0" />
                     <span className="truncate max-w-[260px]">{doc.originalName || doc.filename}</span>

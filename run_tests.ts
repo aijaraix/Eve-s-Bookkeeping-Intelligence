@@ -12,6 +12,7 @@ import { parseValWithScale } from "./server";
 import { verifyUnileverReconciliation } from "./src/lib/unileverGoldenFixture";
 import { ReviewerEngine } from "./server/reviewerEngine";
 import { CanonicalFactResolver } from "./server/canonicalFactResolver";
+import { runPhaseH4AdversarialTests } from "./server/tests/phaseH4Adversarial.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -572,6 +573,16 @@ assert(
   vwSummary.accountingIdentityValid && vwSummary.grossMarginPct === 15.92 && vwSummary.returnOnEquity === 6.32,
   `Volkswagen financial metrics validation failed: Gross margin ${vwSummary.grossMarginPct}%, ROE ${vwSummary.returnOnEquity}%`,
   "Volkswagen FY2025 ratios normalized with zero absurdities: Gross Margin 15.92%, ROE 6.32%."
+);
+
+// Suite H.4: Phase H.4 Adversarial Test Suite
+console.log(`\n${colors.bold}[SUITE H.4: PHASE H.4 ADVERSARIAL REGRESSION SUITE]${colors.reset}`);
+const h4Res = runPhaseH4AdversarialTests();
+assert(
+  "Phase H.4 Adversarial Regression Suite (20/20 Passed)",
+  h4Res.failures.length === 0 && h4Res.passed === 20,
+  `Phase H.4 Adversarial Suite failed (${h4Res.failures.length} failures): ${h4Res.failures.join("; ")}`,
+  "All 20/20 Phase H.4 Adversarial Regression tests passed cleanly."
 );
 
 

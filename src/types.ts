@@ -216,7 +216,6 @@ export interface ExtractedFact {
   periodType?: 'annual' | 'quarterly' | 'ltm' | 'restated' | string;
   period_type?: string;
   periodOriginal?: string;
-  consolidationScope?: string;
   isRestated?: boolean;
 
   // Accounting Standards & Operations
@@ -279,10 +278,17 @@ export interface ExtractedFact {
 
   // Phase H.2 Forensic Reliability & Canonical Fact Integrity Fields
   legal_entity?: string;
+  legalEntity?: string;
   reporting_entity?: string;
+  reportingEntity?: string;
   parent_entity?: string;
+  parentEntity?: string;
   workspace_entity?: string;
+  workspaceEntity?: string;
   reporting_scope?: ReportingScopeType;
+  reportingScope?: ReportingScopeType;
+  consolidation_scope?: string;
+  consolidationScope?: string;
   raw_value?: string;
   raw_currency?: string;
   raw_scale?: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' | string;
@@ -295,6 +301,15 @@ export interface ExtractedFact {
   formula?: string;
   parent_fact_ids?: string[];
   verification_state?: PhaseH2VerificationState;
+  corroboratingSources?: Array<{
+    documentId: string;
+    documentName: string;
+    pageNumber: number;
+    tableName?: string;
+    rawValue: string;
+    confidence: number;
+    sourceText?: string;
+  }>;
 }
 
 export type ReportingScopeType =
@@ -302,7 +317,63 @@ export type ReportingScopeType =
   | 'PARENT_ONLY'
   | 'SUBSIDIARY'
   | 'SEGMENT'
+  | 'CONTINUING_OPERATIONS'
+  | 'DISCONTINUED_OPERATIONS'
+  | 'ASSOCIATE'
+  | 'JOINT_VENTURE'
+  | 'OTHER'
   | 'UNKNOWN';
+
+export interface EntityEvidenceLineage {
+  canonical_entity_id: string;
+  canonical_entity_name: string;
+  legal_entity: string;
+  reporting_entity: string;
+  parent_entity: string;
+  consolidation_scope: string;
+  reporting_scope: ReportingScopeType;
+  source_document_id: string;
+  source_document_name: string;
+  source_page: number;
+  source_table?: string;
+  source_section?: string;
+  evidence_text: string;
+  resolution_method: string;
+  confidence_score: number;
+  verification_state: 'PROPOSED' | 'VALIDATED' | 'APPROVED' | 'VERIFIED' | 'REJECTED' | 'CONFLICTED' | 'UNRESOLVED';
+  raw_entity_text: string;
+  canonical_entity: string;
+}
+
+export interface GeneralizedDocumentEntityModel {
+  documentIssuer: string;
+  reportingEntity: string;
+  parentEntity: string;
+  workspaceEntity: string;
+  consolidationScope: ReportingScopeType;
+  reportingScope: ReportingScopeType;
+  referencedEntities: Array<{
+    name: string;
+    type: 'SUBSIDIARY' | 'PARENT' | 'ASSOCIATE' | 'JOINT_VENTURE' | 'AUDITOR' | 'REGULATOR' | 'COUNTERPARTY' | 'OTHER';
+    evidenceText?: string;
+    confidence?: number;
+    ownershipPercentage?: number;
+  }>;
+  evidenceText: string;
+  evidenceSource: {
+    pageNumber?: number;
+    section?: string;
+    table?: string;
+  };
+  resolutionMethod: string;
+  confidenceScore: number;
+  verificationState: 'PROPOSED' | 'VALIDATED' | 'APPROVED' | 'VERIFIED' | 'REJECTED' | 'CONFLICTED' | 'UNRESOLVED';
+  candidateEntities?: Array<{
+    name: string;
+    confidence: number;
+    evidence: string;
+  }>;
+}
 
 export type PhaseH2VerificationState =
   | 'RAW'

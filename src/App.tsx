@@ -249,7 +249,10 @@ export default function App() {
         const factData = factRes && factRes.ok ? await factRes.json().catch(() => []) : [];
         const sumData = sumRes && sumRes.ok ? await sumRes.json().catch(() => null) : null;
 
-        if (Array.isArray(docData)) setDocuments(docData);
+        if (Array.isArray(docData)) {
+          const uniqueDocs = Array.from(new Map(docData.map((d: any) => [d.id, d])).values());
+          setDocuments(uniqueDocs as DocumentRecord[]);
+        }
         if (Array.isArray(factData)) setFacts(factData);
         if (sumData) setSummary(sumData);
       } catch (err) {
@@ -357,6 +360,19 @@ export default function App() {
     }
   };
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const resStr = reader.result as string;
+        const b64 = resStr.includes(',') ? resStr.split(',')[1] : resStr;
+        resolve(b64);
+      };
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
+  };
+
   const processFileUpload = async (files: File[], instructions: string, driveUrl?: string, confirmAttach = false, workspaceId?: string) => {
     setPendingFiles(files || []);
     setPendingInstructions(instructions || '');
@@ -397,35 +413,40 @@ export default function App() {
           result: null
         });
 
-        const formData = new FormData();
-        if (fileItem) formData.append('files', fileItem);
-
-        if (i === 0) {
-          if (instructions) formData.append('description', instructions);
-          if (driveUrl) formData.append('driveUrl', driveUrl);
-        }
-        if (userEmail) formData.append('userEmail', userEmail);
-        if (confirmAttach || i > 0) formData.append('confirmAttachToExisting', 'true');
-        if (currentWorkspaceId) formData.append('workspaceId', currentWorkspaceId);
-
         let res: Response | null = null;
         let lastError: any = null;
 
+        // Attempt 1: Multipart FormData with fresh construction per attempt
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
+            const formData = new FormData();
+            if (fileItem) formData.append('files', fileItem);
+            if (i === 0) {
+              if (instructions) formData.append('description', instructions);
+              if (driveUrl) formData.append('driveUrl', driveUrl);
+            }
+            if (userEmail) formData.append('userEmail', userEmail);
+            if (confirmAttach || i > 0) formData.append('confirmAttachToExisting', 'true');
+            if (currentWorkspaceId) formData.append('workspaceId', currentWorkspaceId);
+
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
-            res = await fetch('/api/documents/upload', {
+            const attemptRes = await fetch('/api/documents/upload', {
               method: 'POST',
               body: formData,
               signal: controller.signal
             });
             clearTimeout(timeoutId);
-            if (res && res.ok) break;
-            // If server returned 5xx transient status, log and retry
-            if (res && res.status >= 500 && attempt < 3) {
-              console.warn(`[Upload Attempt ${attempt}/3 got server status ${res.status}], retrying...`);
-              await new Promise(r => setTimeout(r, 1000 * attempt));
+
+            if (attemptRes && attemptRes.ok) {
+              res = attemptRes;
+              break;
+            } else if (attemptRes) {
+              res = attemptRes;
+              if (attemptRes.status >= 500 && attempt < 3) {
+                console.warn(`[Upload Attempt ${attempt}/3 got server status ${attemptRes.status}], retrying...`);
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+              }
             }
           } catch (fetchErr: any) {
             lastError = fetchErr;
@@ -433,6 +454,39 @@ export default function App() {
             if (attempt < 3) {
               await new Promise(r => setTimeout(r, 1000 * attempt));
             }
+          }
+        }
+
+        // Attempt 2: If multipart FormData failed or got network exception, attempt Base64 JSON payload fallback
+        if (!res || !res.ok) {
+          try {
+            console.log("[Document Ingestion] Multipart FormData attempt unsuccessful, attempting Base64 JSON upload fallback...");
+            const base64Str = fileItem ? await fileToBase64(fileItem) : undefined;
+            const jsonBody = {
+              files: fileItem ? [{ name: fileItem.name, mimeType: fileItem.type || 'application/pdf', base64: base64Str }] : [],
+              description: i === 0 ? instructions : undefined,
+              driveUrl: i === 0 ? driveUrl : undefined,
+              userEmail,
+              confirmAttachToExisting: (confirmAttach || i > 0) ? 'true' : 'false',
+              workspaceId: currentWorkspaceId
+            };
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000);
+            const jsonRes = await fetch('/api/documents/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(jsonBody),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (jsonRes && jsonRes.ok) {
+              res = jsonRes;
+            }
+          } catch (fallbackErr: any) {
+            console.warn("[Document Ingestion] Base64 JSON upload fallback also failed:", fallbackErr);
+            if (!lastError) lastError = fallbackErr;
           }
         }
 
@@ -517,7 +571,7 @@ export default function App() {
     } catch (err: any) {
       console.error("File upload error:", err);
       setIngestionStatus({
-        isIngesting: true,
+        isIngesting: false,
         progress: 0,
         stepNumber: 0,
         stepName: 'Ingestion Error',

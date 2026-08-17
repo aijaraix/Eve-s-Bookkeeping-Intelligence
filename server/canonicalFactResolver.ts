@@ -1,4 +1,7 @@
 import { ExtractedFact, ProvenanceCoordinates } from "../src/types.js";
+import { SourceAuthorityRanker } from "./sourceAuthorityRanker.js";
+import { TableContextResolver } from "./tableContextResolver.js";
+import { CurrencyProvenanceEngine } from "./currencyProvenance.js";
 
 export interface CanonicalResolutionResult {
   metric: string;
@@ -281,27 +284,25 @@ export class CanonicalFactResolver {
    * Extract entity name and consolidation scope without mutating original source fields.
    */
   public static resolveEntityAndScope(fact: ExtractedFact): { entityName: string; entityScope: string } {
-    const explicitScope = fact.entityScope || fact.entity_scope || fact.consolidationScope;
-    if (explicitScope && explicitScope !== "Consolidated") {
-      return {
-        entityName: fact.entityName || (fact as any).company_id || "Group",
-        entityScope: explicitScope
-      };
-    }
+    const explicitScope = fact.entityScope || fact.entity_scope || fact.consolidationScope || fact.consolidation_scope || fact.reportingScope || fact.reporting_scope;
 
     const textToScan = [
+      fact.reportingEntity,
+      fact.reporting_entity,
+      fact.legalEntity,
+      fact.legal_entity,
       fact.entityName,
-      fact.entityScope,
-      fact.entity_scope,
-      fact.consolidationScope,
+      explicitScope,
       fact.sourceText,
       fact.source_context,
       fact.sourceDocument
     ].filter(Boolean).join(" ").toLowerCase();
 
-    let entityScope = explicitScope || "Consolidated";
+    let entityScope = "Consolidated";
     
     if (
+      explicitScope === "PARENT_ONLY" ||
+      explicitScope === "Parent Only" ||
       textToScan.includes("parent") ||
       textToScan.includes("standalone") ||
       textToScan.includes("holding company") ||
@@ -309,6 +310,7 @@ export class CanonicalFactResolver {
     ) {
       entityScope = "Parent Only";
     } else if (
+      explicitScope === "SUBSIDIARY" ||
       textToScan.includes("subsidiary") ||
       textToScan.includes("audi ag") ||
       textToScan.includes("porsche ag") ||
@@ -316,13 +318,17 @@ export class CanonicalFactResolver {
     ) {
       entityScope = "Subsidiary";
     } else if (
+      explicitScope === "SEGMENT" ||
       textToScan.includes("segment") ||
       textToScan.includes("passenger cars") ||
       textToScan.includes("commercial vehicles") ||
-      textToScan.includes("financial services")
+      textToScan.includes("financial services") ||
+      textToScan.includes("beauty & wellbeing")
     ) {
       entityScope = "Segment";
     } else if (
+      explicitScope === "CONSOLIDATED_GROUP" ||
+      explicitScope === "Consolidated" ||
       textToScan.includes("consolidated") ||
       textToScan.includes("group") ||
       textToScan.includes("overall")
@@ -330,7 +336,7 @@ export class CanonicalFactResolver {
       entityScope = "Consolidated";
     }
 
-    const entityName = fact.entityName || (fact as any).company_id || "Group";
+    const entityName = fact.reportingEntity || fact.reporting_entity || fact.legalEntity || fact.legal_entity || fact.entityName || (fact as any).company_id || "Group";
 
     return { entityName, entityScope };
   }
@@ -344,6 +350,10 @@ export class CanonicalFactResolver {
     targetPeriodKey: string
   ): number {
     let score = 0;
+
+    // 0. Source Authority Ranker (Tiers 1-7)
+    const rank = SourceAuthorityRanker.rankFactAuthority(fact);
+    score += rank.scoreBoost;
 
     const stmtType = (fact.statementType || fact.statement_type || "").toLowerCase();
     const { entityScope } = this.resolveEntityAndScope(fact);
@@ -378,9 +388,12 @@ export class CanonicalFactResolver {
 
     // 3. Target Period Alignment
     if (targetPeriodKey) {
-      if (periodKey === targetPeriodKey) {
+      const basePeriodKey = periodKey.replace("-RESTATED", "");
+      const baseTargetPeriodKey = targetPeriodKey.replace("-RESTATED", "");
+
+      if (basePeriodKey === baseTargetPeriodKey) {
         score += 35;
-      } else if (targetPeriodKey.includes("-") && periodKey.startsWith(targetPeriodKey.split("-")[0])) {
+      } else if (baseTargetPeriodKey.includes("-") && basePeriodKey.startsWith(baseTargetPeriodKey.split("-")[0])) {
         score += 10;
       } else {
         score -= 30; // Strong penalty when fact period does not match target period
@@ -430,42 +443,85 @@ export class CanonicalFactResolver {
   public static resolveMetric(
     arg1: ExtractedFact[] | string,
     arg2: string,
-    arg3?: string | ExtractedFact[] | { targetPeriod?: string },
-    arg4?: { targetPeriod?: string }
+    arg3?: string | ExtractedFact[] | { targetPeriod?: string; targetScope?: string },
+    arg4?: { targetPeriod?: string; targetScope?: string } | string
   ): CanonicalResolutionResult {
     let workspaceFacts: ExtractedFact[] = [];
     let targetMetric: string = arg2;
     let targetPeriodKey: string | undefined;
+    let targetScopeFilter: string | undefined;
+
+    if (typeof arg4 === "string") {
+      targetScopeFilter = arg4;
+    } else if (arg4 && typeof arg4 === "object" && arg4.targetScope) {
+      targetScopeFilter = arg4.targetScope;
+    }
 
     if (typeof arg1 === "string") {
       const wsId = arg1;
       const facts = Array.isArray(arg3) ? arg3 : [];
       workspaceFacts = facts.length > 0 ? facts.filter(f => f.workspaceId === wsId || f.company_id === wsId || (f as any).project_id === wsId || !f.workspaceId) : [];
       if (workspaceFacts.length === 0) workspaceFacts = facts;
-      if (arg4?.targetPeriod) targetPeriodKey = this.normalizePeriodKey(arg4.targetPeriod);
+      if (arg4 && typeof arg4 === "object" && arg4.targetPeriod) targetPeriodKey = this.normalizePeriodKey(arg4.targetPeriod);
       else if (typeof arg3 === "string") targetPeriodKey = this.normalizePeriodKey(arg3);
     } else {
       workspaceFacts = Array.isArray(arg1) ? arg1 : [];
       if (typeof arg3 === "string") {
         targetPeriodKey = this.normalizePeriodKey(arg3);
-      } else if (arg3 && typeof arg3 === "object" && "targetPeriod" in arg3) {
-        targetPeriodKey = this.normalizePeriodKey((arg3 as any).targetPeriod);
+      } else if (arg3 && typeof arg3 === "object") {
+        if ("targetPeriod" in arg3 && arg3.targetPeriod) targetPeriodKey = this.normalizePeriodKey(arg3.targetPeriod);
+        if ("targetScope" in arg3 && arg3.targetScope) targetScopeFilter = arg3.targetScope;
+      }
+    }
+
+    if (targetScopeFilter) {
+      const filtered = workspaceFacts.filter(f => {
+        const s = f.reportingScope || f.reporting_scope || f.consolidationScope || f.entityScope || f.entity_scope;
+        if (targetScopeFilter === "PARENT_ONLY") return s === "PARENT_ONLY" || s === "Parent Only";
+        if (targetScopeFilter === "CONSOLIDATED_GROUP" || targetScopeFilter === "Consolidated") return s !== "PARENT_ONLY" && s !== "Parent Only";
+        return s === targetScopeFilter;
+      });
+      if (filtered.length > 0) {
+        workspaceFacts = filtered;
       }
     }
 
     const resolutionNotes: string[] = [];
+
+    const monetaryMetrics = new Set([
+      "revenue", "comparative_revenue", "cost_of_sales", "gross_profit",
+      "operating_profit", "ebitda", "profit_before_tax", "net_income",
+      "total_assets", "total_liabilities", "total_equity", "cash",
+      "operating_cash_flow", "investing_cash_flow", "financing_cash_flow", "free_cash_flow"
+    ]);
+
+    const isMonetaryTarget = monetaryMetrics.has(targetMetric.toLowerCase());
 
     // Filter matching candidates by canonical metric or normalized label
     const candidates = workspaceFacts.filter((f) => {
       const canon = (f.canonicalMetric || f.canonical_metric || "").toLowerCase();
       const norm = (f.labelNormalized || (f as any).normalized_label || "").toLowerCase();
       const orig = (f.labelOriginal || (f as any).raw_label || "").toLowerCase();
+      const sourceText = (f.sourceText || f.rawText || f.source_context || "").toLowerCase();
+
+      // NON-MONETARY / RATIO / ESG GUARD
+      if (isMonetaryTarget) {
+        const ratioKeywords = [
+          "ratio", "margin %", "intensity", "per turnover", "per revenue", "per share",
+          "per employee", "growth %", "growth rate", "percentage", "%", "kg", "kwh",
+          "tonnes", "co2", "index", "water consumption", "emissions", "carbon"
+        ];
+        const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
+        if (ratioKeywords.some(kw => textToScan.includes(kw))) {
+          return false; // Reject non-monetary / ratio / ESG metrics from monetary canonical resolution
+        }
+      }
 
       if (canon === targetMetric.toLowerCase()) return true;
 
       // Label mapping fallbacks
       if (targetMetric === "revenue") {
-        return norm === "revenue" || norm.includes("total revenue") || orig.includes("group turnover") || orig.includes("sales revenue");
+        return norm === "revenue" || norm === "turnover" || norm.includes("total revenue") || orig.includes("group turnover") || orig.includes("sales revenue") || orig.includes("turnover");
       }
       if (targetMetric === "comparative_revenue") {
         return norm.includes("comparative revenue") || canon === "comparative_revenue";
@@ -545,6 +601,28 @@ export class CanonicalFactResolver {
 
     const primary = scoredCandidates[0];
     const alternativeFacts = scoredCandidates.slice(1).map((c) => c.fact);
+
+    // Multi-Document Corroboration Detection
+    if (primary && primary.normalizedValue !== null) {
+      const corroborating = scoredCandidates.slice(1).filter((c) => {
+        if (c.normalizedValue === null) return false;
+        const diff = Math.abs(c.normalizedValue - primary.normalizedValue);
+        const relDiff = primary.normalizedValue !== 0 ? diff / Math.abs(primary.normalizedValue) : diff;
+        return relDiff < 0.001; // Within 0.1% numeric tolerance across filings
+      });
+
+      if (corroborating.length > 0) {
+        primary.fact.corroboratingSources = corroborating.map((c) => ({
+          documentId: c.fact.documentId || c.fact.document_id || "N/A",
+          documentName: c.fact.sourceDocument || "Secondary Filing",
+          pageNumber: c.fact.pageNumber || c.fact.source_page || 1,
+          tableName: c.fact.tableName || c.fact.source_table,
+          rawValue: String(c.fact.rawValue || (c.fact as any).numericValue || c.fact.normalized_value || c.normalizedValue),
+          confidence: c.fact.confidence || 0.90,
+          sourceText: c.fact.sourceText || c.fact.rawText
+        }));
+      }
+    }
 
     const { entityName, entityScope } = this.resolveEntityAndScope(primary.fact);
     const { periodKey } = this.resolvePeriod(primary.fact);

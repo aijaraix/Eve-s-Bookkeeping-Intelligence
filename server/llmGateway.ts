@@ -27,17 +27,17 @@ export async function executeLLMQuery(
       : "anthropic/claude-3.7-sonnet";
     const modelsToTry = [
       preferred,
+      "google/gemini-2.5-flash",
       "anthropic/claude-3.7-sonnet",
       "anthropic/claude-3.5-sonnet",
-      "openai/gpt-4o",
-      "google/gemini-2.5-flash",
-      "google/gemini-2.0-flash-001"
+      "openai/gpt-4o"
     ].filter((m, idx, self) => self.indexOf(m) === idx); // unique deduplication
 
     for (const targetModel of modelsToTry) {
       try {
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
+          signal: AbortSignal.timeout(12000), // Strict 12-second timeout
           headers: {
             "Authorization": `Bearer ${openRouterKey.trim()}`,
             "HTTP-Referer": process.env.APP_URL || "https://ai.studio",
@@ -80,7 +80,7 @@ export async function executeLLMQuery(
           };
         }
       } catch (err: any) {
-        console.log(`[LLM Gateway] OpenRouter ${targetModel} skipped`);
+        console.log(`[LLM Gateway] OpenRouter ${targetModel} skipped (${err?.message || 'timeout/error'})`);
       }
     }
   }
@@ -100,13 +100,19 @@ export async function executeLLMQuery(
 
     for (const modelName of geminiModels) {
       try {
-        const response = await ai.models.generateContent({
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Gemini API call timed out after 12000ms")), 12000)
+        );
+
+        const apiPromise = ai.models.generateContent({
           model: modelName,
           contents: fullPrompt,
           config: request.jsonSchemaFormat
             ? { responseMimeType: "application/json" }
             : undefined,
         });
+
+        const response: any = await Promise.race([apiPromise, timeoutPromise]);
 
         const content = response.text || "";
         if (content) {
@@ -119,7 +125,7 @@ export async function executeLLMQuery(
         }
       } catch (err: any) {
         const is429 = err?.status === "RESOURCE_EXHAUSTED" || err?.code === 429 || (err?.message && err.message.includes("429"));
-        console.log(`[LLM Gateway] Native Gemini ${modelName} ${is429 ? "(429 Rate Limit Exceeded)" : "bypassed"} -> trying next option`);
+        console.log(`[LLM Gateway] Native Gemini ${modelName} ${is429 ? "(429 Rate Limit Exceeded)" : "skipped"} -> trying next option`);
       }
     }
   }

@@ -177,22 +177,23 @@ export class BackgroundIngestionQueue {
 
   public checkStalledJobs(): void {
     const now = Date.now();
-    const STALL_TIMEOUT_MS = 30000;
+    const STALL_TIMEOUT_MS = 300000; // 5 minutes heartbeat timeout for large PDF pages
     let updated = false;
 
     for (const job of this.jobs.values()) {
       if (job.status === "PROCESSING") {
         const lastBeat = new Date(job.heartbeatAt || job.updatedAt || job.createdAt).getTime();
         if (now - lastBeat > STALL_TIMEOUT_MS) {
-          console.warn(`[Hermes Queue] Detected stalled job ${job.id} (silent for ${Math.round((now - lastBeat) / 1000)}s)`);
-          job.status = "STALLED";
-          job.lastError = `Heartbeat timed out (${Math.round((now - lastBeat) / 1000)}s silent). Job marked as STALLED.`;
+          console.warn(`[Hermes Queue] Detected stalled job ${job.id} (silent for ${Math.round((now - lastBeat) / 1000)}s), resetting processing flag and auto-requeuing...`);
+          this.isProcessingQueue = false; // CRITICAL: Reset processing flag so queue loop is unblocked
+          job.status = "QUEUED";
+          job.lastError = `Heartbeat timed out (${Math.round((now - lastBeat) / 1000)}s silent). Auto-requeued for execution.`;
           this.advanceJobStage(
             job,
             job.stage || "PHYSICAL_EXTRACTION_IN_PROGRESS",
-            "FAILED",
-            `Stalled: Worker heartbeat lost (${Math.round((now - lastBeat) / 1000)}s silent)`,
-            "Worker heartbeat timed out. Job status recorded as STALLED."
+            "IN_PROGRESS",
+            `Auto-resuming extraction after timeout (${Math.round((now - lastBeat) / 1000)}s silent)...`,
+            "Worker heartbeat timed out. Job automatically re-queued."
           );
           updated = true;
         }
@@ -200,6 +201,7 @@ export class BackgroundIngestionQueue {
     }
     if (updated) {
       this.saveQueueToDisk();
+      setTimeout(() => this.processNextJob(), 10);
     }
   }
 
@@ -496,14 +498,27 @@ export class BackgroundIngestionQueue {
         queuedJob.tasksCompleted = queuedJob.pagesCompleted;
         queuedJob.progress = Math.round((queuedJob.pagesCompleted / Math.max(1, queuedJob.pagesTotal)) * 70);
 
+        const unitHeartbeatTimer = setInterval(() => {
+          const nowStr = new Date().toISOString();
+          queuedJob.heartbeatAt = nowStr;
+          queuedJob.updatedAt = nowStr;
+        }, 3000);
+
         try {
-          const res = await executeSwarmPipeline(
-            workspaceId,
-            documentId,
-            `${documentTitle} [Unit ${i + 1}: p.${unit.actual_page_start}-${unit.actual_page_end}]`,
-            unit.textData,
-            functionalCurrency
+          const unitTimeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Unit execution timeout after 20000ms on ${pageStr}`)), 20000)
           );
+
+          const res = await Promise.race([
+            executeSwarmPipeline(
+              workspaceId,
+              documentId,
+              `${documentTitle} [Unit ${i + 1}: p.${unit.actual_page_start}-${unit.actual_page_end}]`,
+              unit.textData,
+              functionalCurrency
+            ),
+            unitTimeoutPromise
+          ]);
 
           unit.status = "COMPLETED";
           unit.completed_at = new Date().toISOString();
@@ -517,7 +532,9 @@ export class BackgroundIngestionQueue {
         } catch (unitErr: any) {
           unit.status = "FAILED";
           unit.last_error = unitErr?.message || "Unit extraction failed";
-          console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed:`, unitErr);
+          console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed (${unitErr?.message}), advancing queue...`);
+        } finally {
+          clearInterval(unitHeartbeatTimer);
         }
 
         queuedJob.heartbeatAt = new Date().toISOString();

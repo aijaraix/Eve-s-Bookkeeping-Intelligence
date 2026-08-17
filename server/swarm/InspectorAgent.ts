@@ -21,6 +21,25 @@ export async function runInspectorAgent(
   const startTime = Date.now();
   const findings: string[] = [];
 
+  // Fast path: if page text contains no digits or currency symbols, return empty facts immediately without calling LLM network
+  const hasFinancialDigits = /[\d$€£¥]/.test(documentText);
+  if (!hasFinancialDigits) {
+    return {
+      facts: [],
+      executionLog: {
+        agentId: `AGENT-INSPECTOR-${Date.now()}`,
+        agentRole: "INSPECTOR",
+        timestamp: new Date().toISOString(),
+        modelUsed: "fast-narrative-skip",
+        status: "SUCCESS",
+        inputSummary: `Narrative unit without monetary figures (${documentText.length} chars)`,
+        findings: ["Narrative unit contains no financial digits or currency symbols - fast-skipped LLM query."],
+        discrepanciesFound: 0,
+        executionTimeMs: Date.now() - startTime
+      }
+    };
+  }
+
   const systemInstruction = `You are the Lead Forensic Document Inspector Agent in an AI CPA Swarm.
 Your job is to read financial documents (10-K, annual reports, earnings releases) and extract exact monetary facts with 100% precision.
 
@@ -135,9 +154,16 @@ Return a JSON object with a key "extractedFacts" containing an array of items:
         const match = line.match(p.regex);
         if (match) {
           const rawVal = match[1] || match[0];
-          // Pure generic scale parser - NO hardcoded company value matches!
           const cleanStr = rawVal.replace(/[^0-9.]/g, "");
           let baseNum = parseFloat(cleanStr) || 0;
+
+          // GUARD: Reject standalone 4-digit years (2010-2035) or note index numbers (<10) without currency/scale
+          const isYear = baseNum >= 2010 && baseNum <= 2035 && !/[$€£zł]|billion|million|b|m/i.test(rawVal);
+          const isSmallIndex = baseNum < 10 && !/[$€£zł]|billion|million|b|m/i.test(rawVal) && !line.includes("%");
+          if (isYear || isSmallIndex) {
+            continue;
+          }
+
           if (/b|billion/i.test(rawVal) && baseNum < 1000) baseNum *= 1000000000;
           else if (/m|million/i.test(rawVal) && baseNum < 1000000) baseNum *= 1000000;
           else if (/k|thousand/i.test(rawVal) && baseNum < 100000) baseNum *= 1000;
