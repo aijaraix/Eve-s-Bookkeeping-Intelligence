@@ -76,7 +76,7 @@ export class CanonicalFactResolver {
   /**
    * Helper to normalize currency codes to standard ISO upper-case format.
    */
-  public static normalizeCurrency(currStr?: string): string & { code: string } {
+  public static normalizeCurrency(currStr?: string): string {
     let res = "EUR";
     if (currStr) {
       const clean = currStr.trim().toUpperCase();
@@ -90,13 +90,7 @@ export class CanonicalFactResolver {
       else if (clean.includes("CNY") || clean.includes("RMB")) res = "CNY";
       else res = clean.slice(0, 3) || "EUR";
     }
-    const strObj = Object.assign(new String(res), {
-      code: res,
-      [Symbol.toPrimitive]() { return res; },
-      valueOf() { return res; },
-      toString() { return res; }
-    });
-    return strObj as any;
+    return res;
   }
 
   /**
@@ -176,14 +170,24 @@ export class CanonicalFactResolver {
   ): number | null {
     if (typeof factOrRawStr === "object" && factOrRawStr !== null) {
       const fact = factOrRawStr;
-      if (typeof fact.normalizedValue === "number" && !isNaN(fact.normalizedValue) && fact.normalizedValue !== 0) {
-        return fact.normalizedValue;
+      // Invariant Check 1: Respect already normalized numeric scalar values in base units
+      const funcNum = typeof fact.valueFunctional === "number" 
+        ? fact.valueFunctional 
+        : typeof fact.valueFunctional === "string" && !isNaN(parseFloat(fact.valueFunctional))
+          ? parseFloat(fact.valueFunctional)
+          : null;
+      
+      const normNum = typeof fact.normalizedValue === "number"
+        ? fact.normalizedValue
+        : typeof fact.normalized_value === "number"
+          ? fact.normalized_value
+          : null;
+
+      if (normNum !== null && !isNaN(normNum) && normNum !== 0) {
+        return normNum;
       }
-      if (typeof fact.normalized_value === "number" && !isNaN(fact.normalized_value) && fact.normalized_value !== 0) {
-        return fact.normalized_value;
-      }
-      if (typeof fact.valueFunctional === "number" && !isNaN(fact.valueFunctional) && fact.valueFunctional !== 0) {
-        return fact.valueFunctional;
+      if (funcNum !== null && !isNaN(funcNum) && funcNum !== 0) {
+        return funcNum;
       }
     }
 
@@ -198,6 +202,8 @@ export class CanonicalFactResolver {
     if (rawStr.startsWith("-")) isNegative = true;
 
     let clean = rawStr.replace(/[^0-9.,]/g, "");
+    // CRITICAL PHASE H.5 FIX: Strip trailing sentence/phrase punctuation (commas, dots)
+    clean = clean.replace(/[,.]+$/, "");
     if (!clean) return null;
 
     if (clean.includes(",") && clean.includes(".")) {
@@ -224,7 +230,8 @@ export class CanonicalFactResolver {
       typeof factOrRawStr === "string" ? "" : docContextTextOrScale
     );
     
-    if (Math.abs(num) >= 1_000_000_000 && scale.multiplier > 1) {
+    // Invariant Check 2: Prevent double scaling if number is already in base units
+    if (Math.abs(num) >= 1_000_000 && scale.multiplier > 1) {
       return num;
     }
 
@@ -347,7 +354,8 @@ export class CanonicalFactResolver {
   public static calculateFactPriorityScore(
     fact: ExtractedFact,
     targetMetric: string,
-    targetPeriodKey: string
+    targetPeriodKey: string,
+    workspaceFacts?: ExtractedFact[]
   ): number {
     let score = 0;
 
@@ -419,6 +427,71 @@ export class CanonicalFactResolver {
     const canon = (fact.canonicalMetric || fact.canonical_metric || "").toLowerCase();
     if (canon === targetMetric.toLowerCase()) {
       score += 15;
+    }
+
+    // CRITICAL PHASE H.5 FIX 3: Footnote Subcomponent Penalty
+    // Primary statement totals must not be defeated by footnote subcomponents
+    const fullContext = [
+      fact.labelOriginal,
+      fact.labelNormalized,
+      fact.sourceText,
+      fact.source_context
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    const isSubcomponent =
+      fullContext.includes("within") ||
+      fullContext.includes("component of") ||
+      fullContext.includes("included in") ||
+      fullContext.includes("part of") ||
+      fullContext.includes("note footnote") ||
+      fullContext.includes("refer note");
+
+    if (isSubcomponent && ["revenue", "net_income", "total_assets", "total_liabilities", "total_equity", "gross_profit"].includes(targetMetric.toLowerCase())) {
+      score -= 80; // Heavy penalty for subcomponents competing for primary totals
+    }
+
+    // CRITICAL PHASE H.5 FIX 11: Materiality-Aware Accounting Identity Assistance
+    if (workspaceFacts && workspaceFacts.length > 0) {
+      const candVal = this.calculateNormalizedValue(fact);
+      if (candVal !== null) {
+        if (targetMetric === "revenue") {
+          // Check if candVal reconciles Revenue = Gross Profit + Cost of Sales
+          const cogsFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "cost_of_sales");
+          const gpFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "gross_profit");
+          if (cogsFact && gpFact) {
+            const cogsVal = this.calculateNormalizedValue(cogsFact);
+            const gpVal = this.calculateNormalizedValue(gpFact);
+            if (cogsVal !== null && gpVal !== null) {
+              const expectedRev = Math.abs(gpVal) + Math.abs(cogsVal);
+              const variance = Math.abs(candVal - expectedRev);
+              const materiality = Math.max(1_000_000, expectedRev * 0.01);
+              if (variance <= materiality) {
+                score += 100; // Accounting Identity Match Boost
+              } else if (variance > expectedRev * 0.1) {
+                score -= 200; // Severe Accounting Contradiction Penalty
+              }
+            }
+          }
+        } else if (targetMetric === "total_assets") {
+          // Assets = Liabilities + Equity
+          const liabFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "total_liabilities");
+          const eqFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "total_equity");
+          if (liabFact && eqFact) {
+            const liabVal = this.calculateNormalizedValue(liabFact);
+            const eqVal = this.calculateNormalizedValue(eqFact);
+            if (liabVal !== null && eqVal !== null) {
+              const expectedAssets = liabVal + eqVal;
+              const variance = Math.abs(candVal - expectedAssets);
+              const materiality = Math.max(1_000_000, expectedAssets * 0.01);
+              if (variance <= materiality) {
+                score += 100;
+              } else if (variance > expectedAssets * 0.1) {
+                score -= 200;
+              }
+            }
+          }
+        }
+      }
     }
 
     return score;
@@ -594,7 +667,7 @@ export class CanonicalFactResolver {
 
     // Score all candidates deterministically
     const scoredCandidates = candidates.map((fact) => {
-      const score = this.calculateFactPriorityScore(fact, targetMetric, targetPeriodKey);
+      const score = this.calculateFactPriorityScore(fact, targetMetric, targetPeriodKey || "2024-FY", workspaceFacts);
       const normalizedValue = this.calculateNormalizedValue(fact);
       return { fact, score, normalizedValue };
     }).sort((a, b) => b.score - a.score);

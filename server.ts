@@ -1436,8 +1436,8 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "revenue",
     normalizedLabel: "Revenue",
     accountingRole: "revenue",
-    exactRowMatches: [/^(group\s+)?turnover$/i, /^revenue(s)?$/i, /^(group\s+)?sales$/i, /^net\s+sales$/i, /^total\s+revenue$/i, /^umsatzerlöse$/i, /^umsatzerloese$/i, /^umsatz$/i, /^erträge\s+aus\s+umsatz$/i],
-    partialRowMatches: ["turnover", "group turnover", "group sales", "sales", "net sales", "total revenue", "umsatzerlöse", "umsatzerloese", "umsatz", "erträge aus umsatz"],
+    exactRowMatches: [/^(group\s+)?turnover$/i, /^turnover(\s+of\s+continuing\s+operations)?$/i, /^revenue(s)?$/i, /^(group\s+)?sales$/i, /^net\s+sales$/i, /^total\s+revenue$/i, /^umsatzerlöse$/i, /^umsatzerloese$/i, /^umsatz$/i, /^erträge\s+aus\s+umsatz$/i],
+    partialRowMatches: ["turnover", "group turnover", "turnover of continuing operations", "group sales", "sales", "net sales", "total revenue", "umsatzerlöse", "umsatzerloese", "umsatz", "erträge aus umsatz"],
     excludeRowPatterns: [/turnover\s+in/i, /turnover\s+growth/i, /increase\s+in/i, /segment/i, /non-underlying/i, /per\s+share/i, /by\s+region/i, /by\s+category/i],
     statementName: "Consolidated Income Statement"
   },
@@ -1517,9 +1517,9 @@ export const CANONICAL_METRIC_CONFIGS = [
     key: "total_equity",
     normalizedLabel: "Total Equity",
     accountingRole: "equity",
-    exactRowMatches: [/^total\s+equity$/i, /^(total\s+)?shareholders['’]\s+equity$/i, /^(total\s+)?stockholders['’]\s+equity$/i, /^eigenkapital$/i, /^summe\s+eigenkapital$/i],
-    partialRowMatches: ["total equity", "shareholders’ equity", "shareholders' equity", "stockholders' equity", "eigenkapital", "summe eigenkapital"],
-    excludeRowPatterns: [/per\s+share/i, /attributable/i],
+    exactRowMatches: [/^total\s+equity$/i, /^(total\s+)?shareholders['’]\s+equity$/i, /^(total\s+)?stockholders['’]\s+equity$/i, /^total\s+equity\s+attributable\s+to\s+owners(\s+of\s+the\s+parent)?$/i, /^eigenkapital$/i, /^summe\s+eigenkapital$/i],
+    partialRowMatches: ["total equity", "equity attributable to owners", "equity attributable to shareholders", "shareholders’ equity", "shareholders' equity", "stockholders' equity", "eigenkapital", "summe eigenkapital"],
+    excludeRowPatterns: [/per\s+share/i],
     statementName: "Consolidated Balance Sheet"
   },
   {
@@ -4449,14 +4449,25 @@ app.get("/api/audit/logs", (req, res) => {
 
 // 1. System Overview Metrics
 app.get("/api/diagnostics/overview", (req, res) => {
-  const docs = db.documents || [];
-  const facts = db.facts || [];
-  const findings = db.findings || [];
+  const wsId = (req.query.workspaceId || req.query.workspace_id || "") as string;
+  const targetWsId = wsId || (db.workspaces.length > 0 ? db.workspaces[db.workspaces.length - 1].id : "");
+
+  const docs = targetWsId 
+    ? (db.documents || []).filter(d => d.workspaceId === targetWsId)
+    : (db.documents || []);
+
+  const facts = targetWsId
+    ? (db.facts || []).filter(f => f.workspaceId === targetWsId)
+    : (db.facts || []);
+
+  const findings = targetWsId
+    ? (db.findings || []).filter(f => f.workspaceId === targetWsId)
+    : (db.findings || []);
 
   const totalPages = docs.reduce((acc, d) => acc + (d.pageCount || 1), 0);
   const totalFacts = facts.length;
-  const verifiedFacts = facts.filter(f => f.status === "VALIDATED" || f.status === "APPROVED" || f.verificationStatus === "VERIFIED").length;
-  const reviewFacts = facts.filter(f => f.status === "PROPOSED" || f.status === "proposed").length;
+  const verifiedFacts = facts.filter(f => f.status === "VALIDATED" || f.status === "APPROVED" || f.verificationStatus === "VERIFIED" || (f as any).verification_state === "VERIFIED").length;
+  const reviewFacts = facts.filter(f => f.status === "PROPOSED" || f.status === "proposed" || (f as any).verification_state === "PROPOSED").length;
 
   res.json({
     documentsUploaded: docs.length,

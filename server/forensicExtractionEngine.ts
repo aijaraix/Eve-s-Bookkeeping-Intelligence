@@ -583,8 +583,21 @@ export class LocaleAwareNumberParser {
 
     const trimmed = rawStr.trim();
 
-    // STAGE 6: Year-As-Value Protection Guard
+    // STAGE 6: Year-As-Value & Note-Reference Protection Guard
     const hasMonetaryContext = /[\$€£¥]|billion|million|thousand|mio|mrd|teur|t€|\b[mbk]\b/i.test(rawStr) || /[\$€£¥]|billion|million|thousand|mio|mrd|teur|t€|\b[mbk]\b/i.test(contextText || "");
+    
+    // CRITICAL PHASE H.5 FIX 14: Note-Number False Positive Disambiguation
+    if (/^(note|anhang|see note|ref\.?)\s*\d{1,3}$/i.test(trimmed) || (/^\d{1,2}$/.test(trimmed) && !hasMonetaryContext)) {
+      return {
+        normalizedValue: null,
+        rawValue: trimmed,
+        isAmbiguous: true,
+        scaleMultiplier: scaleHint,
+        rawScaleLabel: "UNKNOWN",
+        parsingNotes: ["Rejected isolated note reference / footnote index string"]
+      };
+    }
+
     if (!hasMonetaryContext && /\b(19|20)\d\d\b/.test(rawStr)) {
       return {
         normalizedValue: null,
@@ -601,6 +614,8 @@ export class LocaleAwareNumberParser {
     }
 
     let clean = trimmed.replace(/[^0-9.,]/g, "");
+    // CRITICAL PHASE H.5 FIX: Strip trailing sentence/phrase punctuation (commas, dots)
+    clean = clean.replace(/[,.]+$/, "");
     if (!clean) {
       return {
         normalizedValue: null,
@@ -615,24 +630,24 @@ export class LocaleAwareNumberParser {
     // Detect language context
     const fullText = (contextText || "").toLowerCase();
     const isGerman = (docLanguage || "").toLowerCase().startsWith("de") ||
-      fullText.includes("mio") ||
-      fullText.includes("eur") ||
+      fullText.includes("mio €") ||
       fullText.includes("t€") ||
       fullText.includes("umsatzerlöse") ||
       fullText.includes("jahresabschluss") ||
-      fullText.includes("bilanzsumme");
+      fullText.includes("bilanzsumme") ||
+      fullText.includes("gewinn- und verlustrechnung");
 
-    // Detect Scale Label
+    // Detect Scale Label from text
     let rawScaleLabel: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' = "ONES";
     let scaleMultiplier = scaleHint;
 
-    if (fullText.includes("billion") || fullText.includes("mrd") || fullText.includes("€b")) {
+    if (fullText.includes("billion") || fullText.includes("mrd") || fullText.includes("€b") || fullText.includes("$b")) {
       rawScaleLabel = "BILLIONS";
       scaleMultiplier = 1_000_000_000;
-    } else if (fullText.includes("million") || fullText.includes("mio") || fullText.includes("€m")) {
+    } else if (fullText.includes("million") || fullText.includes("mio") || fullText.includes("€m") || fullText.includes("$m")) {
       rawScaleLabel = "MILLIONS";
       scaleMultiplier = 1_000_000;
-    } else if (fullText.includes("thousand") || fullText.includes("t€") || fullText.includes("teur") || fullText.includes("€k") || fullText.includes("in thousands")) {
+    } else if (fullText.includes("thousand") || fullText.includes("t€") || fullText.includes("teur") || fullText.includes("€k") || fullText.includes("$k") || fullText.includes("in thousands")) {
       rawScaleLabel = "THOUSANDS";
       scaleMultiplier = 1_000;
     }
@@ -651,12 +666,12 @@ export class LocaleAwareNumberParser {
     } else if (clean.includes(".")) {
       const parts = clean.split(".");
       if (parts.length === 2 && parts[1].length === 3 && parts[0].length <= 3) {
-        if (isGerman || scaleMultiplier >= 1_000_000) {
+        if (isGerman) {
           // In German reports (e.g. 97.968 Mio €), 97.968 means 97,968 units of Mio € = 97.968 Billion €
           clean = clean.replace(".", "");
           parsingNotes.push("Parsed German thousands separator in Mio EUR table (e.g. 97.968 -> 97968)");
         } else {
-          // Standard float e.g. 97.968
+          // Standard float in English (e.g. 50.503 billion)
           clean = clean; 
         }
       } else if (parts.length > 2) {
