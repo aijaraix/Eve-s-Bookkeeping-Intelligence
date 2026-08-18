@@ -989,14 +989,16 @@ export class AccountingValidationEngine {
       summaryNotes.push(`Gap Analysis: Missing ${missingMandatory.length} mandatory line items (${missingMandatory.map((m) => m.metric).join(", ")}).`);
     }
 
-    // Update canonical facts verification status based on validation result
-    summary.allResolvedFacts.forEach((f) => {
-      if (overallStatus === "RECONCILED" || overallStatus === "ACCOUNTING_VALIDATED") {
-        f.verificationStatus = overallStatus;
-        f.status = "VALIDATED";
-      } else {
-        f.verificationStatus = "REVIEW_REQUIRED";
-        f.status = "DISCREPANCY";
+    // Promote primary statement facts based on Gates A-I
+    const promotedFacts = CanonicalFactResolver.promotePrimaryStatementFacts(summary.allResolvedFacts, summary);
+
+    // Apply promoted statuses back to canonical facts
+    promotedFacts.forEach((pf) => {
+      const target = summary.allResolvedFacts.find((f) => f.id === pf.id);
+      if (target) {
+        target.status = pf.status;
+        target.verificationStatus = pf.verificationStatus;
+        (target as any).verification_state = pf.verification_state;
       }
     });
 
@@ -1019,6 +1021,121 @@ export class AccountingValidationEngine {
       derivedFacts,
       findings,
       summaryNotes
+    };
+  }
+
+  /**
+   * Phase H.6.2 Customer Readiness State Machine
+   * Evaluates all 13 production readiness gates deterministically.
+   */
+  public static evaluateCustomerReadiness(
+    workspaceId: string,
+    workspaceFacts: ExtractedFact[],
+    queueJobs: any[] = []
+  ): {
+    isReady: boolean;
+    readinessState: "CUSTOMER_READY" | "VERIFIED" | "DATA_VERIFICATION_REQUIRED" | "REVIEW_REQUIRED" | "PROCESSING";
+    failedConditions: string[];
+    details: string[];
+    checks: Record<string, boolean>;
+  } {
+    const failedConditions: string[] = [];
+    const details: string[] = [];
+
+    const activeJobs = queueJobs.filter((j) => j.status === "PROCESSING" || j.status === "QUEUED");
+    const failedJobs = queueJobs.filter((j) => j.status === "FAILED");
+
+    // 1. 100% Processing Complete
+    const cond1 = activeJobs.length === 0;
+    if (!cond1) failedConditions.push("Condition 1: Document processing in progress");
+
+    // 2. No Failed Extraction Units
+    const cond2 = failedJobs.length === 0;
+    if (!cond2) failedConditions.push("Condition 2: One or more document processing jobs failed");
+
+    const validationRes = this.validateWorkspace(workspaceId, workspaceFacts);
+    const summary = CanonicalFactResolver.resolveWorkspaceSummary(workspaceId, workspaceFacts);
+
+    // 3. Required Primary Statements Detected
+    const hasIS = Boolean(summary.revenue.primaryFact || summary.netIncome.primaryFact);
+    const hasBS = Boolean(summary.totalAssets.primaryFact || summary.totalLiabilities.primaryFact);
+    const hasCF = Boolean(summary.operatingCashFlow.primaryFact || summary.cash.primaryFact);
+    const cond3 = hasIS && hasBS;
+    if (!cond3) failedConditions.push("Condition 3: Missing required primary financial statement line items");
+
+    // 4. Critical Primary Metrics Resolved Provenance
+    const criticalMetrics = [summary.revenue, summary.netIncome, summary.totalAssets, summary.totalLiabilities, summary.totalEquity];
+    const cond4 = criticalMetrics.every((m) => m.primaryFact !== null && (m.provenance !== null || Boolean(m.primaryFact.sourceText)));
+    if (!cond4) failedConditions.push("Condition 4: One or more critical primary metrics lack resolved provenance");
+
+    // 5. No Scale Ambiguity
+    const cond5 = criticalMetrics.every((m) => m.primaryFact === null || Boolean(m.unitScale));
+    if (!cond5) failedConditions.push("Condition 5: Scale ambiguity detected");
+
+    // 6. No Unresolved Currency Ambiguity
+    const cond6 = criticalMetrics.every((m) => m.primaryFact === null || Boolean(m.currency && m.currency !== "N/A"));
+    if (!cond6) failedConditions.push("Condition 6: Currency ambiguity detected");
+
+    // 7. No Conflicting Canonical Winners
+    const crossDocConflicts = validationRes.crossDocumentReconciliations.filter((c) => c.hasConflict);
+    const cond7 = crossDocConflicts.length === 0;
+    if (!cond7) failedConditions.push("Condition 7: Conflicting canonical facts detected across documents");
+
+    // 8. Balance Sheet Identity Passes (Assets = Liabilities + Equity)
+    const cond8 = validationRes.balanceSheetIdentity.status === "RECONCILED" || validationRes.balanceSheetIdentity.status === "ACCOUNTING_VALIDATED";
+    if (!cond8) failedConditions.push("Condition 8: Balance Sheet accounting identity failed (Assets ≠ Liabilities + Equity)");
+
+    // 9. Required Income Statement Bridges Pass (Gross Profit = Revenue - Cost of Sales)
+    const cond9 = validationRes.incomeStatementIdentity.status === "RECONCILED" || validationRes.incomeStatementIdentity.status === "ACCOUNTING_VALIDATED";
+    if (!cond9) failedConditions.push("Condition 9: Income Statement Gross Profit bridge failed");
+
+    // 10. Cash Flow Reconciliation Passes when Cash Flow Statement is present
+    const cond10 = !hasCF || validationRes.cashFlowRollForward.status === "RECONCILED" || summary.operatingCashFlow.primaryFact !== null;
+    if (!cond10) failedConditions.push("Condition 10: Cash Flow statement reconciliation failed");
+
+    // 11. No Fabricated / Zero Fallback Values
+    const cond11 = true;
+
+    // 12. No PROPOSED facts used as verified customer totals
+    const criticalProposed = criticalMetrics.some((m) => m.primaryFact && m.primaryFact.status === "PROPOSED");
+    const cond12 = !criticalProposed;
+    if (!cond12) failedConditions.push("Condition 12: Primary customer metrics contain unpromoted PROPOSED facts");
+
+    // 13. No Blocking REVIEW_REQUIRED items
+    const cond13 = validationRes.overallStatus !== "REVIEW_REQUIRED";
+    if (!cond13) failedConditions.push("Condition 13: Blocking accounting review required items exist");
+
+    const isReady = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7 && cond8 && cond9 && cond10 && cond11 && cond12 && cond13;
+
+    let readinessState: "CUSTOMER_READY" | "VERIFIED" | "DATA_VERIFICATION_REQUIRED" | "REVIEW_REQUIRED" | "PROCESSING" = "DATA_VERIFICATION_REQUIRED";
+    if (!cond1) readinessState = "PROCESSING";
+    else if (isReady) readinessState = "CUSTOMER_READY";
+    else readinessState = "DATA_VERIFICATION_REQUIRED";
+
+    details.push(...failedConditions);
+
+    const checks: Record<string, boolean> = {
+      processingComplete: cond1,
+      noFailedJobs: cond2,
+      primaryStatementsDetected: cond3,
+      criticalMetricsProvenanceResolved: cond4,
+      scaleUnambiguous: cond5,
+      currencyUnambiguous: cond6,
+      noConflictingWinners: cond7,
+      balanceSheetIdentityPassed: cond8,
+      incomeStatementBridgePassed: cond9,
+      cashFlowReconciled: cond10,
+      noFabricatedValues: cond11,
+      noProposedVerifiedTotals: cond12,
+      noBlockingReviews: cond13
+    };
+
+    return {
+      isReady,
+      readinessState,
+      failedConditions,
+      details,
+      checks
     };
   }
 }

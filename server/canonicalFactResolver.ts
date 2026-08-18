@@ -8,6 +8,7 @@ export interface CanonicalResolutionResult {
   primaryFact: ExtractedFact | null;
   alternativeFacts: ExtractedFact[];
   normalizedScalarValue: number | null;
+  rawValue?: string | null;
   formattedValue: string;
   currency: string;
   unitScale: string;
@@ -494,7 +495,153 @@ export class CanonicalFactResolver {
       }
     }
 
+    // Net Income / Profit Disambiguation Hierarchy Boost / Penalty
+    if (targetMetric === "net_income") {
+      const isAttributableNci = fullContext.includes("non-controlling") || fullContext.includes("nci") || fullContext.includes("minority interest");
+      const isDiscontinued = fullContext.includes("discontinued");
+      const isSegmentProfit = fullContext.includes("segment") || fullContext.includes("division");
+
+      if (isAttributableNci || isDiscontinued || isSegmentProfit) {
+        score -= 300; // Penalize sub-totals competing for primary Net Income
+      } else if (
+        fullContext.includes("profit for the year") ||
+        fullContext.includes("profit for the period") ||
+        fullContext.includes("net profit") ||
+        fullContext.includes("net income") ||
+        fullContext.includes("jahresüberschuss") ||
+        fullContext.includes("resultado del ejercicio") ||
+        fullContext.includes("konzernergebnis")
+      ) {
+        score += 100; // Boost primary profit line item
+      }
+    }
+
+    // Cash Flow Statement Primary Table Boost
+    if (["operating_cash_flow", "investing_cash_flow", "financing_cash_flow", "free_cash_flow"].includes(targetMetric)) {
+      if (
+        stmtType.includes("cash_flow") ||
+        stmtType.includes("primary_financial_statement") ||
+        fullContext.includes("cash flow statement") ||
+        fullContext.includes("statement of cash flows")
+      ) {
+        score += 100;
+      } else if (fullContext.includes("note") || fullContext.includes("footnote") || fullContext.includes("segment")) {
+        score -= 100;
+      }
+    }
+
     return score;
+  }
+
+  /**
+   * Phase H.6.2 Deterministic Primary Statement Fact Promotion Policy (Gates A-I)
+   */
+  public static promotePrimaryStatementFacts(
+    workspaceFacts: ExtractedFact[],
+    summary?: ResolvedFinancialSummary
+  ): ExtractedFact[] {
+    return workspaceFacts.map(fact => {
+      // If fact is rejected or human overridden, preserve status
+      if (fact.status === "REJECTED" || fact.verificationStatus === "REJECTED") {
+        return fact;
+      }
+
+      const stmtType = (fact.statementType || fact.statement_type || (fact as any).section_title || (fact as any).tableName || "").toLowerCase();
+      const isPrimaryStatement = 
+        stmtType.includes("income_statement") ||
+        stmtType.includes("balance_sheet") ||
+        stmtType.includes("cash_flow") ||
+        stmtType.includes("primary_financial_statement") ||
+        stmtType.includes("consolidated balance sheet") ||
+        stmtType.includes("consolidated income statement") ||
+        stmtType.includes("consolidated cash flow") ||
+        stmtType.includes("statement of financial position") ||
+        stmtType.includes("statement of profit") ||
+        stmtType.includes("cash flow statement") ||
+        stmtType.includes("bilanz") ||
+        stmtType.includes("gewinn- und verlustrechnung");
+
+      // Gate A: Primary Statement Classification
+      const gateA = isPrimaryStatement;
+
+      // Gate B: Exact Row / Column Context
+      const rowLabel = fact.labelOriginal || fact.rowLabel || (fact as any).source_row || (fact as any).original_label;
+      const gateB = Boolean(rowLabel && String(rowLabel).trim().length > 0);
+
+      // Gate C: Currency & Scale Inheritance
+      const curr = fact.currencyOriginal || fact.currency || fact.functionalCurrency;
+      const gateC = Boolean(curr && ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD"].includes(String(curr).toUpperCase()));
+
+      // Gate D: Resolved Reporting Period
+      const period = fact.reportingPeriod || (fact as any).reporting_period || fact.fiscalPeriod;
+      const gateD = Boolean(period && String(period).length >= 4);
+
+      // Gate E: Resolved Consolidation Scope
+      const scope = fact.reportingScope || (fact as any).reporting_scope || fact.consolidationScope || (fact as any).consolidation_scope;
+      const gateE = Boolean(scope);
+
+      // Gate F & G: Winner Alignment & No Material Conflict
+      let gateF_G = true;
+      if (summary) {
+        const canon = (fact.canonicalMetric || fact.canonical_metric || "").toLowerCase();
+        const metricMap: Record<string, string> = {
+          revenue: "revenue",
+          cost_of_sales: "costOfSales",
+          gross_profit: "grossProfit",
+          operating_profit: "operatingProfit",
+          ebitda: "ebitda",
+          profit_before_tax: "profitBeforeTax",
+          net_income: "netIncome",
+          total_assets: "totalAssets",
+          total_liabilities: "totalLiabilities",
+          total_equity: "totalEquity",
+          cash: "cash",
+          operating_cash_flow: "operatingCashFlow",
+          investing_cash_flow: "investingCashFlow",
+          financing_cash_flow: "financingCashFlow",
+          free_cash_flow: "freeCashFlow"
+        };
+        const propName = metricMap[canon] || canon;
+        if (canon && (summary as any)[propName]) {
+          const res = (summary as any)[propName] as any;
+          if (res && res.primaryFact && res.primaryFact.id !== fact.id) {
+            gateF_G = false;
+          }
+        }
+      }
+
+      // Gate H: Complete Provenance
+      const docId = fact.documentId || fact.document_id;
+      const page = fact.pageNumber || (fact as any).page || (fact as any).source_page;
+      const sourceTxt = fact.sourceText || fact.rawText || (fact as any).source_text || (fact as any).source_context;
+      const gateH = Boolean(docId && (page > 0 || sourceTxt));
+
+      // Gate I: Accounting Identity Reconciliation
+      let gateI = true;
+      if (summary && summary.accountingIdentityValid === false) {
+        const canon = (fact.canonicalMetric || fact.canonical_metric || "").toLowerCase();
+        if (["total_assets", "total_liabilities", "total_equity", "revenue", "cost_of_sales", "gross_profit"].includes(canon)) {
+          gateI = false;
+        }
+      }
+
+      const allGatesPassed = gateA && gateB && gateC && gateD && gateE && gateF_G && gateH && gateI;
+
+      if (allGatesPassed) {
+        return {
+          ...fact,
+          status: "APPROVED",
+          verificationStatus: "VERIFIED",
+          verification_state: "VERIFIED"
+        };
+      } else {
+        return {
+          ...fact,
+          status: fact.status === "APPROVED" || fact.status === "VALIDATED" ? "PROPOSED" : (fact.status || "PROPOSED"),
+          verificationStatus: fact.verificationStatus === "VERIFIED" ? "PROPOSED" : (fact.verificationStatus || "PROPOSED")
+        };
+      }
+    });
   }
 
   public static normalizePeriodKey(input?: string): string {
@@ -594,52 +741,94 @@ export class CanonicalFactResolver {
 
       // Label mapping fallbacks
       if (targetMetric === "revenue") {
-        return norm === "revenue" || norm === "turnover" || norm.includes("total revenue") || orig.includes("group turnover") || orig.includes("sales revenue") || orig.includes("turnover");
+        return norm === "revenue" || norm === "turnover" || norm.includes("total revenue") || orig.includes("group turnover") || orig.includes("sales revenue") || orig.includes("turnover") || orig.includes("umsatzerlöse");
       }
       if (targetMetric === "comparative_revenue") {
         return norm.includes("comparative revenue") || canon === "comparative_revenue";
       }
       if (targetMetric === "cost_of_sales") {
-        return norm === "cost of sales" || norm.includes("cost of revenue") || orig.includes("cost of sales");
+        return norm === "cost of sales" || norm.includes("cost of revenue") || norm.includes("cost of goods sold") || orig.includes("cost of sales") || orig.includes("cost of goods sold") || orig.includes("umsatzkosten") || orig.includes("coste de las ventas");
       }
       if (targetMetric === "gross_profit") {
-        return norm === "gross profit" || orig.includes("gross profit");
+        return norm === "gross profit" || orig.includes("gross profit") || orig.includes("bruttoergebnis");
       }
       if (targetMetric === "operating_profit") {
-        return norm === "operating profit" || norm === "operating income" || orig.includes("operating result") || orig.includes("operating profit");
+        return norm === "operating profit" || norm === "operating income" || orig.includes("operating result") || orig.includes("operating profit") || orig.includes("operatives ergebnis") || orig.includes("betriebsergebnis");
       }
       if (targetMetric === "ebitda") {
         return norm === "ebitda" || orig.includes("ebitda");
       }
       if (targetMetric === "profit_before_tax") {
-        return norm === "profit before tax" || orig.includes("profit before tax") || orig.includes("earnings before tax");
+        return norm === "profit before tax" || orig.includes("profit before tax") || orig.includes("earnings before tax") || orig.includes("ergebnis vor steuern");
       }
       if (targetMetric === "net_income") {
-        return norm === "net income" || norm.includes("net profit") || orig.includes("profit for the year") || orig.includes("profit attributable to equity holders");
+        return norm === "net income" || norm.includes("net profit") || norm.includes("profit for the year") || norm.includes("profit for the period") || orig.includes("profit for the year") || orig.includes("profit for the period") || orig.includes("net profit") || orig.includes("net income") || orig.includes("jahresüberschuss") || orig.includes("resultado del ejercicio") || orig.includes("profit attributable to equity holders");
       }
       if (targetMetric === "total_assets") {
-        return norm === "total assets" || orig.includes("total assets");
+        return norm === "total assets" || orig.includes("total assets") || orig.includes("bilanzsumme") || orig.includes("summe aktiva");
       }
       if (targetMetric === "total_liabilities") {
-        return norm === "total liabilities" || orig.includes("total liabilities");
+        return norm === "total liabilities" || orig.includes("total liabilities") || orig.includes("summe passiva") || orig.includes("verbindlichkeiten");
       }
       if (targetMetric === "total_equity") {
-        return norm === "total equity" || orig.includes("total equity") || orig.includes("equity attributable to shareholders");
+        return norm === "total equity" || orig.includes("total equity") || orig.includes("equity attributable to shareholders") || orig.includes("eigenkapital");
       }
       if (targetMetric === "cash") {
-        return norm === "cash" || norm.includes("cash and cash equivalents") || orig.includes("cash and cash equivalents");
+        return norm === "cash" || norm.includes("cash and cash equivalents") || orig.includes("cash and cash equivalents") || orig.includes("flüssige mittel") || orig.includes("kassenbestand");
       }
       if (targetMetric === "operating_cash_flow") {
-        return norm === "operating cash flow" || orig.includes("net cash flow from operating activities");
+        const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
+        return (
+          norm === "operating cash flow" ||
+          textToScan.includes("operating cash flow") ||
+          textToScan.includes("operating cash flows") ||
+          textToScan.includes("cash flow from operating") ||
+          textToScan.includes("cash flows from operating") ||
+          textToScan.includes("cash from operating") ||
+          textToScan.includes("cash generated from operating") ||
+          textToScan.includes("cash generated from operations") ||
+          textToScan.includes("net cash generated from operating") ||
+          textToScan.includes("net cash flow from operating") ||
+          textToScan.includes("net cash flows from operating") ||
+          textToScan.includes("flujo de efectivo de las actividades de explotación") ||
+          textToScan.includes("cashflow aus der laufenden geschäftstätigkeit") ||
+          textToScan.includes("flux de trésorerie")
+        );
       }
       if (targetMetric === "investing_cash_flow") {
-        return norm.includes("investing cash flow") || orig.includes("net cash flow from investing activities");
+        const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
+        return (
+          norm.includes("investing cash flow") ||
+          textToScan.includes("investing cash flow") ||
+          textToScan.includes("cash flow from investing") ||
+          textToScan.includes("cash flows from investing") ||
+          textToScan.includes("cash used in investing") ||
+          textToScan.includes("cash flows used in investing") ||
+          textToScan.includes("flujo de efectivo de las actividades de inversión") ||
+          textToScan.includes("cashflow aus der investitionstätigkeit")
+        );
       }
       if (targetMetric === "financing_cash_flow") {
-        return norm.includes("financing cash flow") || orig.includes("net cash flow from financing activities");
+        const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
+        return (
+          norm.includes("financing cash flow") ||
+          textToScan.includes("financing cash flow") ||
+          textToScan.includes("cash flow from financing") ||
+          textToScan.includes("cash flows from financing") ||
+          textToScan.includes("cash used in financing") ||
+          textToScan.includes("cash flows used in financing") ||
+          textToScan.includes("flujo de efectivo de las actividades de financiación") ||
+          textToScan.includes("cashflow aus der finanzierungstätigkeit")
+        );
       }
       if (targetMetric === "free_cash_flow") {
-        return norm === "free cash flow" || orig.includes("free cash flow");
+        const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
+        return (
+          norm === "free cash flow" ||
+          textToScan.includes("free cash flow") ||
+          textToScan.includes("flujo de caja libre") ||
+          textToScan.includes("freier cashflow")
+        );
       }
 
       return false;
@@ -651,6 +840,7 @@ export class CanonicalFactResolver {
         primaryFact: null,
         alternativeFacts: [],
         normalizedScalarValue: null,
+        rawValue: null,
         formattedValue: "—",
         currency: "EUR",
         unitScale: "—",
@@ -791,9 +981,12 @@ export class CanonicalFactResolver {
     workspaceId: string,
     workspaceFacts: ExtractedFact[]
   ): ResolvedFinancialSummary {
-    const wsFacts = workspaceFacts.filter(
+    let wsFacts = workspaceFacts.filter(
       (f) => f.workspaceId === workspaceId || f.company_id === workspaceId || (f as any).project_id === workspaceId
     );
+    if (wsFacts.length === 0) {
+      wsFacts = workspaceFacts;
+    }
 
     // Auto-detect target primary period (prefer latest annual period across facts)
     const annualPeriods = wsFacts

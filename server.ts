@@ -25,6 +25,7 @@ import { unboundedRegistryEngine } from "./server/unboundedRegistryEngine.js";
 import { tenantRegressionService } from "./server/tenantRegressionService.js";
 import { deliverablesEngine } from "./server/deliverablesEngine.js";
 import { CanonicalFactResolver } from "./server/canonicalFactResolver.js";
+import { AccountingValidationEngine } from "./server/accountingValidationEngine.js";
 import {
   ForensicEntityResolver,
   LocaleAwareNumberParser,
@@ -876,45 +877,15 @@ export function evaluateWorkspaceReadiness(workspaceId: string) {
   const queueJobs = backgroundIngestionQueue.getAllJobs(workspaceId);
   const facts = db.facts.filter(f => f.workspaceId === workspaceId);
 
-  const activeJobs = queueJobs.filter(j => j.status === 'PROCESSING' || j.status === 'QUEUED');
-  const failedJobs = queueJobs.filter(j => j.status === 'FAILED');
+  const customerEval = AccountingValidationEngine.evaluateCustomerReadiness(workspaceId, facts, queueJobs);
 
-  const checks: Record<string, boolean> = {
-    documentsAccounted: docs.length > 0,
-    pageManifestsComplete: docs.length > 0 && docs.every(d => (db.pageManifests || []).some(p => p.document_id === d.id) || (d.pageCount && d.pageCount > 0)),
-    pagesProcessed: activeJobs.length === 0,
-    entityResolutionComplete: true,
-    financialExtractionComplete: facts.length > 0,
-    narrativeExtractionComplete: facts.some(f => f.isNoteDisclosure || (f as any).statementType === 'notes' || f.candidateSource === 'SECOND_PASS_NOTE' || (f.sourceText && f.sourceText.length > 20)),
-    secondPassGapAnalysisComplete: true,
-    crossDocReconciliationComplete: true,
-    accountingValidationComplete: true,
-    sourceLineageValidated: facts.every(f => f.documentId && (f.pageNumber > 0 || f.sourceText)),
-    failuresAndWarningsRecorded: failedJobs.length === 0,
-    factRegistryBuilt: facts.length > 0
+  return {
+    isReady: customerEval.isReady,
+    readinessState: customerEval.readinessState,
+    checks: customerEval.checks,
+    details: customerEval.details,
+    failedConditions: customerEval.failedConditions
   };
-
-  const details: string[] = [];
-  if (activeJobs.length > 0) details.push(`${activeJobs.length} document extraction jobs still active in background queue.`);
-  if (failedJobs.length > 0) details.push(`${failedJobs.length} jobs experienced failures.`);
-  if (docs.length === 0) details.push('No documents uploaded in workspace.');
-  if (facts.length === 0) details.push('No financial line items extracted yet.');
-
-  let readinessState: 'PROCESSING' | 'PARTIAL' | 'RECONCILING' | 'VALIDATING' | 'READY' | 'FAILED' = 'READY';
-
-  if (activeJobs.length > 0) {
-    readinessState = 'PROCESSING';
-  } else if (failedJobs.length > 0 && docs.length > failedJobs.length) {
-    readinessState = 'PARTIAL';
-  } else if (failedJobs.length > 0 && docs.length === failedJobs.length) {
-    readinessState = 'FAILED';
-  } else {
-    readinessState = 'READY';
-  }
-
-  const isReady = readinessState === 'READY' && checks.documentsAccounted && checks.financialExtractionComplete;
-
-  return { isReady, readinessState, checks, details };
 }
 
 function loadStorage() {

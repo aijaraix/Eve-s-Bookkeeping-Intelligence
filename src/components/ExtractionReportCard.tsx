@@ -144,7 +144,7 @@ export const ExtractionReportCard: React.FC<ExtractionReportCardProps> = ({
           </div>
 
           <div className="text-slate-500 text-[11px]">
-            Accuracy Check: <strong className="text-slate-800 font-mono">100% Verified</strong> vs Primary Filing
+            Accuracy Check: <strong className="text-slate-800 font-mono">{totalFactsCount > 0 ? `${Math.round((verifiedCount / totalFactsCount) * 100)}% Verified (${verifiedCount}/${totalFactsCount})` : "Awaiting Verification"}</strong> vs Primary Filing
           </div>
         </div>
 
