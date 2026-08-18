@@ -58,7 +58,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
 
   // TEST 3: Absolute Primary Statement Source Authority (Tier 1 vs Tier 5 Narrative)
   try {
-    const tier1Fact: ExtractedFact = {
+    const tier1Fact = {
       id: "fct-tier1-1",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -78,9 +78,9 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       confidence: 0.98,
       status: "APPROVED",
       verificationStatus: "VERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
-    const tier5Fact: ExtractedFact = {
+    const tier5Fact = {
       id: "fct-tier5-1",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -100,7 +100,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       confidence: 0.85,
       status: "APPROVED",
       verificationStatus: "VERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
     const res3 = CanonicalFactResolver.resolveMetric([tier1Fact, tier5Fact], "revenue", "2025-FY");
     const isTest3Passed = res3.primaryFact?.id === "fct-tier1-1" && res3.normalizedScalarValue === 50_503_000_000;
@@ -117,7 +117,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
 
   // TEST 4: Tier 1/2 Candidates Strictly Disqualify Tier 4-6 Candidates
   try {
-    const tier1Fact: ExtractedFact = {
+    const tier1Fact = {
       id: "fct-t1-netinc",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -137,9 +137,9 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       confidence: 0.99,
       status: "APPROVED",
       verificationStatus: "VERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
-    const tier4Fact: ExtractedFact = {
+    const tier4Fact = {
       id: "fct-t4-mda",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -159,7 +159,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       confidence: 0.90,
       status: "APPROVED",
       verificationStatus: "VERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
     const res4 = CanonicalFactResolver.resolveMetric([tier1Fact, tier4Fact], "net_income", "2025-FY");
     const isTest4Passed = res4.primaryFact?.id === "fct-t1-netinc" && !res4.alternativeFacts.some(f => f.id === "fct-t4-mda" && SourceAuthorityRanker.rankFactAuthority(f).tier >= 4);
@@ -176,7 +176,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
 
   // TEST 5: Customer Readiness Gate 5 Scale Failure Protection
   try {
-    const unscaledProposedFact: ExtractedFact = {
+    const unscaledProposedFact = {
       id: "fct-unscaled-rev",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -193,7 +193,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       canonicalMetric: "revenue",
       status: "PROPOSED",
       verificationStatus: "UNVERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
     const readinessRes = AccountingValidationEngine.evaluateCustomerReadiness("ws-test", [unscaledProposedFact]);
     const isTest5Passed = !readinessRes.isReady && readinessRes.readinessState === "DATA_VERIFICATION_REQUIRED" && !readinessRes.checks.scaleUnambiguous;
@@ -210,7 +210,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
 
   // TEST 6: Blocked Fact Display Immunity in Customer Surface
   try {
-    const proposedUnverifiedFact: ExtractedFact = {
+    const proposedUnverifiedFact = {
       id: "fct-prop-1",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -227,7 +227,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       canonicalMetric: "revenue",
       status: "PROPOSED",
       verificationStatus: "UNVERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
     const res6 = CanonicalFactResolver.resolveMetric([proposedUnverifiedFact], "revenue", "2025-FY");
     const isTest6Passed = res6.primaryFact === null && res6.normalizedScalarValue === null && res6.formattedValue === "—";
@@ -244,7 +244,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
 
   // TEST 7: Primary Cash Flow Statement Resolver Priority
   try {
-    const primaryCashFlowFact: ExtractedFact = {
+    const primaryCashFlowFact = {
       id: "fct-cf-primary",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -261,9 +261,9 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       canonicalMetric: "operating_cash_flow",
       status: "APPROVED",
       verificationStatus: "VERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
-    const noteReconciliationFact: ExtractedFact = {
+    const noteReconciliationFact = {
       id: "fct-cf-note",
       documentId: "doc-1",
       workspaceId: "ws-test",
@@ -280,7 +280,7 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
       canonicalMetric: "operating_cash_flow",
       status: "APPROVED",
       verificationStatus: "VERIFIED"
-    };
+    } as unknown as ExtractedFact;
 
     const res7 = CanonicalFactResolver.resolveMetric([primaryCashFlowFact, noteReconciliationFact], "operating_cash_flow", "2025-FY");
     const isTest7Passed = res7.primaryFact?.id === "fct-cf-primary" && res7.normalizedScalarValue === 10_772_000_000;

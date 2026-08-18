@@ -175,6 +175,8 @@ export interface ExtractedFact {
   // Provenance Location
   pageNumber: number;
   source_page?: number;
+  sourceUnitId?: string;
+  extractionAttemptId?: string;
   tableName?: string;
   source_table?: string;
   sourceText: string;
@@ -625,6 +627,8 @@ export interface LLMGatewayResponse {
   tokensUsed?: { promptTokens: number; completionTokens: number };
   executionTimeMs: number;
   error?: string;
+  retryCount?: number;
+  providerAttemptHistory?: Array<{ provider: string; model: string; status: number | string; durationMs: number; error?: string }>;
 }
 
 
@@ -988,6 +992,9 @@ export type IngestionJobStage =
 export type IngestionJobStatus =
   | "QUEUED"
   | "PROCESSING"
+  | "WAITING_FOR_LLM"
+  | "RATE_LIMITED"
+  | "RECOVERING"
   | "COMPLETED"
   | "COMPLETED_WITH_WARNINGS"
   | "REVIEW_REQUIRED"
@@ -1013,7 +1020,7 @@ export interface ProcessingUnitRecord {
   actual_page_end: number;
   section_id?: string;
   source_block_ids?: string[];
-  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRYING" | "REVIEW_REQUIRED" | "NO_TEXT";
+  status: "QUEUED" | "PROCESSING" | "WAITING_FOR_LLM" | "RATE_LIMITED" | "RETRYING" | "COMPLETED" | "COMPLETED_NO_FINANCIAL_FACTS" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "FAILED_TERMINAL" | "REVIEW_REQUIRED" | "NO_TEXT";
   attempt_count: number;
   created_at: string;
   started_at?: string;

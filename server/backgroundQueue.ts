@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { executeSwarmPipeline } from "./swarm/SwarmOrchestrator.js";
+import { LLM_CONFIG } from "./llmGateway.js";
 import {
   ExtractedFact,
   DiscrepancyItem,
@@ -23,16 +24,26 @@ export interface ProcessingUnit extends ProcessingUnitRecord {
 
 export interface QueueJob extends Omit<QueueJobRecord, 'processingUnits'> {
   processingUnits: ProcessingUnit[];
+  workerHeartbeatAt?: string;
+  lastProgressAt?: string;
 }
+
+// Global persistence lock and debounce timer
+let isSavingDisk = false;
+let saveDiskTimeout: NodeJS.Timeout | null = null;
 
 export class BackgroundIngestionQueue {
   private jobs: Map<string, QueueJob> = new Map();
   private isProcessingQueue = false;
+  private workerAliveHeartbeat = new Date().toISOString();
   private onJobCompletedListener?: (job: QueueJob) => void;
 
   constructor() {
     this.loadQueueFromDisk();
-    setInterval(() => this.checkStalledJobs(), 10000);
+    setInterval(() => {
+      this.workerAliveHeartbeat = new Date().toISOString();
+      this.checkStalledJobs();
+    }, 5000);
   }
 
   public setOnJobCompleted(listener: (job: QueueJob) => void) {
@@ -51,12 +62,32 @@ export class BackgroundIngestionQueue {
     }
   }
 
-  private saveQueueToDisk() {
+  public saveQueueToDiskAsync(forceNow = false): Promise<void> {
+    if (saveDiskTimeout) {
+      clearTimeout(saveDiskTimeout);
+      saveDiskTimeout = null;
+    }
+
+    if (!forceNow) {
+      return new Promise<void>((resolve) => {
+        saveDiskTimeout = setTimeout(async () => {
+          await this.performDiskSave();
+          resolve();
+        }, 500);
+      });
+    }
+
+    return this.performDiskSave();
+  }
+
+  private async performDiskSave(): Promise<void> {
+    if (isSavingDisk) return;
+    isSavingDisk = true;
     try {
       const queueFile = getQueueFile();
       const storageDir = path.dirname(queueFile);
       if (!fs.existsSync(storageDir)) {
-        fs.mkdirSync(storageDir, { recursive: true });
+        await fs.promises.mkdir(storageDir, { recursive: true });
       }
 
       const prepareJobForStorage = (job: QueueJob) => {
@@ -65,8 +96,8 @@ export class BackgroundIngestionQueue {
         const cleanUnits = jobCopy.processingUnits?.map(u => ({
           ...u,
           unit_text: undefined,
-          textData: typeof u.textData === 'string' && u.textData.length > 5000
-            ? u.textData.substring(0, 5000) + "... [truncated]"
+          textData: typeof u.textData === 'string' && u.textData.length > 500
+            ? u.textData.substring(0, 500) + "... [truncated]"
             : u.textData
         }));
 
@@ -76,12 +107,8 @@ export class BackgroundIngestionQueue {
             ...cleanResult,
             agentLogs: cleanResult.agentLogs?.map(log => ({
               ...log,
-              prompt: typeof log.prompt === 'string' && log.prompt.length > 2000
-                ? log.prompt.substring(0, 2000) + "... [truncated]"
-                : log.prompt,
-              response: typeof log.response === 'string' && log.response.length > 2000
-                ? log.response.substring(0, 2000) + "... [truncated]"
-                : log.response
+              prompt: undefined,
+              response: undefined
             }))
           };
         }
@@ -93,29 +120,16 @@ export class BackgroundIngestionQueue {
         };
       };
 
-      let serializableJobs = Array.from(this.jobs.values()).map(prepareJobForStorage);
+      const serializableJobs = Array.from(this.jobs.values()).map(prepareJobForStorage);
+      const jsonString = JSON.stringify(serializableJobs);
 
-      let jsonString: string;
-      try {
-        jsonString = JSON.stringify(serializableJobs);
-      } catch (stringifyErr) {
-        console.warn("[Hermes Queue] Standard stringify failed due to size, applying aggressive trimming for storage...");
-        const trimmed = serializableJobs.slice(-15).map(j => ({
-          ...j,
-          result: (j.status === 'COMPLETED' || j.status === 'COMPLETED_WITH_WARNINGS' || j.status === 'REVIEW_REQUIRED') ? {
-            facts: j.result?.facts || [],
-            discrepancies: j.result?.discrepancies || [],
-            agentLogs: [],
-            auditLogs: [],
-            executionTimeMs: j.result?.executionTimeMs || 0
-          } : j.result
-        }));
-        jsonString = JSON.stringify(trimmed);
-      }
-
-      fs.writeFileSync(queueFile, jsonString);
+      const tempFile = `${queueFile}.tmp`;
+      await fs.promises.writeFile(tempFile, jsonString, "utf-8");
+      await fs.promises.rename(tempFile, queueFile);
     } catch (err) {
-      console.error("[Hermes Queue] Failed to save queue to disk:", err);
+      console.error("[Hermes Queue] Failed to save queue asynchronously to disk:", err);
+    } finally {
+      isSavingDisk = false;
     }
   }
 
@@ -127,13 +141,18 @@ export class BackgroundIngestionQueue {
         const list: QueueJob[] = JSON.parse(raw);
         if (Array.isArray(list)) {
           list.forEach(job => {
-            if (job.status === "PROCESSING") {
+            if (job.status === "PROCESSING" || job.status === "WAITING_FOR_LLM" || job.status === "RATE_LIMITED" || job.status === "RECOVERING") {
               job.status = "QUEUED";
-              job.currentStage = `Re-queued for Unit ${job.unitsCompleted + 1}/${job.unitsTotal} processing`;
+              job.currentStage = `Resumed for processing (Unit ${job.unitsCompleted + 1}/${job.unitsTotal})`;
+              job.processingUnits.forEach(u => {
+                if (u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING") {
+                  u.status = "QUEUED";
+                }
+              });
             }
             this.jobs.set(job.id, job);
           });
-          this.saveQueueToDisk();
+          this.saveQueueToDiskAsync(true);
           console.log(`[Hermes Queue] Loaded ${list.length} persisted queue jobs from storage.`);
         }
       }
@@ -157,6 +176,7 @@ export class BackgroundIngestionQueue {
     const nowStr = new Date().toISOString();
     job.updatedAt = nowStr;
     job.heartbeatAt = nowStr;
+    job.workerHeartbeatAt = nowStr;
 
     if (!job.stageHistory) job.stageHistory = [];
     const existing = job.stageHistory.find(s => s.stage === stage);
@@ -172,35 +192,56 @@ export class BackgroundIngestionQueue {
         details
       });
     }
-    this.saveQueueToDisk();
+    this.saveQueueToDiskAsync();
   }
 
   public checkStalledJobs(): void {
     const now = Date.now();
-    const STALL_TIMEOUT_MS = 30000; // 30 seconds heartbeat timeout
+    const STALL_TIMEOUT_MS = LLM_CONFIG.JOB_STALL_TIMEOUT_MS; // 5 minutes
     let updated = false;
 
     for (const job of this.jobs.values()) {
-      if (job.status === "PROCESSING") {
-        const lastBeat = new Date(job.heartbeatAt || job.updatedAt || job.createdAt).getTime();
-        if (now - lastBeat > STALL_TIMEOUT_MS) {
-          console.warn(`[Hermes Queue] Detected stalled job ${job.id} (silent for ${Math.round((now - lastBeat) / 1000)}s), resetting processing flag...`);
-          this.isProcessingQueue = false; // CRITICAL: Reset processing flag so queue loop is unblocked
-          job.status = "STALLED";
-          job.lastError = `Heartbeat timed out (${Math.round((now - lastBeat) / 1000)}s silent). Worker heartbeat timed out.`;
+      if (
+        job.status === "PROCESSING" ||
+        job.status === "WAITING_FOR_LLM" ||
+        job.status === "RATE_LIMITED" ||
+        job.status === "RECOVERING"
+      ) {
+        const lastBeat = new Date(job.heartbeatAt || job.workerHeartbeatAt || job.updatedAt || job.createdAt).getTime();
+        const activeUnitsCount = job.processingUnits.filter(u =>
+          u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING"
+        ).length;
+
+        // Job is stalled if heartbeat is silent for >5 min and no disk save is running
+        if (now - lastBeat > STALL_TIMEOUT_MS && !isSavingDisk) {
+          console.warn(`[Hermes Queue] Genuine stall detected for job ${job.id} (silent for ${Math.round((now - lastBeat) / 1000)}s). Auto-recovering...`);
+          
+          this.isProcessingQueue = false;
+          job.status = "RECOVERING";
+          job.lastError = `Stall detected (silent for ${Math.round((now - lastBeat) / 1000)}s). Resetting incomplete units for auto-recovery.`;
+
+          // Reset incomplete units ONLY
+          job.processingUnits.forEach(u => {
+            if (u.status !== "COMPLETED" && u.status !== "COMPLETED_NO_FINANCIAL_FACTS" && u.status !== "COMPLETED_WITH_WARNINGS" && u.status !== "NO_TEXT" && u.status !== "FAILED_TERMINAL") {
+              u.status = "QUEUED";
+              u.last_error = undefined;
+            }
+          });
+
+          job.status = "QUEUED";
           this.advanceJobStage(
             job,
             job.stage || "PHYSICAL_EXTRACTION_IN_PROGRESS",
-            "FAILED",
-            `Worker heartbeat timed out (${Math.round((now - lastBeat) / 1000)}s silent).`,
-            "Worker heartbeat timed out. Job marked as stalled."
+            "IN_PROGRESS",
+            "Auto-recovered from temporary stall. Resuming unprocessed pages...",
+            "Job auto-recovered. Completed pages preserved."
           );
           updated = true;
         }
       }
     }
     if (updated) {
-      this.saveQueueToDisk();
+      this.saveQueueToDiskAsync(true);
       setTimeout(() => this.processNextJob(), 10);
     }
   }
@@ -219,17 +260,15 @@ export class BackgroundIngestionQueue {
       throw new Error("Mandatory workspaceId (projectId) missing for ingestion session. Workers cannot create orphan jobs.");
     }
 
-    // Check if an existing active or stalled job exists for this workspace & document
     const existingJob = Array.from(this.jobs.values()).find(j =>
       j.workspaceId === workspaceId &&
       j.documentId === documentId &&
-      (j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "STALLED")
+      (j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "WAITING_FOR_LLM" || j.status === "RATE_LIMITED" || j.status === "STALLED" || j.status === "RECOVERING")
     );
 
     if (existingJob) {
       console.log(`[Hermes Queue] Re-attaching to existing job ${existingJob.id} for document ${documentId}`);
       if (existingJob.status === "STALLED") {
-        // Resume stalled job automatically on reconnect
         return this.retryFailedJob(existingJob.id) as QueueJob || existingJob;
       }
       return existingJob;
@@ -352,6 +391,7 @@ export class BackgroundIngestionQueue {
         : `Registered document. Awaiting physical page inventory execution...`,
       progress: 0,
       heartbeatAt: nowIso,
+      workerHeartbeatAt: nowIso,
       updatedAt: nowIso,
       createdAt: nowIso,
       lastError: jobLastError,
@@ -359,7 +399,7 @@ export class BackgroundIngestionQueue {
       unitsCompleted: 0,
       pagesTotal: pagesTotalCount,
       pagesCompleted: 0,
-      tasksTotal: units.length + 2, // Physical units + 2 analysis steps
+      tasksTotal: units.length + 2,
       tasksCompleted: 0,
       attemptCount: 1,
       processingUnits: units
@@ -377,7 +417,7 @@ export class BackgroundIngestionQueue {
       this.advanceJobStage(job, "INGESTION_FAILED", "FAILED", "Failed: Physical page inventory required before PDF extraction.", jobLastError);
     }
 
-    this.saveQueueToDisk();
+    this.saveQueueToDiskAsync(true);
     setTimeout(() => this.processNextJob(), 10);
     return job;
   }
@@ -406,7 +446,7 @@ export class BackgroundIngestionQueue {
       }
     }
     if (deletedCount > 0) {
-      this.saveQueueToDisk();
+      this.saveQueueToDiskAsync(true);
     }
   }
 
@@ -416,7 +456,7 @@ export class BackgroundIngestionQueue {
 
     let resetCount = 0;
     job.processingUnits.forEach(u => {
-      if (u.status === "FAILED" || u.status === "PROCESSING") {
+      if (u.status !== "COMPLETED" && u.status !== "COMPLETED_NO_FINANCIAL_FACTS" && u.status !== "COMPLETED_WITH_WARNINGS" && u.status !== "NO_TEXT" && u.status !== "FAILED_TERMINAL") {
         u.status = "QUEUED";
         u.last_error = undefined;
         resetCount++;
@@ -445,7 +485,8 @@ export class BackgroundIngestionQueue {
     if (this.isProcessingQueue) return;
 
     this.checkStalledJobs();
-    const queuedJob = Array.from(this.jobs.values()).find(j => j.status === "QUEUED");
+    // Interleave processing across queued jobs for fair scheduling
+    const queuedJob = Array.from(this.jobs.values()).find(j => j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "WAITING_FOR_LLM" || j.status === "RATE_LIMITED");
     if (!queuedJob) return;
 
     this.isProcessingQueue = true;
@@ -453,6 +494,7 @@ export class BackgroundIngestionQueue {
     queuedJob.status = "PROCESSING";
     queuedJob.startedAt = queuedJob.startedAt || nowIso;
     queuedJob.heartbeatAt = nowIso;
+    queuedJob.workerHeartbeatAt = nowIso;
     queuedJob.updatedAt = nowIso;
 
     this.advanceJobStage(
@@ -470,18 +512,42 @@ export class BackgroundIngestionQueue {
       const allAuditLogs: AuditTrailRecord[] = [];
       let totalExecutionMs = 0;
 
-      // Process units in bounded parallel batches (concurrency: 5) to prevent sequential single-thread bottlenecking
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < queuedJob.processingUnits.length; i += BATCH_SIZE) {
-        const batch = queuedJob.processingUnits.slice(i, i + BATCH_SIZE);
+      // Use Configured Page Concurrency (default: 3)
+      const PAGE_CONCURRENCY = LLM_CONFIG.PAGE_CONCURRENCY;
+
+      // Filter remaining unprocessed units
+      const uncompletedUnits = queuedJob.processingUnits.filter(u =>
+        u.status === "QUEUED" || u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING"
+      );
+
+      for (let i = 0; i < queuedJob.processingUnits.length; i += PAGE_CONCURRENCY) {
+        const batch = queuedJob.processingUnits.slice(i, i + PAGE_CONCURRENCY);
 
         await Promise.all(
           batch.map(async (unit, batchIdx) => {
             const unitGlobalIdx = i + batchIdx;
-            if (unit.status === "COMPLETED" || unit.status === "NO_TEXT") return;
+            if (
+              unit.status === "COMPLETED" ||
+              unit.status === "COMPLETED_NO_FINANCIAL_FACTS" ||
+              unit.status === "COMPLETED_WITH_WARNINGS" ||
+              unit.status === "NO_TEXT" ||
+              unit.status === "FAILED_TERMINAL"
+            ) {
+              return;
+            }
 
             if (!unit.textData || !unit.textData.trim()) {
               unit.status = "NO_TEXT";
+              unit.completed_at = new Date().toISOString();
+              return;
+            }
+
+            // Fast-Path Classification for non-numeric/narrative pages
+            const hasDigits = /\d/.test(unit.textData);
+            const hasMonetarySymbol = /(?:€|\$|£|CHF|JPY|zł|USD|EUR|GBP|million|billion|thousand|k|m|b|revenue|profit|asset|liability|equity|income|expense|cash|sales|tax)/i.test(unit.textData);
+
+            if (!hasDigits && !hasMonetarySymbol) {
+              unit.status = "COMPLETED_NO_FINANCIAL_FACTS";
               unit.completed_at = new Date().toISOString();
               return;
             }
@@ -494,15 +560,18 @@ export class BackgroundIngestionQueue {
               ? `Page ${unit.actual_page_start}`
               : `Pages ${unit.actual_page_start}-${unit.actual_page_end}`;
 
+            // Heartbeat timer while processing
             const unitHeartbeatTimer = setInterval(() => {
               const nowStr = new Date().toISOString();
               queuedJob.heartbeatAt = nowStr;
+              queuedJob.workerHeartbeatAt = nowStr;
               queuedJob.updatedAt = nowStr;
             }, 3000);
 
             try {
+              // Active computation timeout (default: 300,000ms = 5 mins)
               const unitTimeoutPromise = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Unit execution timeout after 20000ms on ${pageStr}`)), 20000)
+                setTimeout(() => reject(new Error(`Active computation timeout after ${LLM_CONFIG.UNIT_MAX_ACTIVE_TIME_MS}ms on ${pageStr}`)), LLM_CONFIG.UNIT_MAX_ACTIVE_TIME_MS)
               );
 
               const res = await Promise.race([
@@ -516,17 +585,30 @@ export class BackgroundIngestionQueue {
                 unitTimeoutPromise
               ]);
 
+              // Idempotency: Tag facts with unit provenance & attempt ID
+              const taggedFacts = res.facts.map(f => ({
+                ...f,
+                sourceUnitId: unit.unit_id,
+                documentId,
+                pageNumber: unit.actual_page_start,
+                extractionAttemptId: String(unit.attempt_count)
+              }));
+
               unit.status = "COMPLETED";
               unit.completed_at = new Date().toISOString();
               queuedJob.unitsCompleted += 1;
 
-              allUnitFacts.push(...res.facts);
+              allUnitFacts.push(...taggedFacts);
               allDiscrepancies.push(...res.discrepancies);
               allAgentLogs.push(...res.agentLogs);
               allAuditLogs.push(...res.auditLogs);
               totalExecutionMs += res.totalExecutionTimeMs;
             } catch (unitErr: any) {
-              unit.status = "FAILED";
+              if (unit.attempt_count >= 3) {
+                unit.status = "FAILED_TERMINAL";
+              } else {
+                unit.status = "FAILED";
+              }
               unit.last_error = unitErr?.message || "Unit extraction failed";
               console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed (${unitErr?.message}), advancing queue...`);
             } finally {
@@ -535,21 +617,24 @@ export class BackgroundIngestionQueue {
           })
         );
 
-        queuedJob.heartbeatAt = new Date().toISOString();
-        queuedJob.pagesCompleted = queuedJob.processingUnits.filter(u =>
-          u.status === 'COMPLETED' || u.status === 'NO_TEXT'
+        // Calculate progress monotonically from terminal unit states
+        const terminalUnits = queuedJob.processingUnits.filter(u =>
+          u.status === 'COMPLETED' || u.status === 'COMPLETED_NO_FINANCIAL_FACTS' || u.status === 'COMPLETED_WITH_WARNINGS' || u.status === 'NO_TEXT' || u.status === 'FAILED_TERMINAL'
         ).length;
-        queuedJob.tasksCompleted = queuedJob.pagesCompleted;
-        queuedJob.progress = Math.round((queuedJob.pagesCompleted / Math.max(1, queuedJob.pagesTotal)) * 70);
 
-        const currentUnitIdx = Math.min(i + BATCH_SIZE, queuedJob.unitsTotal);
+        queuedJob.heartbeatAt = new Date().toISOString();
+        queuedJob.pagesCompleted = terminalUnits;
+        queuedJob.tasksCompleted = terminalUnits;
+        queuedJob.lastProgressAt = new Date().toISOString();
+        queuedJob.progress = Math.min(75, Math.round((terminalUnits / Math.max(1, queuedJob.pagesTotal)) * 75));
+
         this.advanceJobStage(
           queuedJob,
           "PHYSICAL_EXTRACTION_IN_PROGRESS",
           "IN_PROGRESS",
           `Extracted physical pages ${queuedJob.pagesCompleted}/${queuedJob.pagesTotal}...`
         );
-        this.saveQueueToDisk();
+        this.saveQueueToDiskAsync();
       }
 
       // Mark physical extraction stage complete
@@ -570,10 +655,10 @@ export class BackgroundIngestionQueue {
       queuedJob.heartbeatAt = new Date().toISOString();
       queuedJob.progress = 80;
 
-      // Deduplicate facts across all processing units
+      // Strict Idempotent Fact Deduplication
       const mergedFactsMap = new Map<string, ExtractedFact>();
       allUnitFacts.forEach((fact) => {
-        const key = `${fact.labelNormalized.toLowerCase()}_${fact.valueFunctional}_${fact.currencyOriginal}`;
+        const key = `${fact.labelNormalized.toLowerCase()}_${fact.valueFunctional}_${fact.currencyOriginal}_${fact.pageNumber || 1}`;
         if (!mergedFactsMap.has(key)) {
           mergedFactsMap.set(key, fact);
         }
@@ -600,7 +685,7 @@ export class BackgroundIngestionQueue {
       );
       queuedJob.progress = 95;
 
-      // Completeness Audit & Lineage Verification Stage
+      // Completeness Audit Stage
       this.advanceJobStage(
         queuedJob,
         "AUDIT_LINEAGE_VERIFIED",
@@ -628,11 +713,10 @@ export class BackgroundIngestionQueue {
         executionTimeMs: totalExecutionMs
       };
 
-      // Determine distinct final state (COMPLETED, COMPLETED_WITH_WARNINGS, REVIEW_REQUIRED)
-      const hasUnitFailures = queuedJob.processingUnits.some(u => u.status === "FAILED");
+      const hasTerminalFailures = queuedJob.processingUnits.some(u => u.status === "FAILED_TERMINAL");
       const hasDiscrepancies = allDiscrepancies.length > 0;
 
-      if (hasUnitFailures) {
+      if (hasTerminalFailures) {
         queuedJob.status = "COMPLETED_WITH_WARNINGS";
       } else if (hasDiscrepancies) {
         queuedJob.status = "REVIEW_REQUIRED";
@@ -670,6 +754,7 @@ export class BackgroundIngestionQueue {
       );
     } finally {
       this.isProcessingQueue = false;
+      this.saveQueueToDiskAsync(true);
       setTimeout(() => this.processNextJob(), 10);
     }
   }

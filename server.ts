@@ -16,6 +16,7 @@ import { globalFactRegistry } from "./src/lib/factRegistry";
 import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
 import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
+import { getLLMGatewayMetrics } from "./server/llmGateway.js";
 import { DiagnosticsEngine } from "./server/diagnosticsEngine.js";
 import { createReviewerRouter } from "./server/reviewerRoutes.js";
 import { ReviewerEngine } from "./server/reviewerEngine.js";
@@ -4437,6 +4438,11 @@ app.get("/api/audit/logs", (req, res) => {
 // ==========================================
 // SYSTEM DIAGNOSTICS & OBSERVABILITY ENDPOINTS
 // ==========================================
+
+// 0. LLM Gateway & Ingestion Observability Metrics
+app.get("/api/diagnostics/metrics", (req, res) => {
+  res.json(getLLMGatewayMetrics());
+});
 
 // 1. System Overview Metrics
 app.get("/api/diagnostics/overview", (req, res) => {
