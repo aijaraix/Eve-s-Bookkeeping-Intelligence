@@ -565,7 +565,23 @@ export default function App() {
           factsCount,
         });
       } else {
-        setCurrentView('project_detail');
+        if (data.workspace) {
+          setCurrentView('project_detail');
+        }
+        // Automatically open the Live Extraction Walkthrough modal immediately after upload
+        setIngestionStatus(prev => ({
+          ...prev,
+          isIngesting: true,
+          progress: prev.progress || 15,
+          stepName: 'Server Background Multi-Agent Ingestion Active...',
+          stepNumber: 2,
+          result: {
+            workspace: data.workspace || null,
+            extractedName: extractedEntityName,
+            docCount,
+            factsCount,
+          }
+        }));
       }
 
     } catch (err: any) {
@@ -733,6 +749,8 @@ export default function App() {
           setGlobalLanguage={setGlobalLanguage}
           activeWorkspace={activeWorkspace}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+          activeQueueJob={activeQueueJob}
+          onOpenQueueModal={() => setIngestionStatus(prev => ({ ...prev, isIngesting: true }))}
         />
 
         {/* Dynamic View Content Stage */}
@@ -797,6 +815,8 @@ export default function App() {
               summary={summary}
               onNavigate={setCurrentView}
               onBackToProjects={() => setCurrentView('projects')}
+              activeQueueJob={activeQueueJob}
+              onOpenQueueModal={() => setIngestionStatus(prev => ({ ...prev, isIngesting: true }))}
             />
           )}
 

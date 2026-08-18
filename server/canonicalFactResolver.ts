@@ -92,7 +92,7 @@ export class CanonicalFactResolver {
     if (val === null || isNaN(val)) return false;
 
     // Currency check
-    const curr = fact.currencyOriginal || fact.currency || fact.functionalCurrency;
+    const curr = fact.currencyOriginal || fact.currency || fact.functionalCurrency || "EUR";
     if (!curr) return false;
 
     // Reject unscaled table cell values (e.g. 11,794 or 10,772 when table scale is millions)
@@ -490,8 +490,8 @@ export class CanonicalFactResolver {
       if (candVal !== null) {
         if (targetMetric === "revenue") {
           // Check if candVal reconciles Revenue = Gross Profit + Cost of Sales
-          const cogsFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "cost_of_sales");
-          const gpFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "gross_profit");
+          const cogsFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "cost_of_sales" && this.resolvePeriod(f).periodKey === targetPeriodKey);
+          const gpFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "gross_profit" && this.resolvePeriod(f).periodKey === targetPeriodKey);
           if (cogsFact && gpFact) {
             const cogsVal = this.calculateNormalizedValue(cogsFact);
             const gpVal = this.calculateNormalizedValue(gpFact);
@@ -508,8 +508,8 @@ export class CanonicalFactResolver {
           }
         } else if (targetMetric === "total_assets") {
           // Assets = Liabilities + Equity
-          const liabFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "total_liabilities");
-          const eqFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "total_equity");
+          const liabFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "total_liabilities" && this.resolvePeriod(f).periodKey === targetPeriodKey);
+          const eqFact = workspaceFacts.find(f => (f.canonicalMetric || "").toLowerCase() === "total_equity" && this.resolvePeriod(f).periodKey === targetPeriodKey);
           if (liabFact && eqFact) {
             const liabVal = this.calculateNormalizedValue(liabFact);
             const eqVal = this.calculateNormalizedValue(eqFact);
@@ -942,7 +942,7 @@ export class CanonicalFactResolver {
     }
 
     const primary = customerEligibleCandidates[0];
-    const alternativeFacts = scoredCandidates.filter(c => c.fact.id !== primary.fact.id).map(c => c.fact);
+    const alternativeFacts = candidates.filter(f => f.id !== primary.fact.id);
 
     // Multi-Document Corroboration Detection
     if (primary && primary.normalizedValue !== null) {

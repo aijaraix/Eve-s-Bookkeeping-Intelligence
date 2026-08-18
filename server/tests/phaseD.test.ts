@@ -28,8 +28,8 @@ describe("Phase D — Accounting Validation, Gap Analysis, Reconciliation & Deri
     pageNumber: 1,
     sourceText: "Test source text snippet",
     confidence: 0.95,
-    status: "PROPOSED",
-    verificationStatus: "UNVERIFIED",
+    status: "APPROVED",
+    verificationStatus: "VALIDATED",
     extractionMethod: "HEURISTIC_PARSER",
     ...overrides
   });

@@ -34,6 +34,7 @@ import {
   PageClassifier,
   PresentationIntegrityGate
 } from "./server/forensicExtractionEngine.js";
+import { intakeService } from "./server/intakeService.js";
 
 export const fileRouter = new FileRouter();
 export const anyDocParser = new AnyDocParser();
@@ -2812,38 +2813,59 @@ Format each item as follows:
       }
 
       // Trigger Hermes Asynchronous Background Processing Queue for chunked multi-agent ingestion!
+      const intakeSession = intakeService.createIntakeSession({
+        targetProjectId: ws ? ws.id : (targetWorkspaceId || (existingMatch && confirmAttachToExisting ? existingMatch.id : null)),
+        userId: req.body?.userId || "usr-default",
+        userEmail,
+        uploadedFiles: preParsedDocs.map((p, idx) => ({
+          filename: p.file.originalname,
+          originalName: p.file.originalname,
+          sha256: p.inspection?.hash || "",
+          size: p.file.size || 0,
+          mimeType: p.file.mimetype || "application/pdf",
+          documentId: newDocs[idx]?.id || `doc-${Date.now()}-${idx}`,
+          pageCount: p.canonicalDoc?.metadata?.pages || 1
+        })),
+        documentIds: newDocs.map(d => d.id),
+        stagedDocuments: newDocs,
+        stagedPageManifests: preParsedDocs.flatMap(p => p.canonicalDoc?.pageManifests || []),
+        stagedSourceBlocks: preParsedDocs.flatMap(p => p.canonicalDoc?.sourceBlocks || []),
+        stagedFacts: ws ? db.facts.filter(f => f.workspaceId === ws.id) : db.facts.filter(f => newDocs.some(d => d.id === f.documentId)),
+        pagesTotal: preParsedDocs.reduce((acc, p) => acc + (p.canonicalDoc?.metadata?.pages || 1), 0)
+      });
+
       const createdQueueJobs: any[] = [];
       preParsedDocs.forEach((p, idx) => {
         const docRec = newDocs[idx];
         if (docRec) {
           const docText = p.canonicalDoc?.markdown || (Array.isArray(p.canonicalDoc?.sections) ? p.canonicalDoc.sections.map((s: any) => s.text || '').join("\n") : '') || p.file.buffer?.toString("utf-8") || "";
           const job = backgroundIngestionQueue.createJob(
-            ws.id,
+            ws ? ws.id : intakeSession.id,
             docRec.id,
             docRec.filename,
             docText,
-            ws.currency,
+            ws ? ws.currency : currency || "EUR",
             docRec.filePath,
             p.canonicalDoc?.pageManifests,
-            p.canonicalDoc?.sourceBlocks
+            p.canonicalDoc?.sourceBlocks,
+            intakeSession.id
           );
           createdQueueJobs.push(job);
         }
       });
 
-      // Trigger extraction pipeline to guarantee facts and findings are extracted
-      reprocessWorkspaceExtraction(ws.id);
-
-      const workspaceFacts = db.facts.filter(f => f.workspaceId === ws.id);
-      const factsCount = workspaceFacts.length;
+      if (ws) {
+        reprocessWorkspaceExtraction(ws.id);
+      }
 
       saveStorage();
       return res.json({
         success: true,
-        workspace: ws,
+        intakeSession,
+        workspace: ws || null,
         documents: newDocs,
-        facts: workspaceFacts,
-        factsCount,
+        facts: ws ? db.facts.filter(f => f.workspaceId === ws.id) : [],
+        factsCount: ws ? db.facts.filter(f => f.workspaceId === ws.id).length : 0,
         queueJobs: createdQueueJobs
       });
     } catch (routeErr: any) {
@@ -2894,6 +2916,32 @@ Format each item as follows:
         }
       });
     });
+  }
+});
+
+// Intake Session API Endpoints (Phase H.8)
+app.get("/api/intake/active", (req, res) => {
+  const activeSessions = intakeService.getActiveIntakeSessions();
+  const allJobs = Array.from((backgroundIngestionQueue as any).jobs.values());
+  const updatedSessions = activeSessions.map(s => intakeService.updateIntakeSessionFromJobs(s.id, allJobs) || s);
+  res.json({ activeIntakeSessions: updatedSessions });
+});
+
+app.get("/api/intake/:id", (req, res) => {
+  const session = intakeService.getIntakeSession(req.params.id);
+  if (!session) return res.status(404).json({ error: "Intake session not found" });
+  const allJobs = Array.from((backgroundIngestionQueue as any).jobs.values());
+  const updated = intakeService.updateIntakeSessionFromJobs(session.id, allJobs);
+  res.json({ intakeSession: updated || session });
+});
+
+app.post("/api/intake/:id/promote", (req, res) => {
+  try {
+    const result = intakeService.promoteIntakeSessionToProject(req.params.id, db);
+    saveStorage();
+    res.json({ success: true, workspace: result.workspace, intakeSession: result.intakeSession });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Failed to promote intake session" });
   }
 });
 

@@ -678,6 +678,7 @@ export interface FinancialSummary {
   period: string;
   validationPassRate: string;
   averageConfidence: string;
+  hasDiscrepancies?: boolean;
   totalFacts: number;
   approvedFacts: number;
   proposedFacts: number;
@@ -1032,6 +1033,7 @@ export interface ProcessingUnitRecord {
 export interface QueueJobRecord {
   id: string;
   workspaceId: string;
+  intakeSessionId?: string;
   documentId: string;
   documentTitle: string;
   filePath?: string;
@@ -1069,6 +1071,61 @@ export interface QueueJobRecord {
   };
   error?: string;
   createdAt: string;
+}
+
+export interface IntakeSessionFileRecord {
+  filename: string;
+  originalName: string;
+  sha256: string;
+  size: number;
+  mimeType: string;
+  filePath?: string;
+  documentId: string;
+  pageCount?: number;
+}
+
+export interface IntakeSessionRecord {
+  id: string;
+  targetProjectId?: string | null;
+  userId?: string;
+  userEmail?: string;
+  uploadedFiles: IntakeSessionFileRecord[];
+  documentIds: string[];
+  queueJobIds: string[];
+  status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'REVIEW_REQUIRED' | 'FAILED';
+  progress: number;
+  pagesTotal: number;
+  pagesProcessed: number;
+  factsFoundCount: number;
+  entitiesDiscoveredCount: number;
+  detectedEntities: Array<{
+    id: string;
+    name: string;
+    legalName?: string;
+    scope: string;
+    entityType: 'PARENT' | 'SUBSIDIARY' | 'COUNTERPARTY';
+    reportingCurrency?: string;
+    jurisdiction?: string;
+  }>;
+  detectedReportingPeriods: string[];
+  detectedCurrencies: string[];
+  detectedStatements: string[];
+  candidateRelationships: Array<{
+    parentName: string;
+    childName: string;
+    relationshipType: string;
+  }>;
+  stagedFacts?: any[];
+  stagedDocuments?: any[];
+  stagedPageManifests?: any[];
+  stagedSourceBlocks?: any[];
+  warnings?: string[];
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  completionState: 'PENDING' | 'PROMOTED' | 'REVIEW_REQUIRED' | 'FAILED';
+  promotedProjectId?: string | null;
+  currentStageName?: string;
 }
 
 export type PhaseEReviewStatus =

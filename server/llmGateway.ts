@@ -22,7 +22,7 @@ export const LLM_CONFIG = {
     return parseInt(process.env.UNIT_MAX_ACTIVE_TIME_MS || "300000", 10);
   },
   get JOB_STALL_TIMEOUT_MS() {
-    return parseInt(process.env.JOB_STALL_TIMEOUT_MS || "300000", 10);
+    return parseInt(process.env.JOB_STALL_TIMEOUT_MS || (process.env.NODE_ENV === "test" ? "30000" : "300000"), 10);
   }
 };
 

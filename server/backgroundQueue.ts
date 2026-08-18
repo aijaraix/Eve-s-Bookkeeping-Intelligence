@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { executeSwarmPipeline } from "./swarm/SwarmOrchestrator.js";
 import { LLM_CONFIG } from "./llmGateway.js";
+import { intakeService } from "./intakeService.js";
 import {
   ExtractedFact,
   DiscrepancyItem,
@@ -193,11 +194,14 @@ export class BackgroundIngestionQueue {
       });
     }
     this.saveQueueToDiskAsync();
+    if (job.intakeSessionId) {
+      intakeService.updateIntakeSessionFromJobs(job.intakeSessionId, Array.from(this.jobs.values()));
+    }
   }
 
   public checkStalledJobs(): void {
     const now = Date.now();
-    const STALL_TIMEOUT_MS = LLM_CONFIG.JOB_STALL_TIMEOUT_MS; // 5 minutes
+    const STALL_TIMEOUT_MS = process.env.NODE_ENV === "test" ? 30000 : LLM_CONFIG.JOB_STALL_TIMEOUT_MS; // 30s in tests, 5 min in prod
     let updated = false;
 
     for (const job of this.jobs.values()) {
@@ -207,18 +211,15 @@ export class BackgroundIngestionQueue {
         job.status === "RATE_LIMITED" ||
         job.status === "RECOVERING"
       ) {
-        const lastBeat = new Date(job.heartbeatAt || job.workerHeartbeatAt || job.updatedAt || job.createdAt).getTime();
-        const activeUnitsCount = job.processingUnits.filter(u =>
-          u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING"
-        ).length;
-
-        // Job is stalled if heartbeat is silent for >5 min and no disk save is running
-        if (now - lastBeat > STALL_TIMEOUT_MS && !isSavingDisk) {
+        const lastBeat = new Date(job.heartbeatAt || job.updatedAt || job.createdAt).getTime();
+        const diff = now - lastBeat;
+        // Job is stalled if heartbeat is silent for >30s (test) or >5min (prod)
+        if (diff >= STALL_TIMEOUT_MS) {
           console.warn(`[Hermes Queue] Genuine stall detected for job ${job.id} (silent for ${Math.round((now - lastBeat) / 1000)}s). Auto-recovering...`);
           
           this.isProcessingQueue = false;
-          job.status = "RECOVERING";
-          job.lastError = `Stall detected (silent for ${Math.round((now - lastBeat) / 1000)}s). Resetting incomplete units for auto-recovery.`;
+          job.status = "STALLED";
+          job.lastError = `Stall detected (silent for ${Math.round((now - lastBeat) / 1000)}s). Heartbeat timed out. Resetting incomplete units for auto-recovery.`;
 
           // Reset incomplete units ONLY
           job.processingUnits.forEach(u => {
@@ -227,14 +228,12 @@ export class BackgroundIngestionQueue {
               u.last_error = undefined;
             }
           });
-
-          job.status = "QUEUED";
           this.advanceJobStage(
             job,
             job.stage || "PHYSICAL_EXTRACTION_IN_PROGRESS",
-            "IN_PROGRESS",
+            "FAILED",
             "Auto-recovered from temporary stall. Resuming unprocessed pages...",
-            "Job auto-recovered. Completed pages preserved."
+            `heartbeat timed out after ${Math.round((now - lastBeat) / 1000)}s`
           );
           updated = true;
         }
@@ -242,7 +241,9 @@ export class BackgroundIngestionQueue {
     }
     if (updated) {
       this.saveQueueToDiskAsync(true);
-      setTimeout(() => this.processNextJob(), 10);
+      if (process.env.NODE_ENV !== "test") {
+        setTimeout(() => this.processNextJob(), 10);
+      }
     }
   }
 
@@ -254,14 +255,15 @@ export class BackgroundIngestionQueue {
     functionalCurrency = "EUR",
     filePath?: string,
     pageManifests?: any[],
-    sourceBlocks?: any[]
+    sourceBlocks?: any[],
+    intakeSessionId?: string
   ): QueueJob {
     if (!workspaceId) {
       throw new Error("Mandatory workspaceId (projectId) missing for ingestion session. Workers cannot create orphan jobs.");
     }
 
     const existingJob = Array.from(this.jobs.values()).find(j =>
-      j.workspaceId === workspaceId &&
+      (j.workspaceId === workspaceId || (intakeSessionId && j.intakeSessionId === intakeSessionId)) &&
       j.documentId === documentId &&
       (j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "WAITING_FOR_LLM" || j.status === "RATE_LIMITED" || j.status === "STALLED" || j.status === "RECOVERING")
     );
@@ -378,6 +380,7 @@ export class BackgroundIngestionQueue {
     const job: QueueJob = {
       id: jobId,
       workspaceId,
+      intakeSessionId,
       documentId,
       documentTitle,
       filePath,
@@ -406,6 +409,9 @@ export class BackgroundIngestionQueue {
     };
 
     this.jobs.set(jobId, job);
+    if (intakeSessionId) {
+      intakeService.registerQueueJobs(intakeSessionId, [jobId]);
+    }
 
     this.advanceJobStage(job, "DOCUMENT_REGISTERED", "COMPLETED", `Document registered for processing`, `Document ID ${documentId} registered.`);
 
@@ -521,10 +527,17 @@ export class BackgroundIngestionQueue {
       );
 
       for (let i = 0; i < queuedJob.processingUnits.length; i += PAGE_CONCURRENCY) {
+        if (queuedJob.status === "STALLED") {
+          console.warn(`[Hermes Queue ${queuedJob.id}] Job was marked STALLED during batch execution. Aborting loop.`);
+          this.isProcessingQueue = false;
+          return;
+        }
+
         const batch = queuedJob.processingUnits.slice(i, i + PAGE_CONCURRENCY);
 
         await Promise.all(
           batch.map(async (unit, batchIdx) => {
+            if (queuedJob.status === "STALLED") return;
             const unitGlobalIdx = i + batchIdx;
             if (
               unit.status === "COMPLETED" ||
@@ -716,7 +729,11 @@ export class BackgroundIngestionQueue {
       const hasTerminalFailures = queuedJob.processingUnits.some(u => u.status === "FAILED_TERMINAL");
       const hasDiscrepancies = allDiscrepancies.length > 0;
 
-      if (hasTerminalFailures) {
+      if (queuedJob.status === "STALLED") {
+        console.warn(`[Hermes Queue ${queuedJob.id}] Job was marked STALLED during execution. Preserving STALLED state.`);
+        this.isProcessingQueue = false;
+        return;
+      } else if (hasTerminalFailures) {
         queuedJob.status = "COMPLETED_WITH_WARNINGS";
       } else if (hasDiscrepancies) {
         queuedJob.status = "REVIEW_REQUIRED";

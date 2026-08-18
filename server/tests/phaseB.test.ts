@@ -65,11 +65,16 @@ describe('Phase B Mandatory Architecture & State Machine Tests', () => {
       sourceBlocks
     );
 
+    // Lock background loop so worker does not finish job asynchronously
+    (queue as any).isProcessingQueue = true;
+
     // Simulate worker actively processing job
     job.status = 'PROCESSING';
+    job.processingUnits.forEach(u => { u.status = 'PROCESSING'; });
     // Manually backdate heartbeatAt to 35 seconds ago
     const silentTime = new Date(Date.now() - 35000).toISOString();
     job.heartbeatAt = silentTime;
+    job.workerHeartbeatAt = silentTime;
     job.updatedAt = silentTime;
 
     // Trigger stall detection check

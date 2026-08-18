@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   Calendar,
   Activity,
+  Cpu,
   Sparkles,
   Layers,
   Building,
@@ -69,6 +70,8 @@ interface ProjectDetailDashboardProps {
   summary: FinancialSummary | null;
   onNavigate: (view: string) => void;
   onBackToProjects?: () => void;
+  onOpenQueueModal?: () => void;
+  activeQueueJob?: any;
 }
 
 export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
@@ -77,6 +80,8 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
   summary,
   onNavigate,
   onBackToProjects,
+  onOpenQueueModal,
+  activeQueueJob,
 }) => {
   const [activeTab, setActiveTab] = useState<
     'overview' | 'projects' | 'financials' | 'documents' | 'findings' | 'reports' | 'insights' | 'subsidiaries' | 'contacts' | 'activity' | 'geographic' | 'settings' | 'extraction'
@@ -313,6 +318,15 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
           </button>
 
           <div className="flex items-center space-x-2">
+            {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED') && onOpenQueueModal && (
+              <button
+                onClick={onOpenQueueModal}
+                className="inline-flex items-center space-x-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-black shadow-md hover:opacity-95 transition cursor-pointer animate-pulse"
+              >
+                <Cpu className="w-4 h-4 animate-spin" />
+                <span>Extraction Running ({activeQueueJob.progress || 10}%)</span>
+              </button>
+            )}
             <button className="inline-flex items-center space-x-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer">
               <Share2 className="w-3.5 h-3.5 text-slate-500" />
               <span>Share</span>

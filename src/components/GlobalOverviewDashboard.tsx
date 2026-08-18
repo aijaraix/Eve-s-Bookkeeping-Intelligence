@@ -150,22 +150,36 @@ export const GlobalOverviewDashboard: React.FC<GlobalOverviewDashboardProps> = (
             <span>Audit Readiness</span>
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-xl font-black font-mono text-neutral-900">
-            {summary?.validationPassRate ? `${summary.validationPassRate}` : '--'}
+          <div className="text-sm font-extrabold text-neutral-900 font-sans">
+            {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED')
+              ? 'Processing'
+              : totalDocumentsCount === 0
+              ? 'Not Started'
+              : summary?.hasDiscrepancies
+              ? 'Review Required'
+              : 'Verified'}
           </div>
-          <div className="text-[10px] text-emerald-600 font-bold">
-            {totalDocumentsCount > 0 ? 'Documentation attached' : 'Placeholder state'}
+          <div className="text-[10px] text-neutral-500 font-medium">
+            {totalDocumentsCount > 0 ? `${totalDocumentsCount} document(s) verified` : 'No documents loaded'}
           </div>
         </div>
 
         {/* Metric 6: AI Engine Status */}
         <div className="bg-white p-3.5 rounded-xl border border-neutral-200/90 shadow-2xs space-y-1">
           <div className="flex items-center justify-between text-xs text-neutral-500 font-semibold">
-            <span>AI Processing</span>
+            <span>AI Engine</span>
             <Sparkles className="w-4 h-4 text-purple-500" />
           </div>
-          <div className="text-xl font-black font-mono text-neutral-900">Active</div>
-          <div className="text-[10px] text-purple-600 font-bold">Ready for intake</div>
+          <div className="text-sm font-extrabold font-sans text-neutral-900">
+            {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED')
+              ? 'Active'
+              : 'Ready'}
+          </div>
+          <div className="text-[10px] text-purple-600 font-bold">
+            {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED')
+              ? '1 Job Processing'
+              : 'Standby for intake'}
+          </div>
         </div>
 
       </div>
@@ -192,7 +206,7 @@ export const GlobalOverviewDashboard: React.FC<GlobalOverviewDashboardProps> = (
               </button>
             </div>
 
-            {/* Live In-Progress Background Processing Placeholder Card */}
+            {/* Live In-Progress Background Processing Placeholder Card (Contextual ONLY when processing) */}
             {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED') && (
               <div 
                 onClick={() => onOpenQueueModal && onOpenQueueModal()}
@@ -206,21 +220,22 @@ export const GlobalOverviewDashboard: React.FC<GlobalOverviewDashboardProps> = (
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-extrabold text-neutral-900 text-xs">
-                          {activeQueueJob.documentTitle || 'Financial Document Processing'}
+                          {activeQueueJob.documentTitle || 'Financial Document Extraction'}
                         </span>
                         <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                          Extracting ({activeQueueJob.progress || 15}%)
+                          DOCUMENT EXTRACTION IN PROGRESS ({activeQueueJob.progress || 10}%)
                         </span>
                       </div>
                       <p className="text-[11px] text-neutral-600 font-medium mt-0.5">
-                        {activeQueueJob.currentStage || 'Running multi-agent consensus verification...'}
+                        {activeQueueJob.pagesCompleted || activeQueueJob.unitsCompleted || 0} / {activeQueueJob.pagesTotal || activeQueueJob.unitsTotal || 1} pages extracted
+                        {activeQueueJob.currentStage ? ` • ${activeQueueJob.currentStage}` : ''}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 text-blue-600 text-[11px] font-extrabold group-hover:underline shrink-0">
-                    <span>View Progress</span>
+                    <span>View Live Extraction</span>
                     <ArrowRight className="w-3 h-3" />
                   </div>
                 </div>

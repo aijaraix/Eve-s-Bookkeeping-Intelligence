@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Upload, Bell, HelpCircle, Calendar, Coins, User, ChevronDown, Menu } from 'lucide-react';
+import { Search, Plus, Upload, Bell, HelpCircle, Calendar, Coins, User, ChevronDown, Menu, Cpu } from 'lucide-react';
 import { Workspace } from '../types';
 
 interface AppHeaderProps {
@@ -15,6 +15,8 @@ interface AppHeaderProps {
   setGlobalLanguage: (lang: string) => void;
   activeWorkspace?: Workspace | null;
   onOpenMobileMenu?: () => void;
+  activeQueueJob?: any;
+  onOpenQueueModal?: () => void;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -28,6 +30,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   setGlobalCurrency,
   activeWorkspace,
   onOpenMobileMenu,
+  activeQueueJob,
+  onOpenQueueModal,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [dateRange, setDateRange] = useState(activeWorkspace?.period || 'FY 2025 Consolidated');
@@ -159,6 +163,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               ⌘K
             </kbd>
           </div>
+
+          {/* Live Extraction Walkthrough Button - Contextual ONLY when active */}
+          {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED') && onOpenQueueModal && (
+            <button
+              onClick={onOpenQueueModal}
+              className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center space-x-1.5 shadow-xs transition cursor-pointer animate-pulse"
+            >
+              <Cpu className="w-3.5 h-3.5 animate-spin" />
+              <span>Extraction Running ({activeQueueJob.progress || 10}%)</span>
+            </button>
+          )}
 
           {/* New Project Button */}
           <button

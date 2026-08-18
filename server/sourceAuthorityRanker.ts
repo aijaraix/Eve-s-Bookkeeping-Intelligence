@@ -117,6 +117,29 @@ export class SourceAuthorityRanker {
     const isPrimaryStatement = isIncomeStatement || isBalanceSheet || isCashFlow || isEquityStatement;
 
     if (isPrimaryStatement) {
+      // De-prioritize page 1-3 cover / table of contents / executive summary highlights to Tier 3 unless explicitly titled consolidated statement
+      const pageNum = typeof fact.pageNumber === 'number' ? fact.pageNumber : parseInt((fact as any).page_number || '0', 10);
+      const isPage1To3 = pageNum > 0 && pageNum <= 3;
+      const isExplicitStatementTitle =
+        fullTextToScan.includes("consolidated statement of profit or loss") ||
+        fullTextToScan.includes("consolidated income statement") ||
+        fullTextToScan.includes("consolidated balance sheet") ||
+        fullTextToScan.includes("consolidated statement of financial position") ||
+        fullTextToScan.includes("consolidated statement of cash flows") ||
+        fullTextToScan.includes("statement of changes in equity");
+
+      if (isPage1To3 && !isExplicitStatementTitle) {
+        return {
+          tier: 3,
+          scoreBoost: 30,
+          isPrimaryStatement: false,
+          isAuditedNote: false,
+          isESGTable: false,
+          isNarrative: false,
+          tierDescription: "Tier 3: Executive Summary / Highlights (Page 1-3)"
+        };
+      }
+
       return {
         tier: 1,
         scoreBoost: 100,
