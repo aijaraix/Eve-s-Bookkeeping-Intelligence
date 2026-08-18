@@ -227,6 +227,9 @@ export function runPhaseH4AdversarialTests(): { total: number; passed: number; f
       valueFunctional: "1000000000",
       normalizedValue: 1_000_000_000,
       reportingPeriod: "2023-FY",
+      currencyOriginal: "EUR",
+      status: "APPROVED",
+      verificationStatus: "VERIFIED",
       isRestated: false
     } as ExtractedFact;
     const restatedFact = {
@@ -241,6 +244,9 @@ export function runPhaseH4AdversarialTests(): { total: number; passed: number; f
       valueFunctional: "1050000000",
       normalizedValue: 1_050_000_000,
       reportingPeriod: "2023-FY",
+      currencyOriginal: "EUR",
+      status: "APPROVED",
+      verificationStatus: "VERIFIED",
       isRestated: true
     } as ExtractedFact;
     const res = CanonicalFactResolver.resolveMetric([origFact, restatedFact], "net_income", "2023-FY");

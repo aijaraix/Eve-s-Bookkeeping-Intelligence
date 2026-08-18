@@ -13,6 +13,7 @@ import { verifyUnileverReconciliation } from "./src/lib/unileverGoldenFixture";
 import { ReviewerEngine } from "./server/reviewerEngine";
 import { CanonicalFactResolver } from "./server/canonicalFactResolver";
 import { runPhaseH4AdversarialTests } from "./server/tests/phaseH4Adversarial.test.js";
+import { runPhaseH63AdversarialTests } from "./server/tests/phaseH63Adversarial.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -584,6 +585,12 @@ assert(
   `Phase H.4 Adversarial Suite failed (${h4Res.failures.length} failures): ${h4Res.failures.join("; ")}`,
   "All 20/20 Phase H.4 Adversarial Regression tests passed cleanly."
 );
+
+console.log(`\n${colors.bold}[SUITE H.6.3: LIVE-PATH CANONICAL AUTHORITY & SCALE TRUTH HARDENING]${colors.reset}`);
+const h63Res = runPhaseH63AdversarialTests();
+h63Res.forEach(test => {
+  assert(test.name, test.passed, test.message, test.message);
+});
 
 
 // Final Reporting

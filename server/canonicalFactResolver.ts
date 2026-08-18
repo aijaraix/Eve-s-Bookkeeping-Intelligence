@@ -75,6 +75,39 @@ export interface ResolvedFinancialSummary {
 
 export class CanonicalFactResolver {
   /**
+   * Evaluates if a fact meets strict customer eligibility requirements.
+   * PROPOSED, unscaled, unverified, or non-Tier-1/2 facts (when Tier 1/2 exists) are BLOCKED.
+   */
+  public static isFactEligibleForCustomer(fact: ExtractedFact): boolean {
+    if (!fact) return false;
+    
+    // Status check
+    const status = String(fact.status || "").toUpperCase();
+    const verState = String(fact.verificationStatus || fact.verification_state || "").toUpperCase();
+    if (status === "PROPOSED" || status === "REJECTED" || status === "BLOCKED") return false;
+    if (verState === "UNVERIFIED" || verState === "REJECTED" || verState === "CONFLICTED") return false;
+
+    // Normalized value check
+    const val = fact.normalizedValue ?? (fact as any).normalized_value ?? (fact.valueFunctional ? parseFloat(String(fact.valueFunctional)) : null);
+    if (val === null || isNaN(val)) return false;
+
+    // Currency check
+    const curr = fact.currencyOriginal || fact.currency || fact.functionalCurrency;
+    if (!curr) return false;
+
+    // Reject unscaled table cell values (e.g. 11,794 or 10,772 when table scale is millions)
+    const rawVal = String(fact.valueOriginal || fact.rawValue || (fact as any).original_value || "").trim();
+    if (Math.abs(val) < 1_000_000 && !/\b(billion|million|thousand|bn|mn|k|mio|mrd|teur|t€)\b/i.test(rawVal)) {
+      const tableScaleStr = String(fact.unitScale || (fact as any).unit_scale || (fact as any).raw_scale || "").toLowerCase();
+      if (tableScaleStr.includes("million") || tableScaleStr.includes("billion") || tableScaleStr.includes("thousand") || tableScaleStr === "millions" || tableScaleStr === "billions" || tableScaleStr === "thousands") {
+        return false; // Value was not multiplied by table scale multiplier
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * Helper to normalize currency codes to standard ISO upper-case format.
    */
   public static normalizeCurrency(currStr?: string): string {
@@ -855,15 +888,61 @@ export class CanonicalFactResolver {
       };
     }
 
+    // STEP 4 & STEP 5: SOURCE AUTHORITY HIERARCHY & CUSTOMER ELIGIBILITY GATES
+    // 1. Source Authority Filter: If Tier 1/2 Primary Statement candidates exist, Tier 4-6 candidates are STRICTLY DISQUALIFIED
+    const primaryMetricsSet = new Set([
+      "revenue", "cost_of_sales", "gross_profit", "operating_profit", "profit_before_tax",
+      "net_income", "total_assets", "total_liabilities", "total_equity", "cash",
+      "operating_cash_flow", "investing_cash_flow", "financing_cash_flow", "free_cash_flow"
+    ]);
+
+    let eligiblePool = candidates;
+    if (primaryMetricsSet.has(targetMetric.toLowerCase())) {
+      const hasTier1or2 = candidates.some(f => {
+        const rank = SourceAuthorityRanker.rankFactAuthority(f);
+        return rank.tier === 1 || rank.tier === 2;
+      });
+      if (hasTier1or2) {
+        eligiblePool = candidates.filter(f => {
+          const rank = SourceAuthorityRanker.rankFactAuthority(f);
+          return rank.tier === 1 || rank.tier === 2 || rank.tier === 3;
+        });
+      }
+    }
+
     // Score all candidates deterministically
-    const scoredCandidates = candidates.map((fact) => {
+    const scoredCandidates = eligiblePool.map((fact) => {
       const score = this.calculateFactPriorityScore(fact, targetMetric, targetPeriodKey || "2024-FY", workspaceFacts);
       const normalizedValue = this.calculateNormalizedValue(fact);
       return { fact, score, normalizedValue };
     }).sort((a, b) => b.score - a.score);
 
-    const primary = scoredCandidates[0];
-    const alternativeFacts = scoredCandidates.slice(1).map((c) => c.fact);
+    // 2. Customer Eligibility Filter: PROPOSED, unscaled, or unverified facts CANNOT become customer-facing canonical winners
+    const customerEligibleCandidates = scoredCandidates.filter(c => this.isFactEligibleForCustomer(c.fact));
+
+    if (customerEligibleCandidates.length === 0) {
+      return {
+        metric: targetMetric,
+        primaryFact: null,
+        alternativeFacts: candidates,
+        normalizedScalarValue: null,
+        rawValue: null,
+        formattedValue: "—",
+        currency: "EUR",
+        unitScale: "—",
+        reportingPeriod: targetPeriodKey || "2024-FY",
+        entityName: "N/A",
+        entityScope: "Consolidated",
+        statementType: "N/A",
+        provenance: null,
+        confidenceScore: 0,
+        resolutionScore: 0,
+        resolutionNotes: [`No customer-eligible canonical facts found for metric "${targetMetric}". All ${candidates.length} candidates were PROPOSED, unscaled, or disqualified by Source Authority Hierarchy.`]
+      };
+    }
+
+    const primary = customerEligibleCandidates[0];
+    const alternativeFacts = scoredCandidates.filter(c => c.fact.id !== primary.fact.id).map(c => c.fact);
 
     // Multi-Document Corroboration Detection
     if (primary && primary.normalizedValue !== null) {

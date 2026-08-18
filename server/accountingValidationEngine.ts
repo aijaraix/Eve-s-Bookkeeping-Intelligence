@@ -1068,9 +1068,13 @@ export class AccountingValidationEngine {
     const cond4 = criticalMetrics.every((m) => m.primaryFact !== null && (m.provenance !== null || Boolean(m.primaryFact.sourceText)));
     if (!cond4) failedConditions.push("Condition 4: One or more critical primary metrics lack resolved provenance");
 
-    // 5. No Scale Ambiguity
-    const cond5 = criticalMetrics.every((m) => m.primaryFact === null || Boolean(m.unitScale));
-    if (!cond5) failedConditions.push("Condition 5: Scale ambiguity detected");
+    // 5. No Scale Ambiguity Gate
+    const cond5 = criticalMetrics.every((m) => {
+      if (!m.primaryFact || m.normalizedScalarValue === null || isNaN(m.normalizedScalarValue) || m.unitScale === "—" || m.unitScale === "UNKNOWN") return false;
+      if (m.primaryFact.status === "PROPOSED" || m.primaryFact.verificationStatus === "UNVERIFIED" || (m.primaryFact as any).verification_state === "UNVERIFIED") return false;
+      return true;
+    });
+    if (!cond5) failedConditions.push("Condition 5: Scale ambiguity or unverified proposed state detected on critical primary metrics");
 
     // 6. No Unresolved Currency Ambiguity
     const cond6 = criticalMetrics.every((m) => m.primaryFact === null || Boolean(m.currency && m.currency !== "N/A"));

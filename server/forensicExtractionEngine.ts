@@ -552,6 +552,277 @@ export class ForensicEntityResolver {
   }
 }
 
+export interface NormalizationParams {
+  rawNumericValue: string | number;
+  explicitScale?: string | number | null;
+  tableScale?: string | number | null;
+  rowScale?: string | number | null;
+  columnScale?: string | number | null;
+  sectionScale?: string | number | null;
+  documentScale?: string | number | null;
+  currency?: string | null;
+  accountingSign?: string | null;
+  sourceType?: string | null;
+  docLanguage?: string | null;
+  contextText?: string | null;
+}
+
+export interface NormalizationTrace {
+  rawValue: string;
+  detectedScale: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN';
+  scaleSource: 'EXPLICIT_TEXT' | 'CELL' | 'ROW' | 'COLUMN' | 'TABLE_HEADER' | 'STATEMENT_HEADER' | 'SECTION' | 'DOCUMENT' | 'DEFAULT';
+  multiplier: number;
+  sign: 1 | -1;
+  normalizedResult: number | null;
+  parsingNotes: string[];
+}
+
+export interface NormalizationResult {
+  rawNumericValue: string;
+  resolvedScale: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN';
+  scaleMultiplier: number;
+  normalizedBaseValue: number | null;
+  currency: string;
+  sign: 1 | -1;
+  scaleSource: 'EXPLICIT_TEXT' | 'CELL' | 'ROW' | 'COLUMN' | 'TABLE_HEADER' | 'STATEMENT_HEADER' | 'SECTION' | 'DOCUMENT' | 'DEFAULT';
+  normalizationTrace: NormalizationTrace;
+  isAmbiguous: boolean;
+}
+
+export function normalizeFinancialValue(params: NormalizationParams): NormalizationResult {
+  const parsingNotes: string[] = [];
+  const rawStr = String(params.rawNumericValue ?? "").trim();
+
+  if (!rawStr) {
+    return {
+      rawNumericValue: "",
+      resolvedScale: "UNKNOWN",
+      scaleMultiplier: 1,
+      normalizedBaseValue: null,
+      currency: params.currency || "EUR",
+      sign: 1,
+      scaleSource: "DEFAULT",
+      normalizationTrace: {
+        rawValue: "",
+        detectedScale: "UNKNOWN",
+        scaleSource: "DEFAULT",
+        multiplier: 1,
+        sign: 1,
+        normalizedResult: null,
+        parsingNotes: ["Empty string provided"]
+      },
+      isAmbiguous: true
+    };
+  }
+
+  // Reject percentages, TOC refs, item numbers
+  if (rawStr.includes("%")) {
+    return {
+      rawNumericValue: rawStr,
+      resolvedScale: "UNKNOWN",
+      scaleMultiplier: 1,
+      normalizedBaseValue: null,
+      currency: params.currency || "EUR",
+      sign: 1,
+      scaleSource: "DEFAULT",
+      normalizationTrace: {
+        rawValue: rawStr,
+        detectedScale: "UNKNOWN",
+        scaleSource: "DEFAULT",
+        multiplier: 1,
+        sign: 1,
+        normalizedResult: null,
+        parsingNotes: ["Rejected percentage value"]
+      },
+      isAmbiguous: true
+    };
+  }
+
+  // Check explicit textual multiplier inside rawStr first (Cell / Text level)
+  let scaleMultiplier = 1;
+  let resolvedScale: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' = "ONES";
+  let scaleSource: 'EXPLICIT_TEXT' | 'CELL' | 'ROW' | 'COLUMN' | 'TABLE_HEADER' | 'STATEMENT_HEADER' | 'SECTION' | 'DOCUMENT' | 'DEFAULT' = "DEFAULT";
+
+  const lowerRaw = rawStr.toLowerCase();
+  const hasExplicitBillion = /\b\d+(\.\d+)?\s*(bn|billion|mrd|\$b|€b|£b)\b/i.test(rawStr) || /\b(billion|bn|mrd)\b/i.test(lowerRaw);
+  const hasExplicitMillion = /\b\d+(\.\d+)?\s*(mn|million|mio|\$m|€m|£m)\b/i.test(rawStr) || /\b(million|mn|mio)\b/i.test(lowerRaw);
+  const hasExplicitThousand = /\b\d+(\.\d+)?\s*(k|thousand|teur|t€|\$k|€k|£k)\b/i.test(rawStr) || /\b(thousand|teur|t€)\b/i.test(lowerRaw);
+
+  if (hasExplicitBillion) {
+    scaleMultiplier = 1_000_000_000;
+    resolvedScale = "BILLIONS";
+    scaleSource = "EXPLICIT_TEXT";
+    parsingNotes.push("Authoritative explicit textual scale 'billion' detected in scalar");
+  } else if (hasExplicitMillion) {
+    scaleMultiplier = 1_000_000;
+    resolvedScale = "MILLIONS";
+    scaleSource = "EXPLICIT_TEXT";
+    parsingNotes.push("Authoritative explicit textual scale 'million' detected in scalar");
+  } else if (hasExplicitThousand) {
+    scaleMultiplier = 1_000;
+    resolvedScale = "THOUSANDS";
+    scaleSource = "EXPLICIT_TEXT";
+    parsingNotes.push("Authoritative explicit textual scale 'thousand' detected in scalar");
+  } else {
+    // Hierarchy scale inheritance: ROW > COLUMN > TABLE_HEADER > SECTION > DOCUMENT > DEFAULT
+    const parseScaleVal = (val: any): number | null => {
+      if (typeof val === "number" && val > 0) return val;
+      if (typeof val === "string") {
+        const v = val.toLowerCase();
+        if (v.includes("billion") || v.includes("mrd") || v === "billions") return 1_000_000_000;
+        if (v.includes("million") || v.includes("mio") || v === "millions") return 1_000_000;
+        if (v.includes("thousand") || v.includes("teur") || v === "thousands") return 1_000;
+      }
+      return null;
+    };
+
+    const rowMult = parseScaleVal(params.rowScale);
+    const colMult = parseScaleVal(params.columnScale);
+    const tblMult = parseScaleVal(params.tableScale);
+    const secMult = parseScaleVal(params.sectionScale);
+    const docMult = parseScaleVal(params.documentScale);
+    const expMult = parseScaleVal(params.explicitScale);
+
+    if (expMult) {
+      scaleMultiplier = expMult;
+      scaleSource = "CELL";
+    } else if (rowMult) {
+      scaleMultiplier = rowMult;
+      scaleSource = "ROW";
+    } else if (colMult) {
+      scaleMultiplier = colMult;
+      scaleSource = "COLUMN";
+    } else if (tblMult) {
+      scaleMultiplier = tblMult;
+      scaleSource = "TABLE_HEADER";
+    } else if (secMult) {
+      scaleMultiplier = secMult;
+      scaleSource = "SECTION";
+    } else if (docMult) {
+      scaleMultiplier = docMult;
+      scaleSource = "DOCUMENT";
+    } else {
+      scaleMultiplier = 1;
+      scaleSource = "DEFAULT";
+    }
+
+    resolvedScale = scaleMultiplier === 1_000_000_000 ? "BILLIONS" : scaleMultiplier === 1_000_000 ? "MILLIONS" : scaleMultiplier === 1_000 ? "THOUSANDS" : "ONES";
+    parsingNotes.push(`Inherited scale multiplier ${scaleMultiplier} from source ${scaleSource}`);
+  }
+
+  // Sign detection
+  const isParentheses = rawStr.includes("(") && rawStr.includes(")");
+  const isNegative = isParentheses || rawStr.startsWith("-") || rawStr.includes("–") || rawStr.includes("—") || params.accountingSign === "negative";
+  const sign: 1 | -1 = isNegative ? -1 : 1;
+
+  // Clean numeric string
+  let clean = rawStr.replace(/[^0-9.,]/g, "").replace(/[,.]+$/, "");
+  if (!clean) {
+    return {
+      rawNumericValue: rawStr,
+      resolvedScale: "UNKNOWN",
+      scaleMultiplier: 1,
+      normalizedBaseValue: null,
+      currency: params.currency || "EUR",
+      sign: sign,
+      scaleSource: scaleSource,
+      normalizationTrace: {
+        rawValue: rawStr,
+        detectedScale: "UNKNOWN",
+        scaleSource: scaleSource,
+        multiplier: 1,
+        sign: sign,
+        normalizedResult: null,
+        parsingNotes: ["No numeric digits found in string"]
+      },
+      isAmbiguous: true
+    };
+  }
+
+  // Handle German vs US decimal formatting
+  const isGerman = (params.docLanguage || "").toLowerCase() === "de" || (params.contextText || "").toLowerCase().includes("mio") || (params.contextText || "").toLowerCase().includes("mrd");
+  if (clean.includes(",") && clean.includes(".")) {
+    if (clean.lastIndexOf(",") > clean.lastIndexOf(".")) {
+      clean = clean.replace(/\./g, "").replace(",", ".");
+    } else {
+      clean = clean.replace(/,/g, "");
+    }
+  } else if (clean.includes(".")) {
+    const parts = clean.split(".");
+    if (parts.length === 2 && parts[1].length === 3 && parts[0].length <= 3 && isGerman) {
+      clean = clean.replace(".", "");
+    } else if (parts.length > 2) {
+      clean = clean.replace(/\./g, "");
+    }
+  } else if (clean.includes(",")) {
+    const parts = clean.split(",");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      clean = clean.replace(",", ".");
+    } else {
+      clean = clean.replace(/,/g, "");
+    }
+  }
+
+  let num = parseFloat(clean);
+  if (isNaN(num)) {
+    return {
+      rawNumericValue: rawStr,
+      resolvedScale: "UNKNOWN",
+      scaleMultiplier: 1,
+      normalizedBaseValue: null,
+      currency: params.currency || "EUR",
+      sign: sign,
+      scaleSource: scaleSource,
+      normalizationTrace: {
+        rawValue: rawStr,
+        detectedScale: "UNKNOWN",
+        scaleSource: scaleSource,
+        multiplier: 1,
+        sign: sign,
+        normalizedResult: null,
+        parsingNotes: ["Failed parseFloat on cleaned string"]
+      },
+      isAmbiguous: true
+    };
+  }
+
+  if (isNegative && num > 0) {
+    num = -num;
+  }
+
+  // Single-scaling protection:
+  // If absolute value is already >= 1,000,000 (e.g. 50,503,000,000), do NOT multiply by scaleMultiplier again!
+  let normalizedBaseValue = num;
+  if (Math.abs(num) < 1_000_000 && scaleMultiplier > 1) {
+    normalizedBaseValue = num * scaleMultiplier;
+  } else {
+    normalizedBaseValue = num;
+    if (Math.abs(num) >= 1_000_000 && scaleMultiplier > 1) {
+      parsingNotes.push(`Single-scaling protection triggered: raw value ${num} already has magnitude >= 1M, suppressed duplicate multiplication by ${scaleMultiplier}`);
+    }
+  }
+
+  return {
+    rawNumericValue: rawStr,
+    resolvedScale: resolvedScale,
+    scaleMultiplier: scaleMultiplier,
+    normalizedBaseValue: normalizedBaseValue,
+    currency: params.currency || "EUR",
+    sign: sign,
+    scaleSource: scaleSource,
+    normalizationTrace: {
+      rawValue: rawStr,
+      detectedScale: resolvedScale,
+      scaleSource: scaleSource,
+      multiplier: scaleMultiplier,
+      sign: sign,
+      normalizedResult: normalizedBaseValue,
+      parsingNotes: parsingNotes
+    },
+    isAmbiguous: false
+  };
+}
+
 export class LocaleAwareNumberParser {
   /**
    * Locale-aware number parser supporting German/EU (1.234,56 / 97.968) and US/UK (1,234.56 / 97,968).
@@ -615,102 +886,20 @@ export class LocaleAwareNumberParser {
       isNegative = true;
     }
 
-    // Detect Scale Label directly from raw string or context text
-    const combinedText = (rawStr + " " + (contextText || "")).toLowerCase();
-    let rawScaleLabel: 'ONES' | 'THOUSANDS' | 'MILLIONS' | 'BILLIONS' | 'UNKNOWN' = "ONES";
-    let scaleMultiplier = scaleHint;
-
-    if (/\b\d+(\.\d+)?\s*(bn|billion|mrd|\$b|€b|£b)\b/i.test(rawStr) || combinedText.includes("billion") || combinedText.includes("mrd") || combinedText.includes("€b") || combinedText.includes("$b") || combinedText.includes("in billions")) {
-      rawScaleLabel = "BILLIONS";
-      scaleMultiplier = 1_000_000_000;
-    } else if (/\b\d+(\.\d+)?\s*(mn|million|mio|\$m|€m|£m)\b/i.test(rawStr) || combinedText.includes("million") || combinedText.includes("mio") || combinedText.includes("€m") || combinedText.includes("$m") || combinedText.includes("in millions")) {
-      rawScaleLabel = "MILLIONS";
-      scaleMultiplier = 1_000_000;
-    } else if (/\b\d+(\.\d+)?\s*(k|thousand|teur|t€|\$k|€k|£k)\b/i.test(rawStr) || combinedText.includes("thousand") || combinedText.includes("t€") || combinedText.includes("teur") || combinedText.includes("€k") || combinedText.includes("$k") || combinedText.includes("in thousands")) {
-      rawScaleLabel = "THOUSANDS";
-      scaleMultiplier = 1_000;
-    }
-
-    let clean = trimmed.replace(/[^0-9.,]/g, "");
-    // Strip trailing sentence/phrase punctuation (commas, dots)
-    clean = clean.replace(/[,.]+$/, "");
-    if (!clean) {
-      return {
-        normalizedValue: null,
-        rawValue: trimmed,
-        isAmbiguous: true,
-        scaleMultiplier: scaleHint,
-        rawScaleLabel: "UNKNOWN",
-        parsingNotes: ["No numeric characters found"]
-      };
-    }
-
-    let isAmbiguous = false;
-
-    // German / EU separator handling
-    const isGerman = (docLanguage || "").toLowerCase() === "de" || (contextText || "").toLowerCase().includes("mio") || (contextText || "").toLowerCase().includes("mrd") || (contextText || "").toLowerCase().includes("tsde");
-    if (clean.includes(",") && clean.includes(".")) {
-      if (clean.lastIndexOf(",") > clean.lastIndexOf(".")) {
-        // German style: 1.234,56 -> 1234.56
-        clean = clean.replace(/\./g, "").replace(",", ".");
-      } else {
-        // US style: 1,234.56 -> 1234.56
-        clean = clean.replace(/,/g, "");
-      }
-    } else if (clean.includes(".")) {
-      const parts = clean.split(".");
-      if (parts.length === 2 && parts[1].length === 3 && parts[0].length <= 3) {
-        if (isGerman) {
-          // In German reports (e.g. 97.968 Mio €), 97.968 means 97,968 units of Mio € = 97.968 Billion €
-          clean = clean.replace(".", "");
-          parsingNotes.push("Parsed German thousands separator in Mio EUR table (e.g. 97.968 -> 97968)");
-        } else {
-          // Standard float in English (e.g. 50.503 billion)
-          clean = clean; 
-        }
-      } else if (parts.length > 2) {
-        clean = clean.replace(/\./g, "");
-      }
-    } else if (clean.includes(",")) {
-      const parts = clean.split(",");
-      if (parts.length === 2 && parts[1].length <= 2) {
-        clean = clean.replace(",", ".");
-      } else {
-        clean = clean.replace(/,/g, "");
-      }
-    }
-
-    let num = parseFloat(clean);
-    if (isNaN(num)) {
-      return {
-        normalizedValue: null,
-        rawValue: trimmed,
-        isAmbiguous: true,
-        scaleMultiplier,
-        rawScaleLabel,
-        parsingNotes: ["Failed parseFloat on clean string"]
-      };
-    }
-
-    if (isNegative && num > 0) {
-      num = -num;
-    }
-
-    // Protection against double scale multiplication
-    let finalNormalizedValue = num;
-    if (Math.abs(num) < 1_000_000 && scaleMultiplier > 1) {
-      finalNormalizedValue = num * scaleMultiplier;
-    } else {
-      finalNormalizedValue = num;
-    }
+    const norm = normalizeFinancialValue({
+      rawNumericValue: rawStr,
+      tableScale: scaleHint,
+      docLanguage: docLanguage,
+      contextText: contextText
+    });
 
     return {
-      normalizedValue: finalNormalizedValue,
-      rawValue: trimmed,
-      isAmbiguous,
-      scaleMultiplier,
-      rawScaleLabel,
-      parsingNotes
+      normalizedValue: norm.normalizedBaseValue,
+      rawValue: norm.rawNumericValue,
+      isAmbiguous: norm.isAmbiguous,
+      scaleMultiplier: norm.scaleMultiplier,
+      rawScaleLabel: norm.resolvedScale,
+      parsingNotes: norm.normalizationTrace.parsingNotes
     };
   }
 }
