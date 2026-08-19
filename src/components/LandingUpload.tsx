@@ -115,7 +115,7 @@ export const LandingUpload: React.FC<LandingUploadProps> = ({
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmitUpload = (e: React.FormEvent) => {
+  const handleSubmitUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
 
@@ -126,11 +126,14 @@ export const LandingUpload: React.FC<LandingUploadProps> = ({
 
     setValidationError(null);
     setIsSubmitting(true);
-    onSubmitClick(selectedFiles, description, driveUrl.trim());
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      await onSubmitClick(selectedFiles, description, driveUrl.trim());
       setIsTrialUploadOpen(false);
-    }, 2500);
+    } catch (err: any) {
+      setValidationError(err?.message || "Upload failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Mock Data for the Hero Right Column Dashboard Preview

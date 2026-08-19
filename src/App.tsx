@@ -373,7 +373,13 @@ export default function App() {
     });
   };
 
-  const processFileUpload = async (files: File[], instructions: string, driveUrl?: string, confirmAttach = false, workspaceId?: string) => {
+  const processFileUpload = async (
+    files: File[],
+    instructions: string,
+    driveUrl?: string,
+    uploadIntent?: 'CREATE_NEW_INTAKE' | 'ATTACH_TO_EXISTING_PROJECT',
+    workspaceId?: string
+  ) => {
     setPendingFiles(files || []);
     setPendingInstructions(instructions || '');
     setPendingDriveUrl(driveUrl || '');
@@ -426,7 +432,7 @@ export default function App() {
               if (driveUrl) formData.append('driveUrl', driveUrl);
             }
             if (userEmail) formData.append('userEmail', userEmail);
-            if (confirmAttach || i > 0) formData.append('confirmAttachToExisting', 'true');
+            if (uploadIntent) formData.append('uploadIntent', uploadIntent);
             if (currentWorkspaceId) formData.append('workspaceId', currentWorkspaceId);
 
             const controller = new AbortController();
@@ -467,7 +473,7 @@ export default function App() {
               description: i === 0 ? instructions : undefined,
               driveUrl: i === 0 ? driveUrl : undefined,
               userEmail,
-              confirmAttachToExisting: (confirmAttach || i > 0) ? 'true' : 'false',
+              uploadIntent,
               workspaceId: currentWorkspaceId
             };
 
@@ -605,15 +611,15 @@ export default function App() {
   };
 
   const handleLandingSubmitClick = (files: File[], instructions: string, driveUrl?: string, confirmAttach?: boolean, workspaceId?: string) => {
-    processFileUpload(files, instructions, driveUrl, confirmAttach, workspaceId);
+    processFileUpload(files, instructions, driveUrl, confirmAttach ? 'ATTACH_TO_EXISTING_PROJECT' : undefined, workspaceId);
   };
 
   const handleConfirmAttach = (workspaceId: string) => {
-    processFileUpload(pendingFiles, pendingInstructions, pendingDriveUrl, true, workspaceId);
+    processFileUpload(pendingFiles, pendingInstructions, pendingDriveUrl, 'ATTACH_TO_EXISTING_PROJECT', workspaceId);
   };
 
   const handleCreateNewWorkspace = () => {
-    processFileUpload(pendingFiles, pendingInstructions, pendingDriveUrl, true);
+    processFileUpload(pendingFiles, pendingInstructions, pendingDriveUrl, 'CREATE_NEW_INTAKE');
   };
 
   const handleRenameWorkspace = async (id: string, newName: string) => {

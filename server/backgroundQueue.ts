@@ -555,7 +555,18 @@ export class BackgroundIngestionQueue {
           filePath: queuedJob.filePath || '',
           originalFilename: queuedJob.documentTitle,
           documentHash: `HASH-${queuedJob.documentId}`,
-          currency: queuedJob.functionalCurrency
+          currency: queuedJob.functionalCurrency,
+          onProgress: (stageName: string, progressPercent: number) => {
+            queuedJob.currentStage = stageName;
+            queuedJob.progress = Math.max(queuedJob.progress, progressPercent);
+            queuedJob.updatedAt = new Date().toISOString();
+            if (stageName.includes('Paused') || stageName.includes('Capacity')) {
+              queuedJob.status = 'WAITING_FOR_AI_CAPACITY';
+            } else {
+              queuedJob.status = 'PROCESSING';
+            }
+            this.saveQueueToDiskAsync(true);
+          }
         });
 
         if (hybridRes.success) {
@@ -570,6 +581,18 @@ export class BackgroundIngestionQueue {
           queuedJob.progress = 100;
           queuedJob.status = "COMPLETED";
           queuedJob.completedAt = new Date().toISOString();
+
+          // Promote Intake Session to Project if associated with an intake session
+          if (queuedJob.intakeSessionId && this.dbRef) {
+            try {
+              const promoted = intakeService.promoteIntakeSessionToProject(queuedJob.intakeSessionId, this.dbRef);
+              if (promoted?.workspace?.id) {
+                queuedJob.workspaceId = promoted.workspace.id;
+              }
+            } catch (promoteErr) {
+              console.warn(`[Hermes Queue ${queuedJob.id}] Intake promotion notice:`, promoteErr);
+            }
+          }
 
           this.advanceJobStage(
             queuedJob,

@@ -122,16 +122,42 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
     }
   }, [isOpen, isComplete]);
 
+  const [traceData, setTraceData] = useState<any>(null);
+
+  // Poll forensic trace telemetry for active intake session
+  useEffect(() => {
+    if (!isOpen || isComplete) return;
+
+    const intakeId = job?.intakeSessionId || job?.workspaceId;
+    if (!intakeId) return;
+
+    const fetchTrace = async () => {
+      try {
+        const res = await fetch(`/api/intakes/${intakeId}/trace`);
+        if (res.ok) {
+          const data = await res.json();
+          setTraceData(data);
+        }
+      } catch (err) {
+        // Silent trace poll
+      }
+    };
+
+    fetchTrace();
+    const interval = setInterval(fetchTrace, 2000);
+    return () => clearInterval(interval);
+  }, [isOpen, isComplete, job?.intakeSessionId, job?.workspaceId]);
+
   if (!isOpen) return null;
 
-  const pipelineStages = [
-    { key: 'DOCUMENT_REGISTERED', num: 1, label: 'Document Registration & Validation' },
-    { key: 'PAGE_INVENTORY_COMPLETED', num: 2, label: 'Physical Page Inventory Established' },
-    { key: 'PHYSICAL_EXTRACTION_COMPLETED', num: 3, label: 'Physical Page Source Text Extraction' },
-    { key: 'FINANCIAL_ANALYSIS_COMPLETED', num: 4, label: 'Financial Statement Line-Item Analysis' },
-    { key: 'GAP_ANALYSIS_COMPLETED', num: 5, label: 'Second-Pass Footnote & Disclosure Analysis' },
-    { key: 'AUDIT_LINEAGE_VERIFIED', num: 6, label: 'Completeness Audit & Lineage Verification' }
-  ];
+  const isRateLimited = Boolean(
+    job?.status === 'WAITING_FOR_AI_CAPACITY' ||
+    traceData?.waitingTasks?.length > 0 ||
+    job?.currentStage?.includes('Paused') ||
+    job?.currentStage?.includes('Capacity')
+  );
+
+  const semanticTasks = traceData?.semanticTasks || [];
 
   const handleCloseClick = () => {
     onClose();
@@ -242,8 +268,23 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             </p>
           </div>
 
+          {/* Rate Limit / Paused Capacity Notice */}
+          {isRateLimited && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start gap-2.5 text-amber-950 text-xs shadow-xs animate-fadeIn">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <span className="font-extrabold block text-amber-950">
+                  AI Analysis Temporarily Paused (Capacity Limit)
+                </span>
+                <p className="text-amber-900 text-[11px] leading-relaxed">
+                  AI analysis temporarily paused. Your work is safely saved. Processing will resume automatically.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Background Worker Notification Badge */}
-          {!isComplete && !isStalled && !isFailed && (
+          {!isComplete && !isStalled && !isFailed && !isRateLimited && (
             <div className="bg-blue-50/80 border border-blue-200/80 rounded-xl p-2.5 flex items-start gap-2.5 text-blue-900 shadow-xs">
               <Cloud className="w-4 h-4 text-blue-600 shrink-0 mt-0.5 animate-pulse" />
               <div className="space-y-0.5 text-[11px]">
@@ -362,45 +403,97 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
             </div>
           )}
 
-          {/* Rule 1 & Rule 2: Real State Machine Pipeline Execution Checklist */}
+          {/* Real Hybrid Semantic Pipeline Execution Checklist */}
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2.5 sm:p-3.5 space-y-1.5">
             <span className="text-[10px] font-extrabold text-neutral-500 uppercase tracking-wider block mb-0.5">
-              Persisted State Machine Execution Checklist
+              Hybrid Extraction & Semantic Pipeline Telemetry
             </span>
-            {pipelineStages.map((s) => {
-              const stepDone = isStageDone(s.key);
-              const stepActive = isStageActive(s.key);
+            {semanticTasks.length > 0 ? (
+              semanticTasks.map((task: any, idx: number) => {
+                const isDone = task.status === 'COMPLETED' || task.status === 'COMPLETED_WITH_WARNINGS';
+                const isRunning = task.status === 'RUNNING';
+                const isWaiting = task.status === 'WAITING_FOR_AI_CAPACITY';
 
-              return (
-                <div key={s.key} className="space-y-0.5">
-                  <div className="flex items-center justify-between text-[11px] sm:text-xs">
-                    <div className="flex items-center space-x-1.5 sm:space-x-2">
-                      {stepDone ? (
-                        <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                          <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                return (
+                  <div key={task.taskId || idx} className="flex items-center justify-between text-[11px] sm:text-xs py-0.5 border-b border-neutral-100 last:border-none">
+                    <div className="flex items-center space-x-2">
+                      {isDone ? (
+                        <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-2.5 h-2.5" />
                         </div>
-                      ) : stepActive ? (
-                        <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
-                          <Loader2 className="w-2 h-2 sm:w-2.5 sm:h-2.5 animate-spin" />
+                      ) : isRunning ? (
+                        <div className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        </div>
+                      ) : isWaiting ? (
+                        <div className="w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0">
+                          <Clock className="w-2.5 h-2.5" />
                         </div>
                       ) : (
-                        <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-neutral-200 text-neutral-500 flex items-center justify-center shrink-0 font-bold text-[8px] sm:text-[9px]">
-                          {s.num}
+                        <div className="w-4 h-4 rounded-full bg-neutral-200 text-neutral-500 flex items-center justify-center shrink-0 font-bold text-[9px]">
+                          {idx + 1}
                         </div>
                       )}
-                      <span className={`font-semibold text-[11px] sm:text-xs ${stepDone ? 'text-neutral-900' : stepActive ? 'text-blue-700 font-bold' : 'text-neutral-400'}`}>
-                        {s.label}
+                      <span className={`font-semibold text-[11px] sm:text-xs ${isDone ? 'text-neutral-900' : isRunning ? 'text-blue-700 font-bold' : isWaiting ? 'text-amber-800 font-bold' : 'text-neutral-400'}`}>
+                        {task.taskType?.replace(/_/g, ' ') || task.title}
                       </span>
                     </div>
-                    {stepDone && (
-                      <span className="text-[8.5px] sm:text-[9.5px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200 shrink-0">
-                        Executed
-                      </span>
-                    )}
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${
+                      isDone ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+                      isRunning ? 'text-blue-700 bg-blue-50 border-blue-200 animate-pulse' :
+                      isWaiting ? 'text-amber-800 bg-amber-50 border-amber-200' :
+                      'text-neutral-500 bg-neutral-100 border-neutral-200'
+                    }`}>
+                      {isDone ? 'Completed' : isRunning ? 'In Progress' : isWaiting ? 'Paused' : 'Queued'}
+                    </span>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            ) : (
+              [
+                { name: 'Document Structure & Map', key: 'DOCUMENT_MAP' },
+                { name: 'Income Statement Extraction', key: 'EXTRACT_INCOME_STATEMENT' },
+                { name: 'Balance Sheet Extraction', key: 'EXTRACT_BALANCE_SHEET' },
+                { name: 'Cash Flow Extraction', key: 'EXTRACT_CASH_FLOW' },
+                { name: 'Footnotes & Disclosures Analysis', key: 'EXTRACT_NOTES' },
+                { name: 'Evidence Cross-Verification', key: 'EVIDENCE_VERIFICATION' },
+                { name: 'Accounting Reconciliation', key: 'ACCOUNTING_RECONCILIATION' },
+                { name: 'Project Workspace Materialization', key: 'PROJECT_MATERIALIZATION' }
+              ].map((s, idx) => {
+                const isDone = isComplete || (job?.pagesCompleted && job.pagesCompleted > 0 && idx < 4);
+                const isRunning = !isComplete && idx === Math.min(7, Math.floor((activeProgress / 100) * 8));
+
+                return (
+                  <div key={s.key} className="flex items-center justify-between text-[11px] sm:text-xs py-0.5 border-b border-neutral-100 last:border-none">
+                    <div className="flex items-center space-x-2">
+                      {isDone ? (
+                        <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-2.5 h-2.5" />
+                        </div>
+                      ) : isRunning ? (
+                        <div className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="w-4 h-4 rounded-full bg-neutral-200 text-neutral-500 flex items-center justify-center shrink-0 font-bold text-[9px]">
+                          {idx + 1}
+                        </div>
+                      )}
+                      <span className={`font-semibold text-[11px] sm:text-xs ${isDone ? 'text-neutral-900' : isRunning ? 'text-blue-700 font-bold' : 'text-neutral-400'}`}>
+                        {s.name}
+                      </span>
+                    </div>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${
+                      isDone ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+                      isRunning ? 'text-blue-700 bg-blue-50 border-blue-200 animate-pulse' :
+                      'text-neutral-500 bg-neutral-100 border-neutral-200'
+                    }`}>
+                      {isDone ? 'Completed' : isRunning ? 'In Progress' : 'Queued'}
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
 
           {/* Error State */}

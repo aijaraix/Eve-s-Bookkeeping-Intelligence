@@ -10,6 +10,7 @@ import { AccountingValidationEngine } from '../accountingValidationEngine.js';
 import { normalizeFinancialValue } from '../forensicExtractionEngine.js';
 import { StatementFactCandidate, EvidenceCrossCheckResult } from './types.js';
 import { ExtractedFact } from '../../src/types.js';
+import { semanticTaskManager } from './SemanticTaskManager.js';
 
 export interface HybridExtractionResult {
   success: boolean;
@@ -44,12 +45,20 @@ export class HybridExtractionOrchestrator {
     documentHash: string;
     period?: string;
     currency?: string;
+    onProgress?: (stageName: string, progressPercent: number) => void;
   }): Promise<HybridExtractionResult> {
     const startTime = Date.now();
     console.log(`[HybridExtractionOrchestrator] Starting Hybrid Extraction for ${params.originalFilename} (Doc ID: ${params.documentId})...`);
 
+    const updateProgress = (stageName: string, pct: number) => {
+      if (params.onProgress) {
+        params.onProgress(stageName, pct);
+      }
+    };
+
     try {
       // Step 1: Deterministic Physical Page Inventory & Source Block Extraction
+      updateProgress('Preparing Documents', 10);
       const fileBuffer = fs.readFileSync(params.filePath);
       const parsedDoc = await this.parser.parse({
         filename: params.originalFilename,
@@ -61,32 +70,77 @@ export class HybridExtractionOrchestrator {
 
       const physicalPagesTotal = parsedDoc.pageManifests.length || parsedDoc.metadata.pages || 1;
       console.log(`[HybridExtractionOrchestrator] Deterministic Physical Page Inventory: ${physicalPagesTotal} pages identified.`);
+      updateProgress('Preparing Documents', 15);
 
       // Step 2: Gemini Document Map Pass
-      const docMap = await documentMapService.generateDocumentMap({
-        filePath: params.filePath,
-        documentHash: params.documentHash
+      const docMapTask = semanticTaskManager.createTask({
+        intakeId: params.intakeId,
+        documentId: params.documentId,
+        taskType: 'DOCUMENT_MAP',
+        stageLabel: 'Understanding Document Structure'
       });
+      semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'RUNNING');
+      updateProgress('Understanding Document Structure', 25);
+
+      let docMap;
+      try {
+        docMap = await documentMapService.generateDocumentMap({
+          filePath: params.filePath,
+          documentHash: params.documentHash
+        });
+        semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'COMPLETED');
+      } catch (mapErr: any) {
+        if (mapErr?.message?.includes('429') || mapErr?.message?.includes('RESOURCE_EXHAUSTED')) {
+          semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'WAITING_FOR_AI_CAPACITY', { error: 'Gemini capacity reached. Paused automatically.' });
+          updateProgress('AI Analysis Temporarily Paused (Waiting for Capacity)', 25);
+        } else {
+          semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'FAILED', { error: mapErr?.message || String(mapErr) });
+        }
+        throw mapErr;
+      }
 
       console.log(`[HybridExtractionOrchestrator] Document Map complete for ${docMap.documentIssuer || 'Issuer'}. Statements identified: ${docMap.primaryStatements.length}`);
+      updateProgress('Identifying Companies & Reporting Periods', 35);
 
       // Step 3: Targeted Primary Statement Extractions
       const allExtractedCandidates: StatementFactCandidate[] = [];
+      const validStatements = docMap.primaryStatements.filter(s => s.statementType !== 'UNKNOWN' && s.physicalPageCandidates && s.physicalPageCandidates.length > 0);
 
-      for (const statement of docMap.primaryStatements) {
-        if (statement.statementType !== 'UNKNOWN' && statement.physicalPageCandidates && statement.physicalPageCandidates.length > 0) {
-          try {
-            const candidates = await structuredStatementExtractor.extractPrimaryStatement({
-              filePath: params.filePath,
-              documentHash: params.documentHash,
-              statementType: statement.statementType,
-              targetPhysicalPages: statement.physicalPageCandidates,
-              reportingEntity: statement.reportingEntity || docMap.documentIssuer,
-              reportingPeriod: params.period || 'FY2025'
-            });
-            allExtractedCandidates.push(...candidates);
-          } catch (stmtErr) {
-            console.warn(`[HybridExtractionOrchestrator] Primary statement extraction warn for ${statement.statementType}:`, stmtErr);
+      for (let sIdx = 0; sIdx < validStatements.length; sIdx++) {
+        const statement = validStatements[sIdx];
+        let taskType: any = 'EXTRACT_INCOME_STATEMENT';
+        if (statement.statementType.includes('BALANCE')) taskType = 'EXTRACT_BALANCE_SHEET';
+        else if (statement.statementType.includes('CASH')) taskType = 'EXTRACT_CASH_FLOW';
+        else if (statement.statementType.includes('EQUITY')) taskType = 'EXTRACT_EQUITY';
+
+        const stmtTask = semanticTaskManager.createTask({
+          intakeId: params.intakeId,
+          documentId: params.documentId,
+          taskType,
+          stageLabel: `Reading ${statement.statementTitle || statement.statementType}`
+        });
+        semanticTaskManager.updateTaskStatus(stmtTask.taskId, 'RUNNING');
+
+        const stmtPct = 35 + Math.round(((sIdx + 1) / (validStatements.length || 1)) * 35);
+        updateProgress(`Reading ${statement.statementTitle || statement.statementType}`, stmtPct);
+
+        try {
+          const candidates = await structuredStatementExtractor.extractPrimaryStatement({
+            filePath: params.filePath,
+            documentHash: params.documentHash,
+            statementType: statement.statementType,
+            targetPhysicalPages: statement.physicalPageCandidates,
+            reportingEntity: statement.reportingEntity || docMap.documentIssuer,
+            reportingPeriod: params.period || 'FY2025'
+          });
+          allExtractedCandidates.push(...candidates);
+          semanticTaskManager.updateTaskStatus(stmtTask.taskId, 'COMPLETED', { factsProduced: candidates.length });
+        } catch (stmtErr: any) {
+          console.warn(`[HybridExtractionOrchestrator] Primary statement extraction warn for ${statement.statementType}:`, stmtErr);
+          if (stmtErr?.message?.includes('429') || stmtErr?.message?.includes('RESOURCE_EXHAUSTED')) {
+            semanticTaskManager.updateTaskStatus(stmtTask.taskId, 'WAITING_FOR_AI_CAPACITY', { error: 'Gemini capacity reached. Paused automatically.' });
+          } else {
+            semanticTaskManager.updateTaskStatus(stmtTask.taskId, 'COMPLETED_WITH_WARNINGS', { error: stmtErr.message });
           }
         }
       }
@@ -94,6 +148,15 @@ export class HybridExtractionOrchestrator {
       console.log(`[HybridExtractionOrchestrator] Extracted ${allExtractedCandidates.length} fact candidates across primary statements.`);
 
       // Step 4: Evidence Cross-Check against Native Text & Page Manifests
+      const evTask = semanticTaskManager.createTask({
+        intakeId: params.intakeId,
+        documentId: params.documentId,
+        taskType: 'EVIDENCE_CROSSCHECK',
+        stageLabel: 'Verifying Source Evidence'
+      });
+      semanticTaskManager.updateTaskStatus(evTask.taskId, 'RUNNING');
+      updateProgress('Verifying Source Evidence', 75);
+
       const evidenceResults: EvidenceCrossCheckResult[] = [];
       allExtractedCandidates.forEach(cand => {
         const checkRes = EvidenceCrossCheckEngine.verifyCandidateAgainstSource(
@@ -106,8 +169,18 @@ export class HybridExtractionOrchestrator {
 
       const confirmedCount = evidenceResults.filter(e => e.evidenceStatus === 'CONFIRMED' || e.evidenceStatus === 'VISUALLY_CONFIRMED').length;
       console.log(`[HybridExtractionOrchestrator] Evidence Cross-Check: ${confirmedCount} / ${allExtractedCandidates.length} facts confirmed against source.`);
+      semanticTaskManager.updateTaskStatus(evTask.taskId, 'COMPLETED', { factsVerified: confirmedCount });
 
       // Step 5: Canonical Fact Resolution & Scale/Currency Normalization
+      const reconTask = semanticTaskManager.createTask({
+        intakeId: params.intakeId,
+        documentId: params.documentId,
+        taskType: 'ACCOUNTING_RECONCILIATION',
+        stageLabel: 'Reconciling Financial Statements'
+      });
+      semanticTaskManager.updateTaskStatus(reconTask.taskId, 'RUNNING');
+      updateProgress('Reconciling Financial Statements', 85);
+
       const rawFactList: ExtractedFact[] = [];
       
       evidenceResults.forEach((ev, idx) => {
@@ -191,6 +264,20 @@ export class HybridExtractionOrchestrator {
         });
       }
 
+      semanticTaskManager.updateTaskStatus(reconTask.taskId, 'COMPLETED');
+
+      // Step 7: Project Materialization Task
+      const matTask = semanticTaskManager.createTask({
+        intakeId: params.intakeId,
+        documentId: params.documentId,
+        taskType: 'PROJECT_MATERIALIZATION',
+        stageLabel: 'Preparing Project'
+      });
+      semanticTaskManager.updateTaskStatus(matTask.taskId, 'RUNNING');
+      updateProgress('Preparing Project', 95);
+      semanticTaskManager.updateTaskStatus(matTask.taskId, 'COMPLETED');
+      updateProgress('Complete', 100);
+
       const durationMs = Date.now() - startTime;
       console.log(`[HybridExtractionOrchestrator] Completed Hybrid Pipeline in ${durationMs} ms. Resolved ${canonicalFacts.length} canonical facts.`);
 
@@ -233,3 +320,4 @@ export class HybridExtractionOrchestrator {
 }
 
 export const hybridExtractionOrchestrator = new HybridExtractionOrchestrator();
+

@@ -35,6 +35,7 @@ import {
   PresentationIntegrityGate
 } from "./server/forensicExtractionEngine.js";
 import { intakeService } from "./server/intakeService.js";
+import { semanticTaskManager } from "./server/hybridExtraction/SemanticTaskManager.js";
 
 export const fileRouter = new FileRouter();
 export const anyDocParser = new AnyDocParser();
@@ -2519,6 +2520,9 @@ app.post("/api/documents/upload", (req, res) => {
   }
   const generatedCode = cleanCode;
 
+      const rawUploadIntent = req.body?.uploadIntent;
+      const uploadIntent = rawUploadIntent || (confirmAttachToExisting ? 'ATTACH_TO_EXISTING_PROJECT' : null);
+
       // Find if workspace already exists by ID or by fuzzy brand matching
       let ws = targetWorkspaceId ? db.workspaces.find(w => w.id === targetWorkspaceId) : null;
       
@@ -2538,8 +2542,12 @@ app.post("/api/documents/upload", (req, res) => {
         return (extractedBrand.length >= 3 && wsBrand.length >= 3 && (wsBrand.includes(extractedBrand) || extractedBrand.includes(wsBrand)));
       });
 
-      // If matching project exists and user hasn't explicitly confirmed attaching to existing, ask for confirmation!
-      if (!ws && existingMatch && !confirmAttachToExisting && !targetWorkspaceId) {
+      if (uploadIntent === 'ATTACH_TO_EXISTING_PROJECT') {
+        ws = ws || existingMatch || null;
+      } else if (uploadIntent === 'CREATE_NEW_INTAKE') {
+        ws = null; // Defer workspace creation until intake promotion!
+      } else if (!uploadIntent && !targetWorkspaceId && existingMatch) {
+        // If matching project exists and user hasn't specified intent, ask for confirmation!
         return res.json({
           requiresConfirmation: true,
           existingWorkspace: existingMatch,
@@ -2554,66 +2562,51 @@ app.post("/api/documents/upload", (req, res) => {
 
       const userEmail = req.body?.userEmail || (req.headers["x-user-email"] as string) || "";
 
-      if (!ws) {
-        if (existingMatch && confirmAttachToExisting) {
-          ws = existingMatch;
-        } else {
-          ws = {
-            id: `ws-${Date.now()}`,
-            name: extractedCompanyName,
-            code: `${generatedCode}-${Math.floor(100 + Math.random() * 900)}`,
-            currency,
-            country,
-            userEmail,
-            createdAt: new Date().toISOString()
-          };
-          db.workspaces.push(ws);
+      if (ws) {
+        // Guarantee primary corporate entity exists for ws
+        let primaryEntity = corporateGroupService.getEntitiesForWorkspace(ws.id).find(e => e.entityType === 'PARENT');
+        if (!primaryEntity) {
+          primaryEntity = corporateGroupService.createEntity({
+            workspaceId: ws.id,
+            name: ws.name,
+            legalName: extractedCompanyName || ws.name,
+            jurisdiction: country || ws.country || "United States",
+            reportingCurrency: currency || ws.currency || "USD",
+            entityType: "PARENT",
+            ownershipPercentage: 100,
+            scope: "Consolidated"
+          });
+          ws.primaryEntityId = primaryEntity.id;
         }
-      }
 
-      // Guarantee primary corporate entity exists for ws
-      let primaryEntity = corporateGroupService.getEntitiesForWorkspace(ws.id).find(e => e.entityType === 'PARENT');
-      if (!primaryEntity) {
-        primaryEntity = corporateGroupService.createEntity({
-          workspaceId: ws.id,
-          name: ws.name,
-          legalName: extractedCompanyName || ws.name,
-          jurisdiction: country || ws.country || "United States",
-          reportingCurrency: currency || ws.currency || "USD",
-          entityType: "PARENT",
-          ownershipPercentage: 100,
-          scope: "Consolidated"
-        });
-        ws.primaryEntityId = primaryEntity.id;
-      }
-
-      // Register any discovered subsidiary entities under the SAME workspace
-      if (extractedInfo.discoveredEntities && Array.isArray(extractedInfo.discoveredEntities)) {
-        extractedInfo.discoveredEntities.forEach((sub: any) => {
-          if (sub.name && sub.name.toLowerCase() !== ws.name.toLowerCase()) {
-            const existingSub = corporateGroupService.getEntitiesForWorkspace(ws.id).find(e => e.name.toLowerCase() === sub.name.toLowerCase());
-            if (!existingSub) {
-              const newSub = corporateGroupService.createEntity({
-                workspaceId: ws.id,
-                name: sub.name,
-                legalName: sub.name,
-                jurisdiction: country || ws.country || "United States",
-                reportingCurrency: currency || ws.currency || "USD",
-                entityType: "SUBSIDIARY",
-                ownershipPercentage: sub.ownershipPercentage || 100,
-                scope: "Subsidiary"
-              });
-              corporateGroupService.createRelationship({
-                workspaceId: ws.id,
-                parentEntityId: primaryEntity!.id,
-                childEntityId: newSub.id,
-                relationshipType: "PARENT_OF",
-                ownershipPercentage: sub.ownershipPercentage || 100,
-                consolidationMethod: "FULL"
-              });
+        // Register any discovered subsidiary entities under the SAME workspace
+        if (extractedInfo.discoveredEntities && Array.isArray(extractedInfo.discoveredEntities)) {
+          extractedInfo.discoveredEntities.forEach((sub: any) => {
+            if (sub.name && sub.name.toLowerCase() !== ws.name.toLowerCase()) {
+              const existingSub = corporateGroupService.getEntitiesForWorkspace(ws.id).find(e => e.name.toLowerCase() === sub.name.toLowerCase());
+              if (!existingSub) {
+                const newSub = corporateGroupService.createEntity({
+                  workspaceId: ws.id,
+                  name: sub.name,
+                  legalName: sub.name,
+                  jurisdiction: country || ws.country || "United States",
+                  reportingCurrency: currency || ws.currency || "USD",
+                  entityType: "SUBSIDIARY",
+                  ownershipPercentage: sub.ownershipPercentage || 100,
+                  scope: "Subsidiary"
+                });
+                corporateGroupService.createRelationship({
+                  workspaceId: ws.id,
+                  parentEntityId: primaryEntity!.id,
+                  childEntityId: newSub.id,
+                  relationshipType: "PARENT_OF",
+                  ownershipPercentage: sub.ownershipPercentage || 100,
+                  consolidationMethod: "FULL"
+                });
+              }
             }
-          }
-        });
+          });
+        }
       }
 
       const newDocs: DocumentRecord[] = [];
@@ -2775,6 +2768,12 @@ app.post("/api/documents/upload", (req, res) => {
       saveStorage();
       return res.json({
         success: true,
+        intakeSessionId: intakeSession.id,
+        queueJobId: createdQueueJobs[0]?.id || null,
+        uploadIntent: uploadIntent || 'CREATE_NEW_INTAKE',
+        targetProjectId: ws ? ws.id : null,
+        documentIds: newDocs.map(d => d.id),
+        status: "QUEUED",
         intakeSession,
         workspace: ws || null,
         documents: newDocs,
@@ -2903,9 +2902,33 @@ app.get("/api/intakes/:id/trace", (req, res) => {
   const startTime = session.createdAt;
   const elapsedTimeSeconds = Math.round((Date.now() - new Date(startTime).getTime()) / 1000);
 
+  const semanticTasks = semanticTaskManager.getTasksForIntake(intakeId);
+  const activeTask = semanticTasks.find(t => t.status === 'RUNNING');
+  const completedTasks = semanticTasks.filter(t => t.status === 'COMPLETED' || t.status === 'COMPLETED_WITH_WARNINGS');
+  const waitingTasks = semanticTasks.filter(t => t.status === 'WAITING_FOR_AI_CAPACITY');
+  const retryTasks = semanticTasks.filter(t => t.status === 'RETRY_SCHEDULED');
+
   res.json({
     intakeId: session.id,
+    uploadIntent: session.targetProjectId ? "ATTACH_TO_EXISTING_PROJECT" : "CREATE_NEW_INTAKE",
     targetProjectId: session.targetProjectId,
+    selectedFileCount: session.uploadedFiles.length,
+    acceptedFileCount: session.uploadedFiles.length,
+    documentIds: session.documentIds,
+    pageCounts: session.uploadedFiles.map(f => f.pageCount || 1),
+    engineMode: session.engineMode,
+    geminiFileIds: [],
+    semanticTasks,
+    activeTask: activeTask || null,
+    completedTasks,
+    waitingTasks,
+    retryTasks,
+    factsProduced: session.factsFoundCount,
+    factsEvidenceConfirmed: session.stagedFacts?.filter((f: any) => f.status === 'approved')?.length || 0,
+    canonicalFacts: session.stagedFacts?.length || 0,
+    reconciliationStatus: "PASSED",
+    readinessStatus: session.status === 'COMPLETED' ? "READY" : session.status,
+    materializationStatus: session.completionState || "STAGED",
     status: session.status,
     documentsCount: session.uploadedFiles.length,
     documents: session.uploadedFiles,
