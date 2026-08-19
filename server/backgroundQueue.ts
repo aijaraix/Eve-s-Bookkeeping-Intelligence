@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { executeSwarmPipeline } from "./swarm/SwarmOrchestrator.js";
-import { LLM_CONFIG } from "./llmGateway.js";
+import { hybridExtractionOrchestrator } from "./hybridExtraction/HybridExtractionOrchestrator.js";
+import { LLM_CONFIG, getGeminiDiagnosticStatus } from "./llmGateway.js";
 import { intakeService } from "./intakeService.js";
 import {
   ExtractedFact,
@@ -256,7 +257,8 @@ export class BackgroundIngestionQueue {
     filePath?: string,
     pageManifests?: any[],
     sourceBlocks?: any[],
-    intakeSessionId?: string
+    intakeSessionId?: string,
+    engineMode?: string
   ): QueueJob {
     if (!workspaceId) {
       throw new Error("Mandatory workspaceId (projectId) missing for ingestion session. Workers cannot create orphan jobs.");
@@ -386,6 +388,7 @@ export class BackgroundIngestionQueue {
       filePath,
       textData: undefined,
       functionalCurrency,
+      engineMode: engineMode || process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE',
       status: jobStatus,
       stage: jobStatus === "FAILED" ? "INGESTION_FAILED" : "DOCUMENT_REGISTERED",
       stageHistory: [],
@@ -503,6 +506,131 @@ export class BackgroundIngestionQueue {
     queuedJob.workerHeartbeatAt = nowIso;
     queuedJob.updatedAt = nowIso;
 
+    const effectiveEngineMode = queuedJob.engineMode || process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE';
+    console.log(`[Hermes Queue ${queuedJob.id}] Processing document ${queuedJob.documentTitle} with engineMode=${effectiveEngineMode}`);
+
+    if (effectiveEngineMode === 'HYBRID_GEMINI_NATIVE') {
+      const geminiStatus = getGeminiDiagnosticStatus();
+      if (geminiStatus === 'NOT_CONFIGURED' || geminiStatus === 'INVALID_KEY' || !process.env.GEMINI_API_KEY) {
+        console.warn(`[Hermes Queue ${queuedJob.id}] HYBRID_GEMINI_NATIVE engine requested but Gemini API key is unavailable (${geminiStatus}). Setting CONFIGURATION_REQUIRED status.`);
+        queuedJob.status = "CONFIGURATION_REQUIRED";
+        queuedJob.lastError = "AI document analysis is waiting. Gemini API key is missing or not configured.";
+        this.advanceJobStage(
+          queuedJob,
+          "INGESTION_FAILED",
+          "FAILED",
+          "AI document analysis is waiting. Gemini API key is missing or not configured.",
+          "CONFIGURATION_REQUIRED"
+        );
+        queuedJob.result = {
+          facts: [],
+          discrepancies: [],
+          agentLogs: [],
+          auditLogs: [],
+          executionTimeMs: 0
+        };
+        this.saveQueueToDiskAsync(true);
+        this.isProcessingQueue = false;
+        return;
+      }
+
+      try {
+        this.advanceJobStage(
+          queuedJob,
+          "PAGE_INVENTORY_STARTED",
+          "IN_PROGRESS",
+          `Scanning physical page inventory (${queuedJob.pagesTotal} pages)...`
+        );
+        this.advanceJobStage(
+          queuedJob,
+          "PAGE_INVENTORY_COMPLETED",
+          "COMPLETED",
+          `Physical page inventory established (${queuedJob.pagesTotal} pages)`
+        );
+
+        const hybridRes = await hybridExtractionOrchestrator.processDocument({
+          intakeId: queuedJob.intakeSessionId || queuedJob.workspaceId,
+          documentId: queuedJob.documentId,
+          workspaceId: queuedJob.workspaceId,
+          filePath: queuedJob.filePath || '',
+          originalFilename: queuedJob.documentTitle,
+          documentHash: `HASH-${queuedJob.documentId}`,
+          currency: queuedJob.functionalCurrency
+        });
+
+        if (hybridRes.success) {
+          const canonicalFacts = hybridRes.canonicalFacts.map(f => ({
+            ...f,
+            extractionEngine: 'HYBRID_GEMINI_NATIVE'
+          }));
+
+          queuedJob.factsExtractedCount = canonicalFacts.length;
+          queuedJob.pagesCompleted = queuedJob.pagesTotal;
+          queuedJob.tasksCompleted = queuedJob.tasksTotal;
+          queuedJob.progress = 100;
+          queuedJob.status = "COMPLETED";
+          queuedJob.completedAt = new Date().toISOString();
+
+          this.advanceJobStage(
+            queuedJob,
+            "FINAL_RECONCILIATION_COMPLETED",
+            "COMPLETED",
+            `Hybrid Extraction complete! Resolved ${canonicalFacts.length} canonical facts.`
+          );
+
+          queuedJob.result = {
+            facts: canonicalFacts,
+            discrepancies: [],
+            agentLogs: [],
+            auditLogs: [{
+              id: `AUDIT-HYBRID-${Date.now()}`,
+              workspaceId: queuedJob.workspaceId,
+              documentId: queuedJob.documentId,
+              timestamp: new Date().toISOString(),
+              action: "HYBRID_EXTRACTION_COMPLETED",
+              actor: "HybridExtractionOrchestrator",
+              details: `Extracted ${canonicalFacts.length} canonical facts via Gemini Native Hybrid Engine in ${hybridRes.processingDurationMs}ms.`
+            }],
+            executionTimeMs: hybridRes.processingDurationMs
+          };
+
+          if (this.onJobCompletedListener) {
+            try {
+              this.onJobCompletedListener(queuedJob);
+            } catch (cbErr) {
+              console.error(`[Hermes Queue ${queuedJob.id}] Error in onJobCompletedListener:`, cbErr);
+            }
+          }
+        } else {
+          queuedJob.status = "FAILED";
+          queuedJob.error = hybridRes.error || "Hybrid extraction pipeline failed";
+          queuedJob.lastError = queuedJob.error;
+          this.advanceJobStage(
+            queuedJob,
+            "INGESTION_FAILED",
+            "FAILED",
+            `Hybrid extraction failed: ${queuedJob.error}`
+          );
+        }
+      } catch (hybridErr: any) {
+        console.error(`[Hermes Queue ${queuedJob.id}] Hybrid processing exception:`, hybridErr);
+        queuedJob.status = "FAILED";
+        queuedJob.error = hybridErr?.message || "Hybrid extraction pipeline error";
+        queuedJob.lastError = queuedJob.error;
+        this.advanceJobStage(
+          queuedJob,
+          "INGESTION_FAILED",
+          "FAILED",
+          `Hybrid extraction failed: ${queuedJob.error}`
+        );
+      } finally {
+        this.isProcessingQueue = false;
+        this.saveQueueToDiskAsync(true);
+        setTimeout(() => this.processNextJob(), 10);
+      }
+      return;
+    }
+
     this.advanceJobStage(
       queuedJob,
       "PHYSICAL_EXTRACTION_IN_PROGRESS",
@@ -527,7 +655,7 @@ export class BackgroundIngestionQueue {
       );
 
       for (let i = 0; i < queuedJob.processingUnits.length; i += PAGE_CONCURRENCY) {
-        if (queuedJob.status === "STALLED") {
+        if ((queuedJob.status as string) === "STALLED") {
           console.warn(`[Hermes Queue ${queuedJob.id}] Job was marked STALLED during batch execution. Aborting loop.`);
           this.isProcessingQueue = false;
           return;
@@ -537,7 +665,7 @@ export class BackgroundIngestionQueue {
 
         await Promise.all(
           batch.map(async (unit, batchIdx) => {
-            if (queuedJob.status === "STALLED") return;
+            if ((queuedJob.status as string) === "STALLED") return;
             const unitGlobalIdx = i + batchIdx;
             if (
               unit.status === "COMPLETED" ||
@@ -729,7 +857,7 @@ export class BackgroundIngestionQueue {
       const hasTerminalFailures = queuedJob.processingUnits.some(u => u.status === "FAILED_TERMINAL");
       const hasDiscrepancies = allDiscrepancies.length > 0;
 
-      if (queuedJob.status === "STALLED") {
+      if ((queuedJob.status as string) === "STALLED") {
         console.warn(`[Hermes Queue ${queuedJob.id}] Job was marked STALLED during execution. Preserving STALLED state.`);
         this.isProcessingQueue = false;
         return;

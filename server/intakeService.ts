@@ -52,6 +52,7 @@ export class IntakeService {
     targetProjectId?: string | null;
     userId?: string;
     userEmail?: string;
+    engineMode?: string;
     uploadedFiles: IntakeSessionFileRecord[];
     documentIds: string[];
     stagedDocuments?: any[];
@@ -62,12 +63,14 @@ export class IntakeService {
   }): IntakeSessionRecord {
     const intakeId = `intake-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const nowStr = new Date().toISOString();
+    const effectiveEngineMode = params.engineMode || process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE';
 
     const session: IntakeSessionRecord = {
       id: intakeId,
       targetProjectId: params.targetProjectId || null,
       userId: params.userId || 'usr-default',
       userEmail: params.userEmail || '',
+      engineMode: effectiveEngineMode,
       uploadedFiles: params.uploadedFiles || [],
       documentIds: params.documentIds || [],
       queueJobIds: [],

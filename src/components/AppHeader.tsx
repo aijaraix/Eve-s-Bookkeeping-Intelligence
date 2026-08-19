@@ -171,7 +171,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center space-x-1.5 shadow-xs transition cursor-pointer animate-pulse"
             >
               <Cpu className="w-3.5 h-3.5 animate-spin" />
-              <span>Extraction Running ({activeQueueJob.progress || 10}%)</span>
+              <span>Extraction Active ({activeQueueJob.pagesCompleted || 0} / {activeQueueJob.pagesTotal || 1} pages)</span>
             </button>
           )}
 

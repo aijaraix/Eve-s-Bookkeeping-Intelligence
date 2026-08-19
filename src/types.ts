@@ -115,6 +115,7 @@ export interface DocumentRecord {
   filePath?: string;
   ingestionVersion?: string;
   isDuplicate?: boolean;
+  engineMode?: string;
 }
 
 export interface ProvenanceCoordinates {
@@ -153,6 +154,7 @@ export interface ExtractedFact {
   documentId: string;
   document_id?: string;
   factType: string;
+  extractionEngine?: 'HYBRID_GEMINI_NATIVE' | 'DETERMINISTIC_NATIVE' | 'LEGACY_PAGE_SWARM' | 'MANUAL_ENTRY' | 'DERIVED_CALCULATION' | string;
 
   // Taxonomy & Classification
   canonicalMetric?: 'revenue' | 'comparative_revenue' | 'cost_of_sales' | 'gross_profit' | 'operating_profit' | 'ebitda' | 'profit_before_tax' | 'net_income' | 'total_assets' | 'total_liabilities' | 'total_equity' | 'operating_cash_flow' | 'free_cash_flow' | 'investing_cash_flow' | 'financing_cash_flow' | 'unclassified' | string;
@@ -994,6 +996,8 @@ export type IngestionJobStatus =
   | "QUEUED"
   | "PROCESSING"
   | "WAITING_FOR_LLM"
+  | "WAITING_FOR_AI_CAPACITY"
+  | "CONFIGURATION_REQUIRED"
   | "RATE_LIMITED"
   | "RECOVERING"
   | "COMPLETED"
@@ -1039,6 +1043,7 @@ export interface QueueJobRecord {
   filePath?: string;
   textData?: string;
   functionalCurrency: string;
+  engineMode?: string;
   status: IngestionJobStatus;
   stage: IngestionJobStage;
   stageHistory: StageRecord[];
@@ -1057,6 +1062,10 @@ export interface QueueJobRecord {
   pagesCompleted: number;
   tasksTotal: number;
   tasksCompleted: number;
+  semanticTasksTotal?: number;
+  semanticTasksCompleted?: number;
+  semanticTasksFailed?: number;
+  semanticTasksWaiting?: number;
   factsExtractedCount?: number;
   pagesProcessedCount?: number;
   entitiesDiscoveredCount?: number;
@@ -1089,6 +1098,7 @@ export interface IntakeSessionRecord {
   targetProjectId?: string | null;
   userId?: string;
   userEmail?: string;
+  engineMode?: string;
   uploadedFiles: IntakeSessionFileRecord[];
   documentIds: string[];
   queueJobIds: string[];

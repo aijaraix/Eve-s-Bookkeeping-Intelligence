@@ -162,13 +162,13 @@ export function runPhaseH63AdversarialTests(): { name: string; passed: boolean; 
     } as unknown as ExtractedFact;
 
     const res4 = CanonicalFactResolver.resolveMetric([tier1Fact, tier4Fact], "net_income", "2025-FY");
-    const isTest4Passed = res4.primaryFact?.id === "fct-t1-netinc" && !res4.alternativeFacts.some(f => f.id === "fct-t4-mda" && SourceAuthorityRanker.rankFactAuthority(f).tier >= 4);
+    const isTest4Passed = res4.primaryFact?.id === "fct-t1-netinc" && res4.disqualifiedFacts?.some(f => f.id === "fct-t4-mda");
     recordTest(
       "Test 4: Tier 1 Disqualifies Tier 4-6 Non-Primary Candidates",
-      isTest4Passed,
+      Boolean(isTest4Passed),
       isTest4Passed
         ? "Tier 1 primary Net Income row selected and Tier 4 MD&A candidate was disqualified from winning canonical authority."
-        : `Failed: selectedId=${res4.primaryFact?.id}`
+        : `Failed: selectedId=${res4.primaryFact?.id}, alternativeIds=${res4.alternativeFacts?.map(f => f.id).join(",")}, disqualifiedIds=${res4.disqualifiedFacts?.map(f => f.id).join(",")}`
     );
   } catch (err: any) {
     recordTest("Test 4: Tier 1 Disqualifies Tier 4-6 Non-Primary Candidates", false, err.message);

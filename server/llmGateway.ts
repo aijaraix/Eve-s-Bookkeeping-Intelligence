@@ -89,6 +89,21 @@ export function getLLMGatewayMetrics() {
   };
 }
 
+export function getGeminiDiagnosticStatus(): 'CONFIGURED' | 'NOT_CONFIGURED' | 'INVALID_KEY' | 'NETWORK_UNAVAILABLE' | 'RATE_LIMITED' {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key.trim().length === 0) {
+    return 'NOT_CONFIGURED';
+  }
+  if (key.includes('invalid') || key.length < 10) {
+    return 'INVALID_KEY';
+  }
+  const cb = llmGatewayMetrics.circuitBreakers['GEMINI_DIRECT'];
+  if (cb && cb.state === 'OPEN') {
+    return 'RATE_LIMITED';
+  }
+  return 'CONFIGURED';
+}
+
 export function resetLLMGatewayState() {
   activeGlobalRequests = 0;
   waitingQueue.length = 0;

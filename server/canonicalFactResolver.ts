@@ -7,6 +7,7 @@ export interface CanonicalResolutionResult {
   metric: string;
   primaryFact: ExtractedFact | null;
   alternativeFacts: ExtractedFact[];
+  disqualifiedFacts?: ExtractedFact[];
   normalizedScalarValue: number | null;
   rawValue?: string | null;
   formattedValue: string;
@@ -897,6 +898,7 @@ export class CanonicalFactResolver {
     ]);
 
     let eligiblePool = candidates;
+    let disqualifiedFacts: ExtractedFact[] = [];
     if (primaryMetricsSet.has(targetMetric.toLowerCase())) {
       const hasTier1or2 = candidates.some(f => {
         const rank = SourceAuthorityRanker.rankFactAuthority(f);
@@ -907,6 +909,7 @@ export class CanonicalFactResolver {
           const rank = SourceAuthorityRanker.rankFactAuthority(f);
           return rank.tier === 1 || rank.tier === 2 || rank.tier === 3;
         });
+        disqualifiedFacts = candidates.filter(f => !eligiblePool.includes(f));
       }
     }
 
@@ -1007,6 +1010,7 @@ export class CanonicalFactResolver {
       metric: targetMetric,
       primaryFact: primary.fact,
       alternativeFacts,
+      disqualifiedFacts,
       normalizedScalarValue: val,
       formattedValue: formattedVal,
       currency: curr,
