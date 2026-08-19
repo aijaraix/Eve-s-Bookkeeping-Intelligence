@@ -262,7 +262,7 @@ export async function executeLLMQuery(
 
       const modelsToTry = [
         preferred,
-        "google/gemini-2.5-flash",
+        "google/gemini-3.6-flash",
         "anthropic/claude-3.7-sonnet",
         "anthropic/claude-3.5-sonnet",
         "openai/gpt-4o"
@@ -393,7 +393,7 @@ export async function executeLLMQuery(
       llmGatewayMetrics.providerFailovers++;
       console.log(`[LLM Gateway Scheduler] Failover initiated -> Attempting Direct Native Gemini API...`);
 
-      const geminiModels = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+      const geminiModels = ["gemini-3.6-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
       const ai = new GoogleGenAI({
         apiKey: process.env.GEMINI_API_KEY,
         httpOptions: {

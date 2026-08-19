@@ -24,7 +24,7 @@ export class DocumentMapService {
     documentHash: string;
     model?: string;
   }): Promise<DocumentMapModel> {
-    const model = params.model || process.env.DOCUMENT_MAP_MODEL || 'gemini-2.5-flash';
+    const model = params.model || process.env.DOCUMENT_MAP_MODEL || 'gemini-3.6-flash';
     const cacheKey = extractionTaskCache.computeCacheKey({
       documentHash: params.documentHash,
       taskType: 'DOCUMENT_MAP',

@@ -62,7 +62,7 @@ export class ExtractionTaskCache {
     promptVersion?: string;
   }): string {
     const periodStr = params.period || 'GENERAL';
-    const modelStr = params.model || 'gemini-2.5-flash';
+    const modelStr = params.model || 'gemini-3.6-flash';
     const versionStr = params.promptVersion || 'v1.0';
     return `${params.documentHash}_${params.taskType}_${periodStr}_${modelStr}_${versionStr}`;
   }

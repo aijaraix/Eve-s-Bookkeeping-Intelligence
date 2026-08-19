@@ -26,7 +26,7 @@ export class NoteExtractionPlanner {
           status: 'QUEUED',
           attempts: 0,
           provider: 'google',
-          model: process.env.PRIMARY_EXTRACTION_MODEL || 'gemini-2.5-flash',
+          model: process.env.PRIMARY_EXTRACTION_MODEL || 'gemini-3.6-flash',
           createdAt: nowStr,
           resultData: {
             noteNumber: note.noteNumber,

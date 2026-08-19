@@ -152,17 +152,17 @@ describe('Phase H.9 Hybrid Engine Architecture Unit Tests', () => {
     const cacheKey = extractionTaskCache.computeCacheKey({
       documentHash: 'abc123hash',
       taskType: 'DOCUMENT_MAP',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       promptVersion: 'v1.0'
     });
 
-    expect(cacheKey).toBe('abc123hash_DOCUMENT_MAP_GENERAL_gemini-2.5-flash_v1.0');
+    expect(cacheKey).toBe('abc123hash_DOCUMENT_MAP_GENERAL_gemini-3.6-flash_v1.0');
 
     extractionTaskCache.set({
       cacheKey,
       documentHash: 'abc123hash',
       taskType: 'DOCUMENT_MAP',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       promptVersion: 'v1.0',
       resultData: { documentTitle: 'Test Annual Report', primaryReportingCurrency: 'EUR' }
     });

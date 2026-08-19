@@ -28,7 +28,7 @@ export class StructuredStatementExtractor {
     reportingPeriod?: string;
     model?: string;
   }): Promise<StatementFactCandidate[]> {
-    const model = params.model || process.env.PRIMARY_EXTRACTION_MODEL || 'gemini-2.5-flash';
+    const model = params.model || process.env.PRIMARY_EXTRACTION_MODEL || 'gemini-3.6-flash';
     const period = params.reportingPeriod || 'FY2025';
 
     const cacheKey = extractionTaskCache.computeCacheKey({
