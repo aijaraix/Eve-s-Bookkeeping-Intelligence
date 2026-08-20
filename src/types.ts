@@ -991,6 +991,7 @@ export type IngestionJobStage =
   | "AUDIT_LINEAGE_VERIFIED"
   | "FINAL_RECONCILIATION_COMPLETED"
   | "WAITING_FOR_AI_CAPACITY"
+  | "WAITING_FOR_DAILY_CAPACITY"
   | "INGESTION_FAILED";
 
 export type IngestionJobStatus =
@@ -998,6 +999,7 @@ export type IngestionJobStatus =
   | "PROCESSING"
   | "WAITING_FOR_LLM"
   | "WAITING_FOR_AI_CAPACITY"
+  | "WAITING_FOR_DAILY_CAPACITY"
   | "CONFIGURATION_REQUIRED"
   | "RATE_LIMITED"
   | "RECOVERING"
@@ -1071,6 +1073,13 @@ export interface QueueJobRecord {
   pagesProcessedCount?: number;
   entitiesDiscoveredCount?: number;
   attemptCount: number;
+  nextRetryAt?: number;
+  capacityAttemptNumber?: number;
+  lastErrorType?: string;
+  httpCode?: number;
+  retryAfterMs?: number;
+  circuitState?: string;
+  lastSuccessfulStage?: string;
   processingUnits: ProcessingUnitRecord[];
   result?: {
     facts: ExtractedFact[];

@@ -152,7 +152,7 @@ export class IntakeService {
       }
       if (job.currentStage) stageNames.push(job.currentStage);
 
-      if (job.status === 'PROCESSING' || job.status === 'QUEUED' || job.status === 'STALLED' || job.status === 'RECOVERING') {
+      if (job.status === 'PROCESSING' || job.status === 'QUEUED' || job.status === 'STALLED' || job.status === 'RECOVERING' || job.status === 'WAITING_FOR_AI_CAPACITY' || job.status === 'WAITING_FOR_DAILY_CAPACITY') {
         isAllComplete = false;
       } else if (job.status === 'FAILED') {
         hasTerminalFailures = true;
@@ -174,6 +174,9 @@ export class IntakeService {
 
     session.updatedAt = new Date().toISOString();
 
+    const hasWaitingAi = intakeJobs.some(j => j.status === 'WAITING_FOR_AI_CAPACITY');
+    const hasWaitingDaily = intakeJobs.some(j => j.status === 'WAITING_FOR_DAILY_CAPACITY');
+
     if (isAllComplete) {
       if (hasTerminalFailures && session.pagesProcessed === 0) {
         session.status = 'FAILED';
@@ -185,6 +188,10 @@ export class IntakeService {
       }
       session.completedAt = new Date().toISOString();
       session.progress = 100;
+    } else if (hasWaitingDaily) {
+      session.status = 'WAITING_FOR_DAILY_CAPACITY';
+    } else if (hasWaitingAi) {
+      session.status = 'WAITING_FOR_AI_CAPACITY';
     } else {
       session.status = 'PROCESSING';
     }

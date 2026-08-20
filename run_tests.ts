@@ -6,6 +6,9 @@
  * Prohibited Hallucination: €59.60 Billion (discontinued or stale mock value)
  */
 
+process.env.NO_SERVER_LISTEN = "true";
+process.env.IS_SCRIPT = "true";
+
 import fs from "fs";
 import path from "path";
 import { parseValWithScale } from "./server";
@@ -15,6 +18,7 @@ import { CanonicalFactResolver } from "./server/canonicalFactResolver";
 import { runPhaseH4AdversarialTests } from "./server/tests/phaseH4Adversarial.test.js";
 import { runPhaseH63AdversarialTests } from "./server/tests/phaseH63Adversarial.test.js";
 import { runPhaseH94AdversarialTests } from "./server/tests/phaseH94Adversarial.test.js";
+import { runPhaseH941CapacityRecoveryTests } from "./server/tests/phaseH941CapacityRecovery.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -600,6 +604,15 @@ assert(
   h94Res.failures.length === 0 && h94Res.passed === 15,
   `Phase H.9.4 Suite failed (${h94Res.failures.length} failures): ${h94Res.failures.join("; ")}`,
   "All 15/15 Phase H.9.4 Safe Model Routing & Quota Control tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE H.9.4.1: CAPACITY RECOVERY STATE MACHINE & PERSISTENCE]${colors.reset}`);
+const h941Res = await runPhaseH941CapacityRecoveryTests();
+assert(
+  "Phase H.9.4.1 Capacity Recovery & Persistence Suite (6/6 Passed)",
+  h941Res.failures.length === 0 && h941Res.passed === 6,
+  `Phase H.9.4.1 Suite failed (${h941Res.failures.length} failures): ${h941Res.failures.join("; ")}`,
+  "All 6/6 Phase H.9.4.1 Capacity Recovery & Persistence tests passed cleanly."
 );
 
 

@@ -133,10 +133,12 @@ export async function executeWithGeminiRetry(
           const dailyError: any = new Error("Daily Gemini API quota exhausted. Task queued for available daily capacity.");
           dailyError.isDailyQuotaError = true;
           dailyError.errorType = 'DAILY_QUOTA_EXHAUSTED';
+          dailyError.retryAfterMs = retryAfterMs;
+          dailyError.httpCode = httpCode || 429;
           throw dailyError;
         }
 
-        const isRetriable = errorType === 'SERVICE_UNAVAILABLE' || errorType === 'RPM_LIMIT' || errorType === 'TPM_LIMIT' || errorType === 'REQUEST_TIMEOUT' || errorType === 'NETWORK_ERROR';
+        const isRetriable = errorType === 'SERVICE_UNAVAILABLE' || errorType === 'RATE_LIMIT_SHORT_TERM' || errorType === 'TOKEN_RATE_LIMIT' || errorType === 'RPM_LIMIT' || errorType === 'TPM_LIMIT' || errorType === 'REQUEST_TIMEOUT' || errorType === 'NETWORK_ERROR';
 
         if (isRetriable && attempt < maxAttempts) {
           const waitTimeMs = retryAfterMs || delayMs;
@@ -156,16 +158,19 @@ export async function executeWithGeminiRetry(
 
   // Formatting clean capacity error
   const rawMsg = lastError?.message || String(lastError);
-  let cleanMsg = "AI capacity temporarily limited. Your work is safely saved and will resume automatically.";
+  const parsedErr = modelDiscoveryService.classifyProviderError(lastError);
+  let cleanMsg = "AI capacity temporarily limited. Your work is safely saved. Processing will resume automatically.";
   if (lastErrorType === 'SERVICE_UNAVAILABLE') {
     cleanMsg = "Gemini service temporarily experiencing high demand (503). Retrying automatically.";
-  } else if (lastErrorType === 'RPM_LIMIT' || lastErrorType === 'TPM_LIMIT') {
+  } else if (lastErrorType === 'RATE_LIMIT_SHORT_TERM' || lastErrorType === 'TOKEN_RATE_LIMIT' || lastErrorType === 'RPM_LIMIT' || lastErrorType === 'TPM_LIMIT') {
     cleanMsg = "AI capacity temporarily limited. Processing will resume automatically.";
   }
 
   const customError: any = new Error(cleanMsg);
   customError.isCapacityError = true;
   customError.errorType = lastErrorType || 'UNKNOWN_PROVIDER_ERROR';
+  customError.retryAfterMs = parsedErr.retryAfterMs;
+  customError.httpCode = parsedErr.httpCode;
   customError.rawError = lastError;
   throw customError;
 }

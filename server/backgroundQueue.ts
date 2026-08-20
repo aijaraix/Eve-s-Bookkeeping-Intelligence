@@ -147,6 +147,7 @@ export class BackgroundIngestionQueue {
         const raw = fs.readFileSync(queueFile, "utf-8");
         const list: QueueJob[] = JSON.parse(raw);
         if (Array.isArray(list)) {
+          const now = Date.now();
           list.forEach(job => {
             if (job.status === "PROCESSING" || job.status === "WAITING_FOR_LLM" || job.status === "RATE_LIMITED" || job.status === "RECOVERING") {
               job.status = "QUEUED";
@@ -156,6 +157,16 @@ export class BackgroundIngestionQueue {
                   u.status = "QUEUED";
                 }
               });
+            } else if (job.status === "WAITING_FOR_AI_CAPACITY") {
+              const delay = job.nextRetryAt ? Math.max(10, job.nextRetryAt - now) : 10;
+              console.log(`[Hermes Queue ${job.id}] Loaded persisted WAITING_FOR_AI_CAPACITY job. Resuming in ${Math.round(delay / 1000)}s.`);
+              setTimeout(() => {
+                if (job.status === "WAITING_FOR_AI_CAPACITY") {
+                  job.status = "QUEUED";
+                  this.saveQueueToDiskAsync(true);
+                  this.processNextJob();
+                }
+              }, delay);
             }
             this.jobs.set(job.id, job);
           });
@@ -167,6 +178,65 @@ export class BackgroundIngestionQueue {
       console.error("[Hermes Queue] Failed to load queue from disk:", err);
     }
     setTimeout(() => this.processNextJob(), 100);
+  }
+
+  private handleJobCapacityPause(queuedJob: QueueJob, err: any) {
+    const errStr = err?.message || String(err);
+    const isDaily = err?.isDailyQuotaError || err?.errorType === 'DAILY_QUOTA_EXHAUSTED' || errStr.toLowerCase().includes('daily');
+
+    if (isDaily) {
+      console.warn(`[Hermes Queue ${queuedJob.id}] Daily Gemini API quota exhausted. Task set to WAITING_FOR_DAILY_CAPACITY.`);
+      queuedJob.status = "WAITING_FOR_DAILY_CAPACITY";
+      queuedJob.currentStage = "AI Analysis Queued for Daily Capacity";
+      queuedJob.error = "AI analysis is queued for available daily capacity.";
+      queuedJob.lastError = queuedJob.error;
+      queuedJob.lastErrorType = 'DAILY_QUOTA_EXHAUSTED';
+      queuedJob.httpCode = err?.httpCode || 429;
+      queuedJob.nextRetryAt = err?.retryAfterMs ? Date.now() + err.retryAfterMs : Date.now() + 86400000;
+      this.advanceJobStage(
+        queuedJob,
+        "WAITING_FOR_DAILY_CAPACITY",
+        "IN_PROGRESS",
+        "AI analysis is queued for available daily capacity."
+      );
+      return;
+    }
+
+    const capacityAttempt = (queuedJob.capacityAttemptNumber || 0) + 1;
+    queuedJob.capacityAttemptNumber = capacityAttempt;
+
+    const baseMs = 12000 * Math.pow(2, capacityAttempt - 1);
+    const jitter = Math.floor(Math.random() * 4000) - 2000;
+    const calcBackoff = Math.min(300000, Math.max(10000, baseMs + jitter));
+    const retryDelayMs = err?.retryAfterMs || calcBackoff;
+    const nextRetryAt = Date.now() + retryDelayMs;
+
+    queuedJob.nextRetryAt = nextRetryAt;
+    queuedJob.retryAfterMs = retryDelayMs;
+    queuedJob.lastErrorType = err?.errorType || (errStr.includes('503') ? 'SERVICE_UNAVAILABLE' : 'RATE_LIMIT_SHORT_TERM');
+    queuedJob.httpCode = err?.httpCode || (errStr.includes('503') ? 503 : 429);
+    queuedJob.status = "WAITING_FOR_AI_CAPACITY";
+    queuedJob.currentStage = "AI Analysis Temporarily Paused (Waiting for Capacity)";
+    queuedJob.error = "AI model capacity temporarily busy due to high demand. Processing will resume automatically.";
+    queuedJob.lastError = queuedJob.error;
+
+    console.warn(`[Hermes Queue ${queuedJob.id}] Temporary AI model capacity pause (attempt ${capacityAttempt}). Scheduling automatic retry in ${Math.round(retryDelayMs / 1000)}s...`);
+
+    this.advanceJobStage(
+      queuedJob,
+      "WAITING_FOR_AI_CAPACITY",
+      "IN_PROGRESS",
+      `AI model capacity temporarily busy. Retrying automatically in ${Math.round(retryDelayMs / 1000)}s...`
+    );
+
+    setTimeout(() => {
+      if (queuedJob.status === "WAITING_FOR_AI_CAPACITY") {
+        console.log(`[Hermes Queue ${queuedJob.id}] Resuming job after capacity pause...`);
+        queuedJob.status = "QUEUED";
+        this.saveQueueToDiskAsync(true);
+        this.processNextJob();
+      }
+    }, retryDelayMs);
   }
 
   public advanceJobStage(
@@ -629,43 +699,30 @@ export class BackgroundIngestionQueue {
             }
           }
         } else {
-          queuedJob.status = "FAILED";
-          queuedJob.error = hybridRes.error || "Hybrid extraction pipeline failed";
-          queuedJob.lastError = queuedJob.error;
-          this.advanceJobStage(
-            queuedJob,
-            "INGESTION_FAILED",
-            "FAILED",
-            `Hybrid extraction failed: ${queuedJob.error}`
-          );
+          const errStr = hybridRes.error || "Hybrid extraction pipeline failed";
+          const isCapacity = errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('high demand') || errStr.includes('overloaded') || errStr.includes('capacity');
+
+          if (isCapacity) {
+            this.handleJobCapacityPause(queuedJob, { message: errStr });
+          } else {
+            queuedJob.status = "FAILED";
+            queuedJob.error = errStr;
+            queuedJob.lastError = queuedJob.error;
+            this.advanceJobStage(
+              queuedJob,
+              "INGESTION_FAILED",
+              "FAILED",
+              `Hybrid extraction failed: ${queuedJob.error}`
+            );
+          }
         }
       } catch (hybridErr: any) {
         console.error(`[Hermes Queue ${queuedJob.id}] Hybrid processing exception:`, hybridErr);
         const errStr = hybridErr?.message || String(hybridErr);
-        const isCapacity = hybridErr?.isCapacityError || errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('high demand') || errStr.includes('overloaded');
+        const isCapacity = hybridErr?.isCapacityError || hybridErr?.isDailyQuotaError || errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('high demand') || errStr.includes('overloaded');
 
         if (isCapacity) {
-          console.warn(`[Hermes Queue ${queuedJob.id}] Temporary AI model capacity pause: ${errStr}. Scheduling automatic retry in 12s.`);
-          queuedJob.status = "WAITING_FOR_AI_CAPACITY";
-          queuedJob.currentStage = "AI Analysis Temporarily Paused (Waiting for Capacity)";
-          queuedJob.error = "AI model capacity temporarily busy due to high demand. Processing will resume automatically.";
-          queuedJob.lastError = queuedJob.error;
-          this.advanceJobStage(
-            queuedJob,
-            "WAITING_FOR_AI_CAPACITY",
-            "IN_PROGRESS",
-            "AI model capacity temporarily busy. Retrying automatically in background..."
-          );
-
-          // Schedule automatic retry in background after 12 seconds
-          setTimeout(() => {
-            if (queuedJob.status === "WAITING_FOR_AI_CAPACITY") {
-              console.log(`[Hermes Queue ${queuedJob.id}] Resuming job after capacity pause...`);
-              queuedJob.status = "QUEUED";
-              this.saveQueueToDiskAsync(true);
-              this.processNextJob();
-            }
-          }, 12000);
+          this.handleJobCapacityPause(queuedJob, hybridErr);
         } else {
           queuedJob.status = "FAILED";
           queuedJob.error = errStr;

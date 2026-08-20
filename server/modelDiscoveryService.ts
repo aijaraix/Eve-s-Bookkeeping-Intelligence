@@ -9,15 +9,17 @@ export type ModelHealthState =
   | 'UNAVAILABLE_RATE_LIMIT';
 
 export type ProviderErrorType = 
-  | 'MODEL_NOT_FOUND'
-  | 'AUTHENTICATION_ERROR'
-  | 'PERMISSION_ERROR'
+  | 'SERVICE_UNAVAILABLE'
+  | 'RATE_LIMIT_SHORT_TERM'
+  | 'TOKEN_RATE_LIMIT'
   | 'RPM_LIMIT'
   | 'TPM_LIMIT'
   | 'DAILY_QUOTA_EXHAUSTED'
-  | 'SERVICE_UNAVAILABLE'
-  | 'REQUEST_TIMEOUT'
+  | 'MODEL_NOT_FOUND'
+  | 'AUTHENTICATION_ERROR'
+  | 'PERMISSION_ERROR'
   | 'NETWORK_ERROR'
+  | 'REQUEST_TIMEOUT'
   | 'INVALID_REQUEST'
   | 'UNKNOWN_PROVIDER_ERROR';
 
@@ -224,51 +226,72 @@ class ModelDiscoveryService {
    * Classifies provider errors into explicit taxonomy
    */
   public classifyProviderError(err: any, statusCode?: number): { errorType: ProviderErrorType; httpCode?: number; retryAfterMs?: number } {
-    const msg = (err?.message || String(err)).toLowerCase();
+    const rawMsg = err?.message || String(err);
+    const msg = rawMsg.toLowerCase();
     const code = statusCode || err?.status || err?.code || err?.statusCode;
 
+    // Parse retryAfterMs if present in rawMsg or headers
+    let retryAfterMs: number | undefined = undefined;
+    const retryInMatch = rawMsg.match(/retry in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:([\d\.]+)s)?/i);
+    if (retryInMatch) {
+      const h = parseInt(retryInMatch[1] || '0', 10);
+      const m = parseInt(retryInMatch[2] || '0', 10);
+      const s = parseFloat(retryInMatch[3] || '0');
+      const total = (h * 3600 + m * 60 + s) * 1000;
+      if (total > 0) retryAfterMs = Math.round(total);
+    } else {
+      const retryAfterHeaderMatch = rawMsg.match(/retry-after[:=\s]+(\d+)/i);
+      if (retryAfterHeaderMatch) {
+        const secs = parseInt(retryAfterHeaderMatch[1], 10);
+        if (!isNaN(secs) && secs > 0) retryAfterMs = secs * 1000;
+      }
+    }
+
     if (code === 404 || msg.includes("404") || msg.includes("model_not_found") || msg.includes("not found") || msg.includes("unrecognized model")) {
-      return { errorType: 'MODEL_NOT_FOUND', httpCode: 404 };
+      return { errorType: 'MODEL_NOT_FOUND', httpCode: 404, retryAfterMs };
     }
     if (code === 401 || msg.includes("401") || msg.includes("unauthenticated") || msg.includes("invalid api key") || msg.includes("invalid_key")) {
-      return { errorType: 'AUTHENTICATION_ERROR', httpCode: 401 };
+      return { errorType: 'AUTHENTICATION_ERROR', httpCode: 401, retryAfterMs };
     }
     if (code === 403 || msg.includes("403") || msg.includes("permission_denied")) {
-      return { errorType: 'PERMISSION_ERROR', httpCode: 403 };
+      return { errorType: 'PERMISSION_ERROR', httpCode: 403, retryAfterMs };
     }
 
     // 429 Handling
     if (code === 429 || msg.includes("429") || msg.includes("resource_exhausted") || msg.includes("quota")) {
-      if (msg.includes("daily") || msg.includes("per day") || msg.includes("per_day") || msg.includes("free tier limit")) {
-        return { errorType: 'DAILY_QUOTA_EXHAUSTED', httpCode: 429 };
+      if (msg.includes("daily") || msg.includes("per day") || msg.includes("per_day") || msg.includes("free tier limit") || (retryAfterMs && retryAfterMs > 3600000)) {
+        return { errorType: 'DAILY_QUOTA_EXHAUSTED', httpCode: 429, retryAfterMs };
       }
       if (msg.includes("tpm") || msg.includes("token") || msg.includes("tokens per minute")) {
-        return { errorType: 'TPM_LIMIT', httpCode: 429 };
+        return { errorType: 'TPM_LIMIT', httpCode: 429, retryAfterMs };
       }
-      return { errorType: 'RPM_LIMIT', httpCode: 429 };
+      if (msg.includes("rpm") || msg.includes("request") || msg.includes("requests per minute")) {
+        return { errorType: 'RPM_LIMIT', httpCode: 429, retryAfterMs };
+      }
+      return { errorType: 'RATE_LIMIT_SHORT_TERM', httpCode: 429, retryAfterMs };
     }
 
     // 5xx Handling
-    if (code === 503 || code === 500 || code === 502 || code === 504 || msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded") || msg.includes("server error")) {
-      return { errorType: 'SERVICE_UNAVAILABLE', httpCode: typeof code === 'number' ? code : 503 };
+    if (code === 503 || code === 500 || code === 502 || code === 504 || msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded") || msg.includes("server error") || msg.includes("high demand")) {
+      return { errorType: 'SERVICE_UNAVAILABLE', httpCode: typeof code === 'number' ? code : 503, retryAfterMs };
     }
 
     // Timeout / Abort
     if (msg.includes("timeout") || msg.includes("aborted") || msg.includes("abort")) {
-      return { errorType: 'REQUEST_TIMEOUT', httpCode: 408 };
+      return { errorType: 'REQUEST_TIMEOUT', httpCode: 408, retryAfterMs };
     }
 
     // Network Error
     if (msg.includes("fetch failed") || msg.includes("econnreset") || msg.includes("enotfound") || msg.includes("network")) {
-      return { errorType: 'NETWORK_ERROR', httpCode: 0 };
+      return { errorType: 'NETWORK_ERROR', httpCode: 0, retryAfterMs };
     }
 
     // 400 Bad Request
     if (code === 400 || msg.includes("bad request") || msg.includes("invalid argument")) {
-      return { errorType: 'INVALID_REQUEST', httpCode: 400 };
+      return { errorType: 'INVALID_REQUEST', httpCode: 400, retryAfterMs };
     }
 
-    return { errorType: 'UNKNOWN_PROVIDER_ERROR', httpCode: typeof code === 'number' ? code : 500 };
+    return { errorType: 'UNKNOWN_PROVIDER_ERROR', httpCode: typeof code === 'number' ? code : 500, retryAfterMs };
   }
 
   /**
