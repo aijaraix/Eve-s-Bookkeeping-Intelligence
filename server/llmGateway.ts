@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { LLMGatewayRequest, LLMGatewayResponse } from "../src/types.js";
+import { modelDiscoveryService, RoutingTaskType } from "./modelDiscoveryService.js";
 
 // Helper for delay
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,6 +24,12 @@ export const LLM_CONFIG = {
   },
   get JOB_STALL_TIMEOUT_MS() {
     return parseInt(process.env.JOB_STALL_TIMEOUT_MS || (process.env.NODE_ENV === "test" ? "30000" : "300000"), 10);
+  },
+  get COST_MODE(): 'FREE_FIRST' | 'LOW_COST' | 'FAST' | 'ENTERPRISE' {
+    return (process.env.AI_COST_MODE as any) || 'FREE_FIRST';
+  },
+  get ALLOW_PAID_PROVIDER_FALLBACK(): boolean {
+    return process.env.ALLOW_PAID_PROVIDER_FALLBACK === 'true';
   }
 };
 
@@ -86,6 +93,8 @@ export function getLLMGatewayMetrics() {
     requestsActive: activeGlobalRequests,
     requestsQueued: waitingQueue.length,
     circuitBreakers: llmGatewayMetrics.circuitBreakers,
+    dailyQuotaStatus: modelDiscoveryService.getDailyQuotaStatus(),
+    discoveredModels: modelDiscoveryService.getDiscoveredModelsTable()
   };
 }
 
@@ -122,6 +131,7 @@ export function resetLLMGatewayState() {
   for (const name in circuitBreakers) {
     circuitBreakers[name] = { state: "CLOSED", consecutiveFailures: 0, openUntil: 0, halfOpenProbeInFlight: false, activeRequests: 0 };
   }
+  modelDiscoveryService.resetAllRegistryState();
 }
 
 // Concurrency Semaphore Acquire / Release
@@ -205,7 +215,7 @@ export function recordProviderFailure(providerName: string, statusCode?: number 
   if (cb.consecutiveFailures >= 3 || cb.state === "HALF_OPEN") {
     cb.state = "OPEN";
     cb.openUntil = Date.now() + 20000; // 20s cooldown
-    console.warn(`[LLM Gateway Circuit Breaker] Provider ${providerName} switched to OPEN (Throttled/Unavailable) for 20s due to ${cb.consecutiveFailures} failures.`);
+    console.warn(`[LLM Gateway Scheduler Circuit Breaker] Provider ${providerName} switched to OPEN (Throttled/Unavailable) for 20s due to ${cb.consecutiveFailures} failures.`);
   }
 }
 
@@ -238,7 +248,7 @@ function parseRetryAfter(headerValue?: string | null): number | null {
 }
 
 export async function executeLLMQuery(
-  request: LLMGatewayRequest & { workspaceId?: string; documentId?: string; unitId?: string },
+  request: LLMGatewayRequest & { workspaceId?: string; documentId?: string; unitId?: string; taskType?: RoutingTaskType },
   apiKeyOverride?: string
 ): Promise<LLMGatewayResponse> {
   const startTime = Date.now();
@@ -251,11 +261,114 @@ export async function executeLLMQuery(
   let retryCount = 0;
 
   try {
-    const openRouterKey = apiKeyOverride || process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY;
     const systemPrompt = request.systemInstruction || "You are an expert financial auditor, CPA, and forensic accountant.";
+    const taskType: RoutingTaskType = request.taskType || 'GENERAL_PROMPT';
 
-    // Provider Priority 1: OpenRouter (Claude / Gemini / GPT models)
-    if (openRouterKey && openRouterKey.trim().length > 0 && checkProviderAvailable("OPENROUTER")) {
+    // Priority 1: Native Direct Gemini API
+    if (process.env.GEMINI_API_KEY && checkProviderAvailable("GEMINI_DIRECT")) {
+      const geminiCandidateModels = modelDiscoveryService.getCandidateModelsForTask(taskType, {
+        requiresPdf: false,
+        requiresStructuredOutput: !!request.jsonSchemaFormat
+      });
+
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: { 'User-Agent': 'aistudio-build' }
+        }
+      });
+      const fullPrompt = `${systemPrompt}\n\nUSER REQUEST / INPUT DATA:\n${request.prompt}`;
+
+      for (const modelName of geminiCandidateModels) {
+        let modelAttempt = 0;
+        const maxRetries = Math.min(3, LLM_CONFIG.MAX_RETRIES);
+
+        while (modelAttempt <= maxRetries) {
+          const callStart = Date.now();
+          try {
+            circuitBreakers.GEMINI_DIRECT.activeRequests++;
+
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`Gemini API call timed out after ${LLM_CONFIG.REQUEST_TIMEOUT_MS}ms`)), LLM_CONFIG.REQUEST_TIMEOUT_MS)
+            );
+
+            const apiPromise = ai.models.generateContent({
+              model: modelName,
+              contents: fullPrompt,
+              config: request.jsonSchemaFormat ? { responseMimeType: "application/json" } : undefined,
+            });
+
+            const response: any = await Promise.race([apiPromise, timeoutPromise]);
+            circuitBreakers.GEMINI_DIRECT.activeRequests = Math.max(0, circuitBreakers.GEMINI_DIRECT.activeRequests - 1);
+            const callDuration = Date.now() - callStart;
+
+            const content = response.text || "";
+            if (content) {
+              recordProviderSuccess("GEMINI_DIRECT");
+              modelDiscoveryService.recordModelSuccess(modelName);
+              providerAttemptHistory.push({ provider: "GEMINI_DIRECT", model: modelName, status: 200, durationMs: callDuration });
+              updateLatencyStats(Date.now() - startTime);
+
+              return {
+                content,
+                modelUsed: modelName,
+                provider: "GEMINI_DIRECT",
+                executionTimeMs: Date.now() - startTime,
+                retryCount,
+                providerAttemptHistory,
+              };
+            }
+          } catch (err: any) {
+            circuitBreakers.GEMINI_DIRECT.activeRequests = Math.max(0, circuitBreakers.GEMINI_DIRECT.activeRequests - 1);
+            const callDuration = Date.now() - callStart;
+            const { errorType, httpCode, retryAfterMs } = modelDiscoveryService.classifyProviderError(err);
+
+            if (httpCode === 429) llmGatewayMetrics.http429Count++;
+            if (httpCode && httpCode >= 500) llmGatewayMetrics.http5xxCount++;
+
+            modelDiscoveryService.recordModelFailure(modelName, err, httpCode);
+            providerAttemptHistory.push({ provider: "GEMINI_DIRECT", model: modelName, status: httpCode || "ERROR", durationMs: callDuration, error: err?.message });
+
+            // Spec 6: MODEL_NOT_FOUND (404) -> Bypasses retries on current model
+            if (errorType === 'MODEL_NOT_FOUND') {
+              console.warn(`[LLM Gateway Scheduler] Gemini ${modelName} returned 404 MODEL_NOT_FOUND. Bypassing model.`);
+              break;
+            }
+
+            // Spec 10: DAILY_QUOTA_EXHAUSTED -> Stop spinning
+            if (errorType === 'DAILY_QUOTA_EXHAUSTED') {
+              console.warn(`[LLM Gateway Scheduler] Daily Gemini quota exhausted on ${modelName}.`);
+              break;
+            }
+
+            if ((errorType === 'RPM_LIMIT' || errorType === 'SERVICE_UNAVAILABLE') && modelAttempt < maxRetries) {
+              retryCount++;
+              llmGatewayMetrics.retryCount++;
+              recordProviderFailure("GEMINI_DIRECT", httpCode);
+
+              const backoffMs = retryAfterMs || (Math.min(1000 * Math.pow(2, modelAttempt), 16000) + Math.floor(Math.random() * 1000));
+              console.warn(`[LLM Gateway Scheduler] Native Gemini ${modelName} ${errorType} (attempt ${modelAttempt + 1}/${maxRetries}). Backing off ${backoffMs}ms...`);
+              await sleep(backoffMs);
+              modelAttempt++;
+              continue;
+            }
+
+            recordProviderFailure("GEMINI_DIRECT", httpCode);
+            break;
+          }
+        }
+      }
+    }
+
+    // Specifications 15 & 16: OpenRouter / Claude Escalation ONLY IF enabled!
+    // In FREE_FIRST mode (default), automatic paid fallback is DISABLED.
+    const isPaidFallbackAllowed = LLM_CONFIG.COST_MODE !== 'FREE_FIRST' || LLM_CONFIG.ALLOW_PAID_PROVIDER_FALLBACK;
+    const openRouterKey = apiKeyOverride || process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY;
+
+    if (isPaidFallbackAllowed && openRouterKey && openRouterKey.trim().length > 0 && checkProviderAvailable("OPENROUTER")) {
+      llmGatewayMetrics.providerFailovers++;
+      console.log(`[LLM Gateway Scheduler] Paid Provider Fallback Initiated (ALLOW_PAID_PROVIDER_FALLBACK=true / Mode: ${LLM_CONFIG.COST_MODE})...`);
+
       const preferred = request.preferredModel && !request.preferredModel.includes("3.5-sonnet")
         ? request.preferredModel
         : "anthropic/claude-3.7-sonnet";
@@ -264,8 +377,7 @@ export async function executeLLMQuery(
         preferred,
         "google/gemini-3.6-flash",
         "anthropic/claude-3.7-sonnet",
-        "anthropic/claude-3.5-sonnet",
-        "openai/gpt-4o"
+        "anthropic/claude-3.5-sonnet"
       ].filter((m, idx, self) => self.indexOf(m) === idx);
 
       for (const targetModel of modelsToTry) {
@@ -337,7 +449,6 @@ export async function executeLLMQuery(
               }
             }
 
-            // Handle Non-200 Responses
             const is429 = response.status === 429;
             const is5xx = response.status >= 500 && response.status < 600;
 
@@ -361,7 +472,7 @@ export async function executeLLMQuery(
             }
 
             recordProviderFailure("OPENROUTER", response.status);
-            break; // Try next model or failover to Gemini
+            break;
           } catch (err: any) {
             circuitBreakers.OPENROUTER.activeRequests = Math.max(0, circuitBreakers.OPENROUTER.activeRequests - 1);
             const callDuration = Date.now() - callStart;
@@ -388,85 +499,6 @@ export async function executeLLMQuery(
       }
     }
 
-    // Provider Priority 2: Native Gemini Direct API Failover
-    if (process.env.GEMINI_API_KEY && checkProviderAvailable("GEMINI_DIRECT")) {
-      llmGatewayMetrics.providerFailovers++;
-      console.log(`[LLM Gateway Scheduler] Failover initiated -> Attempting Direct Native Gemini API...`);
-
-      const geminiModels = ["gemini-3.6-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
-      const ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
-        httpOptions: {
-          headers: { 'User-Agent': 'aistudio-build' }
-        }
-      });
-      const fullPrompt = `${systemPrompt}\n\nUSER REQUEST / INPUT DATA:\n${request.prompt}`;
-
-      for (const modelName of geminiModels) {
-        let modelAttempt = 0;
-        const maxRetries = Math.min(3, LLM_CONFIG.MAX_RETRIES);
-
-        while (modelAttempt <= maxRetries) {
-          const callStart = Date.now();
-          try {
-            circuitBreakers.GEMINI_DIRECT.activeRequests++;
-
-            const timeoutPromise = new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error(`Gemini API call timed out after ${LLM_CONFIG.REQUEST_TIMEOUT_MS}ms`)), LLM_CONFIG.REQUEST_TIMEOUT_MS)
-            );
-
-            const apiPromise = ai.models.generateContent({
-              model: modelName,
-              contents: fullPrompt,
-              config: request.jsonSchemaFormat ? { responseMimeType: "application/json" } : undefined,
-            });
-
-            const response: any = await Promise.race([apiPromise, timeoutPromise]);
-            circuitBreakers.GEMINI_DIRECT.activeRequests = Math.max(0, circuitBreakers.GEMINI_DIRECT.activeRequests - 1);
-            const callDuration = Date.now() - callStart;
-
-            const content = response.text || "";
-            if (content) {
-              recordProviderSuccess("GEMINI_DIRECT");
-              providerAttemptHistory.push({ provider: "GEMINI_DIRECT", model: modelName, status: 200, durationMs: callDuration });
-              updateLatencyStats(Date.now() - startTime);
-
-              return {
-                content,
-                modelUsed: modelName,
-                provider: "GEMINI_DIRECT",
-                executionTimeMs: Date.now() - startTime,
-                retryCount,
-                providerAttemptHistory,
-              };
-            }
-          } catch (err: any) {
-            circuitBreakers.GEMINI_DIRECT.activeRequests = Math.max(0, circuitBreakers.GEMINI_DIRECT.activeRequests - 1);
-            const callDuration = Date.now() - callStart;
-            const is429 = err?.status === "RESOURCE_EXHAUSTED" || err?.code === 429 || (err?.message && err.message.includes("429"));
-            if (is429) llmGatewayMetrics.http429Count++;
-
-            providerAttemptHistory.push({ provider: "GEMINI_DIRECT", model: modelName, status: is429 ? 429 : "ERROR", durationMs: callDuration, error: err?.message });
-
-            if (is429 && modelAttempt < maxRetries) {
-              retryCount++;
-              llmGatewayMetrics.retryCount++;
-              recordProviderFailure("GEMINI_DIRECT", 429);
-
-              const backoffMs = Math.min(1000 * Math.pow(2, modelAttempt), 16000) + Math.floor(Math.random() * 1000);
-              console.warn(`[LLM Gateway Scheduler] Native Gemini ${modelName} 429 Rate Limit (attempt ${modelAttempt + 1}/${maxRetries}). Backing off ${backoffMs}ms...`);
-              await sleep(backoffMs);
-              modelAttempt++;
-              continue;
-            }
-
-            recordProviderFailure("GEMINI_DIRECT", is429 ? 429 : "ERROR");
-            break;
-          }
-        }
-      }
-    }
-
     // Final Deterministic Fallback
     updateLatencyStats(Date.now() - startTime);
     return {
@@ -474,7 +506,7 @@ export async function executeLLMQuery(
       modelUsed: "none",
       provider: "FALLBACK_HEURISTIC",
       executionTimeMs: Date.now() - startTime,
-      error: "All LLM providers throttled or unavailable.",
+      error: "All LLM providers throttled, exhausted, or unavailable.",
       retryCount,
       providerAttemptHistory,
     };
@@ -502,3 +534,4 @@ export function parseLLMJsonResponse<T>(content: string): T | null {
     return null;
   }
 }
+

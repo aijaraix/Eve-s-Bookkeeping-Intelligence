@@ -90,11 +90,13 @@ export class HybridExtractionOrchestrator {
         });
         semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'COMPLETED');
       } catch (mapErr: any) {
-        if (mapErr?.message?.includes('429') || mapErr?.message?.includes('RESOURCE_EXHAUSTED')) {
-          semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'WAITING_FOR_AI_CAPACITY', { error: 'Gemini capacity reached. Paused automatically.' });
+        const errStr = mapErr?.message || String(mapErr);
+        const isCap = mapErr?.isCapacityError || errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('high demand');
+        if (isCap) {
+          semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'WAITING_FOR_AI_CAPACITY', { error: 'Gemini capacity temporarily reached. Paused automatically.' });
           updateProgress('AI Analysis Temporarily Paused (Waiting for Capacity)', 25);
         } else {
-          semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'FAILED', { error: mapErr?.message || String(mapErr) });
+          semanticTaskManager.updateTaskStatus(docMapTask.taskId, 'FAILED', { error: errStr });
         }
         throw mapErr;
       }

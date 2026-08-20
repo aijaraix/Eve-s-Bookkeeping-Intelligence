@@ -14,6 +14,7 @@ import { ReviewerEngine } from "./server/reviewerEngine";
 import { CanonicalFactResolver } from "./server/canonicalFactResolver";
 import { runPhaseH4AdversarialTests } from "./server/tests/phaseH4Adversarial.test.js";
 import { runPhaseH63AdversarialTests } from "./server/tests/phaseH63Adversarial.test.js";
+import { runPhaseH94AdversarialTests } from "./server/tests/phaseH94Adversarial.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -591,6 +592,15 @@ const h63Res = runPhaseH63AdversarialTests();
 h63Res.forEach(test => {
   assert(test.name, test.passed, test.message, test.message);
 });
+
+console.log(`\n${colors.bold}[SUITE H.9.4: PROVIDER DISCOVERY, ROUTING & FREE-FIRST QUOTA CONTROL]${colors.reset}`);
+const h94Res = await runPhaseH94AdversarialTests();
+assert(
+  "Phase H.9.4 Safe Model Routing & Quota Control Suite (15/15 Passed)",
+  h94Res.failures.length === 0 && h94Res.passed === 15,
+  `Phase H.9.4 Suite failed (${h94Res.failures.length} failures): ${h94Res.failures.join("; ")}`,
+  "All 15/15 Phase H.9.4 Safe Model Routing & Quota Control tests passed cleanly."
+);
 
 
 // Final Reporting

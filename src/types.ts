@@ -990,6 +990,7 @@ export type IngestionJobStage =
   | "GAP_ANALYSIS_COMPLETED"
   | "AUDIT_LINEAGE_VERIFIED"
   | "FINAL_RECONCILIATION_COMPLETED"
+  | "WAITING_FOR_AI_CAPACITY"
   | "INGESTION_FAILED";
 
 export type IngestionJobStatus =

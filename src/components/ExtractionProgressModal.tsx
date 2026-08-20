@@ -12,16 +12,18 @@ import {
   Clock,
   Cloud,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Minimize2
 } from 'lucide-react';
 import { Workspace } from '../types';
 
 export interface ServerQueueJob {
   id: string;
   workspaceId: string;
+  intakeSessionId?: string;
   documentId: string;
   documentTitle: string;
-  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "REVIEW_REQUIRED" | "FAILED" | "STALLED";
+  status: "QUEUED" | "PROCESSING" | "WAITING_FOR_AI_CAPACITY" | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "REVIEW_REQUIRED" | "FAILED" | "STALLED";
   stage?: string;
   stageHistory?: Array<{
     stage: string;
@@ -547,7 +549,7 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
         </div>
 
         {/* Action Button Footer */}
-        {isComplete && (
+        {isComplete ? (
           <div className="space-y-1.5 pt-1.5 border-t border-neutral-100 shrink-0">
             <button
               type="button"
@@ -557,6 +559,20 @@ export const ExtractionProgressModal: React.FC<ExtractionProgressModalProps> = (
               <span>View Extracted Workspace & Financials</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
+          </div>
+        ) : (
+          <div className="pt-2 border-t border-neutral-100 shrink-0 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={handleCloseClick}
+              className="flex-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer text-xs border border-neutral-300"
+            >
+              <Minimize2 className="w-3.5 h-3.5 text-neutral-600" />
+              <span>Surf Site in Background</span>
+            </button>
+            <span className="text-[10px] text-neutral-500 font-mono hidden sm:inline shrink-0">
+              ⚡ Extraction running in background
+            </span>
           </div>
         )}
 

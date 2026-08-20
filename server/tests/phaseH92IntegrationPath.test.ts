@@ -48,17 +48,29 @@ describe('36B. HYBRID INTEGRATION-PATH PROOF', () => {
       documentMapCreated = true;
       return {
         documentType: 'ANNUAL_REPORT',
+        documentTitle: 'Integration Test Annual Report',
         documentIssuer: 'Integration Test Corp',
+        legalEntities: ['Integration Test Corp'],
+        reportingEntities: ['Integration Test Corp'],
+        reportingScopes: ['CONSOLIDATED' as any],
         primaryReportingCurrency: 'EUR',
+        fiscalPeriods: ['2025'],
+        currencies: ['EUR'],
+        functionalCurrencies: ['EUR'],
+        languages: ['en'],
+        importantNotes: [],
         primaryStatements: [
           {
-            statementType: 'INCOME_STATEMENT',
+            statementType: 'CONSOLIDATED_INCOME_STATEMENT',
             statementTitle: 'Consolidated Income Statement',
             physicalPageCandidates: [1],
             reportingEntity: 'Integration Test Corp'
           }
         ],
-        notesIndex: []
+        notesIndex: [],
+        keyAuditMattersIndex: [],
+        segmentReportingIndex: [],
+        accountingPolicyIndex: []
       };
     });
 
@@ -71,9 +83,11 @@ describe('36B. HYBRID INTEGRATION-PATH PROOF', () => {
           metricLabel: 'Turnover',
           canonicalMetricCandidate: 'revenue',
           rawValue: '50,000',
+          period: '2025',
           scale: 'MILLIONS',
           currency: 'EUR',
           physicalPage: 1,
+          sourceQuote: 'Total Revenue 50,000 EUR Million',
           confidence: 0.95
         }
       ];
@@ -180,7 +194,7 @@ describe('36B. HYBRID INTEGRATION-PATH PROOF', () => {
         expect(completedJob.id).toBe(job.id);
         resolve();
       });
-      queue.processNextJob();
+      (queue as any).processNextJob();
     });
 
     // Step 4: Strict Assertion Proof

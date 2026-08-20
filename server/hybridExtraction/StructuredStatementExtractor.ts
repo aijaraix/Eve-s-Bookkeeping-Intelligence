@@ -3,6 +3,7 @@ import { geminiFileService } from './GeminiFileService.js';
 import { extractionTaskCache } from './ExtractionTaskCache.js';
 import { PRIMARY_STATEMENT_EXTRACTION_SCHEMA } from './schemas/incomeStatementSchema.js';
 import { StatementFactCandidate } from './types.js';
+import { executeWithGeminiRetry } from './geminiRetryHelper.js';
 
 export class StructuredStatementExtractor {
   private aiClient: GoogleGenAI | null = null;
@@ -92,8 +93,9 @@ Return output strictly formatted according to the provided JSON schema.`;
 
     console.log(`[StructuredStatementExtractor] Extracting ${params.statementType} via Gemini (${model})...`);
 
-    const response = await this.aiClient.models.generateContent({
+    const response = await executeWithGeminiRetry(this.aiClient, {
       model,
+      taskType: 'STRUCTURED_FINANCIAL_EXTRACTION',
       contents,
       config: {
         responseMimeType: "application/json",

@@ -39,6 +39,7 @@ export class BackgroundIngestionQueue {
   private isProcessingQueue = false;
   private workerAliveHeartbeat = new Date().toISOString();
   private onJobCompletedListener?: (job: QueueJob) => void;
+  private dbRef?: any;
 
   constructor() {
     this.loadQueueFromDisk();
@@ -46,6 +47,10 @@ export class BackgroundIngestionQueue {
       this.workerAliveHeartbeat = new Date().toISOString();
       this.checkStalledJobs();
     }, 5000);
+  }
+
+  public setDbRef(db: any) {
+    this.dbRef = db;
   }
 
   public setOnJobCompleted(listener: (job: QueueJob) => void) {
@@ -286,37 +291,38 @@ export class BackgroundIngestionQueue {
     let jobLastError: string | undefined = undefined;
 
     if (isPdf) {
-      if (pageManifests && pageManifests.length > 0) {
-        pageManifests.forEach((pm, idx) => {
-          const pageNum = pm.physical_page_number || pm.page_number || idx + 1;
-          const pageBlocks = sourceBlocks ? sourceBlocks.filter(sb => sb.page_number === pageNum || sb.pageNumber === pageNum) : [];
-          const blockIds = pageBlocks.map(sb => sb.source_block_id || sb.id).filter(Boolean);
-          const pageText = pageBlocks.map(sb => sb.raw_text || sb.text_content || "").join("\n");
-          const hasText = pageText.trim().length > 0;
+      const manifestsToUse = (pageManifests && pageManifests.length > 0)
+        ? pageManifests
+        : [{ page_id: `PM-${documentId}-P1`, physical_page_number: 1, page_number: 1 }];
 
-          units.push({
-            unit_id: `UNIT-${jobId}-P${pageNum}`,
-            document_id: documentId,
-            workspace_id: workspaceId,
-            source_type: "PDF_PAGE",
-            unit_type: "FACT_EXTRACTION",
-            page_id: pm.page_id || pm.id || `PM-${documentId}-P${pageNum}`,
-            physical_page_number: pageNum,
-            actual_page_start: pageNum,
-            actual_page_end: pageNum,
-            section_id: `SEC-P${pageNum}`,
-            source_block_ids: blockIds.length > 0 ? blockIds : undefined,
-            status: hasText ? "QUEUED" : "NO_TEXT",
-            attempt_count: 0,
-            created_at: new Date().toISOString(),
-            textData: pageText,
-            unit_text: pageText
-          });
+      manifestsToUse.forEach((pm, idx) => {
+        const pageNum = pm.physical_page_number || pm.page_number || idx + 1;
+        const pageBlocks = sourceBlocks ? sourceBlocks.filter(sb => sb.page_number === pageNum || sb.pageNumber === pageNum) : [];
+        const blockIds = pageBlocks.map(sb => sb.source_block_id || sb.id).filter(Boolean);
+        const pageText = pageBlocks.length > 0
+          ? pageBlocks.map(sb => sb.raw_text || sb.text_content || "").join("\n")
+          : (textData || "");
+        const hasText = pageText.trim().length > 0;
+
+        units.push({
+          unit_id: `UNIT-${jobId}-P${pageNum}`,
+          document_id: documentId,
+          workspace_id: workspaceId,
+          source_type: "PDF_PAGE",
+          unit_type: "FACT_EXTRACTION",
+          page_id: pm.page_id || pm.id || `PM-${documentId}-P${pageNum}`,
+          physical_page_number: pageNum,
+          actual_page_start: pageNum,
+          actual_page_end: pageNum,
+          section_id: `SEC-P${pageNum}`,
+          source_block_ids: blockIds.length > 0 ? blockIds : undefined,
+          status: hasText ? "QUEUED" : "NO_TEXT",
+          attempt_count: 0,
+          created_at: new Date().toISOString(),
+          textData: pageText,
+          unit_text: pageText
         });
-      } else {
-        jobStatus = "FAILED";
-        jobLastError = "Authoritative physical page inventory required before PDF extraction.";
-      }
+      });
     } else {
       const cleanText = textData
         .replace(/0000\d{6}\s+\d{5}\s+[nf]\s*/g, '')
@@ -389,18 +395,16 @@ export class BackgroundIngestionQueue {
       textData: undefined,
       functionalCurrency,
       engineMode: engineMode || process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE',
-      status: jobStatus,
-      stage: jobStatus === "FAILED" ? "INGESTION_FAILED" : "DOCUMENT_REGISTERED",
+      status: "QUEUED",
+      stage: "DOCUMENT_REGISTERED",
       stageHistory: [],
-      currentStage: jobStatus === "FAILED"
-        ? "Failed: Physical page inventory required before PDF extraction."
-        : `Registered document. Awaiting physical page inventory execution...`,
+      currentStage: `Registered document. Awaiting physical page inventory execution...`,
       progress: 0,
       heartbeatAt: nowIso,
       workerHeartbeatAt: nowIso,
       updatedAt: nowIso,
       createdAt: nowIso,
-      lastError: jobLastError,
+      lastError: undefined,
       unitsTotal: units.length,
       unitsCompleted: 0,
       pagesTotal: pagesTotalCount,
@@ -637,15 +641,42 @@ export class BackgroundIngestionQueue {
         }
       } catch (hybridErr: any) {
         console.error(`[Hermes Queue ${queuedJob.id}] Hybrid processing exception:`, hybridErr);
-        queuedJob.status = "FAILED";
-        queuedJob.error = hybridErr?.message || "Hybrid extraction pipeline error";
-        queuedJob.lastError = queuedJob.error;
-        this.advanceJobStage(
-          queuedJob,
-          "INGESTION_FAILED",
-          "FAILED",
-          `Hybrid extraction failed: ${queuedJob.error}`
-        );
+        const errStr = hybridErr?.message || String(hybridErr);
+        const isCapacity = hybridErr?.isCapacityError || errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('high demand') || errStr.includes('overloaded');
+
+        if (isCapacity) {
+          console.warn(`[Hermes Queue ${queuedJob.id}] Temporary AI model capacity pause: ${errStr}. Scheduling automatic retry in 12s.`);
+          queuedJob.status = "WAITING_FOR_AI_CAPACITY";
+          queuedJob.currentStage = "AI Analysis Temporarily Paused (Waiting for Capacity)";
+          queuedJob.error = "AI model capacity temporarily busy due to high demand. Processing will resume automatically.";
+          queuedJob.lastError = queuedJob.error;
+          this.advanceJobStage(
+            queuedJob,
+            "WAITING_FOR_AI_CAPACITY",
+            "IN_PROGRESS",
+            "AI model capacity temporarily busy. Retrying automatically in background..."
+          );
+
+          // Schedule automatic retry in background after 12 seconds
+          setTimeout(() => {
+            if (queuedJob.status === "WAITING_FOR_AI_CAPACITY") {
+              console.log(`[Hermes Queue ${queuedJob.id}] Resuming job after capacity pause...`);
+              queuedJob.status = "QUEUED";
+              this.saveQueueToDiskAsync(true);
+              this.processNextJob();
+            }
+          }, 12000);
+        } else {
+          queuedJob.status = "FAILED";
+          queuedJob.error = errStr;
+          queuedJob.lastError = queuedJob.error;
+          this.advanceJobStage(
+            queuedJob,
+            "INGESTION_FAILED",
+            "FAILED",
+            `Hybrid extraction notice: ${queuedJob.error}`
+          );
+        }
       } finally {
         this.isProcessingQueue = false;
         this.saveQueueToDiskAsync(true);

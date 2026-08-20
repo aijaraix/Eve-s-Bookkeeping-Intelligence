@@ -3,6 +3,7 @@ import { geminiFileService } from './GeminiFileService.js';
 import { extractionTaskCache } from './ExtractionTaskCache.js';
 import { DOCUMENT_MAP_SCHEMA } from './schemas/documentMapSchema.js';
 import { DocumentMapModel } from './types.js';
+import { executeWithGeminiRetry } from './geminiRetryHelper.js';
 
 export class DocumentMapService {
   private aiClient: GoogleGenAI | null = null;
@@ -79,8 +80,9 @@ Return structured output matching the JSON schema provided.`;
 
     console.log(`[DocumentMapService] Requesting DocumentMap from Gemini (${model})...`);
     
-    const response = await this.aiClient.models.generateContent({
+    const response = await executeWithGeminiRetry(this.aiClient, {
       model,
+      taskType: 'DOCUMENT_MAP',
       contents,
       config: {
         responseMimeType: "application/json",
@@ -107,3 +109,4 @@ Return structured output matching the JSON schema provided.`;
 }
 
 export const documentMapService = new DocumentMapService();
+

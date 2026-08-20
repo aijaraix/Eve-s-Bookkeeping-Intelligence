@@ -36,6 +36,7 @@ import {
 } from "./server/forensicExtractionEngine.js";
 import { intakeService } from "./server/intakeService.js";
 import { semanticTaskManager } from "./server/hybridExtraction/SemanticTaskManager.js";
+import { modelDiscoveryService } from "./server/modelDiscoveryService.js";
 
 export const fileRouter = new FileRouter();
 export const anyDocParser = new AnyDocParser();
@@ -48,11 +49,19 @@ const wizardEngine = new DeliverableWizardEngine();
 const app = express();
 const PORT = 3000;
 
+// Process safety exception handlers to prevent background queue / AI timeouts from crashing server process
+process.on("uncaughtException", (err) => {
+  console.error("[Process Uncaught Exception]:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[Process Unhandled Rejection]:", reason);
+});
+
 // Configure CORS and headers for iframe and preview compatibility
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-email");
+  res.header("Access-Control-Allow-Headers", "*");
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
@@ -75,7 +84,7 @@ const ai = aiApiKey ? new GoogleGenAI({
 async function generateGeminiContent(promptOrParts: string | any[], jsonMode = true) {
   if (!ai) return null;
   const parts = typeof promptOrParts === "string" ? [{ text: promptOrParts }] : promptOrParts;
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+  const modelsToTry = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-flash-latest"];
   for (const model of modelsToTry) {
     let timeoutId: NodeJS.Timeout | null = null;
     try {
@@ -541,6 +550,8 @@ let db: AppStorage = {
   pageManifests: [],
   sourceBlocks: []
 };
+
+backgroundIngestionQueue.setDbRef(db);
 
 function saveStorage() {
   try {
@@ -2298,7 +2309,7 @@ CRITICAL INSTRUCTIONS:
 }`;
 
       const aiPromise = generateAIContent([{ text: prompt }], true).catch(() => null);
-      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 6000));
+      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 2500));
       const responseText = await Promise.race([aiPromise, timeoutPromise]);
 
       if (responseText) {
@@ -2471,7 +2482,7 @@ app.post("/api/documents/upload", (req, res) => {
             } else if (inspection.needsOCR) {
               return await ocrParser.parse(fileInput, inspection);
             } else {
-              return await anyDocParser.parse(fileInput, inspection);
+              return await anyDocParser.parse(fileInput, inspection, { maxPages: 30 });
             }
           })();
           const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 10000));
@@ -2623,10 +2634,10 @@ app.post("/api/documents/upload", (req, res) => {
             console.warn("Unsupported or corrupted file during upload:", inspection.unsupportedReason);
           }
 
-          const existingDoc = db.documents.find(d => d.workspaceId === ws.id && ((d as any).sha256 === fileHash || (d as any).hash === fileHash));
+          const existingDoc = ws ? db.documents.find(d => d.workspaceId === ws.id && ((d as any).sha256 === fileHash || (d as any).hash === fileHash)) : null;
 
           if (existingDoc) {
-            console.log(`[Deduplication] Document "${file.originalname}" (SHA256: ${fileHash}) already uploaded in workspace ${ws.id}. Re-using document record.`);
+            console.log(`[Deduplication] Document "${file.originalname}" (SHA256: ${fileHash}) already uploaded in workspace ${ws?.id}. Re-using document record.`);
             return {
               success: true,
               newDoc: existingDoc,
@@ -2819,7 +2830,8 @@ app.post("/api/documents/upload", (req, res) => {
     upload.any()(req, res, async (err) => {
       if (err) {
         console.error("Multer upload error:", err);
-        return res.status(400).json({ error: err.message || "File upload error" });
+        const statusCode = err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FIELD_SIZE' ? 413 : 400;
+        return res.status(statusCode).json({ error: err.message || "File upload error" });
       }
       const files = (req.files as Express.Multer.File[]) || [];
       return handleUploadLogic(files).catch(err => {
@@ -4730,6 +4742,26 @@ app.get("/api/diagnostics/health", (req, res) => {
   });
 });
 
+// 12b. Provider Capability & Discovered Models Diagnostic
+app.get("/api/diagnostics/ai", (req, res) => {
+  res.json({
+    geminiDiagnosticStatus: getGeminiDiagnosticStatus(),
+    llmMetrics: getLLMGatewayMetrics(),
+    dailyQuotaStatus: modelDiscoveryService.getDailyQuotaStatus(),
+    discoveredModelsTable: modelDiscoveryService.getDiscoveredModelsTable(),
+    costMode: process.env.AI_COST_MODE || 'FREE_FIRST',
+    allowPaidProviderFallback: process.env.ALLOW_PAID_PROVIDER_FALLBACK === 'true'
+  });
+});
+
+app.post("/api/diagnostics/ai/refresh", async (req, res) => {
+  await modelDiscoveryService.discoverRuntimeModels();
+  res.json({
+    message: "Discovered models refreshed successfully.",
+    discoveredModelsTable: modelDiscoveryService.getDiscoveredModelsTable()
+  });
+});
+
 // 13. Export Diagnostic Bundle (Non-Secret Operational ZIP / JSON)
 app.get("/api/diagnostics/export", (req, res) => {
   const bundle = {
@@ -4810,8 +4842,15 @@ async function startServer() {
   }
 
   if (process.env.IS_SCRIPT !== "true") {
-    app.listen(PORT, "0.0.0.0", () => {
+    app.listen(PORT, "0.0.0.0", async () => {
       console.log(`AI CPA Core server running on http://localhost:${PORT}`);
+
+      // Discover supported Gemini models at server initialization (Phase H.9.4)
+      try {
+        await modelDiscoveryService.discoverRuntimeModels();
+      } catch (discErr) {
+        console.warn("[Server Boot] Initial model discovery warning:", discErr);
+      }
 
       // Auto-run extraction in background for any workspace that has documents but 0 extracted facts
       setImmediate(() => {

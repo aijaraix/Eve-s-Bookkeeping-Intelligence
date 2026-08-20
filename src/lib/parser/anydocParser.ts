@@ -90,8 +90,9 @@ function sanitizeExtractedText(str: string): string {
   return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ").replace(/[^\x20-\x7E\xA0-\xFF\n\r\t]/g, " ");
 }
 
-async function extractPdfPages(buffer: Buffer): Promise<{ pages: ExtractedPdfPage[]; numpages: number; fullText: string }> {
+async function extractPdfPages(buffer: Buffer, options?: { maxPages?: number }): Promise<{ pages: ExtractedPdfPage[]; numpages: number; fullText: string }> {
   const uint8Array = new Uint8Array(buffer);
+  const maxPages = options?.maxPages;
 
   // Method 1: Try direct page-by-page extraction using pdfjsLib
   try {
@@ -107,7 +108,9 @@ async function extractPdfPages(buffer: Buffer): Promise<{ pages: ExtractedPdfPag
       const pages: ExtractedPdfPage[] = [];
       let accumulatedText = "";
 
-      for (let i = 1; i <= numpages; i++) {
+      const pagesToScan = maxPages ? Math.min(numpages, maxPages) : numpages;
+
+      for (let i = 1; i <= pagesToScan; i++) {
         let page: any = null;
         try {
           page = await doc.getPage(i);
@@ -270,7 +273,7 @@ export class AnyDocParser implements DocumentParser {
     };
   }
 
-  public async parse(file: FileInput, inspection?: FileInspectionResult): Promise<CanonicalDocumentModel> {
+  public async parse(file: FileInput, inspection?: FileInspectionResult, options?: { maxPages?: number }): Promise<CanonicalDocumentModel> {
     const docId = `DOC-${Math.floor(1000 + Math.random() * 9000)}`;
     const buffer = file.buffer || Buffer.from('');
     const ext = (file.filename || '').split('.').pop()?.toLowerCase() || '';
@@ -283,7 +286,7 @@ export class AnyDocParser implements DocumentParser {
 
     if (ext === 'pdf' || inspection?.detectedType === 'pdf') {
       try {
-        const pdfData = await extractPdfPages(buffer);
+        const pdfData = await extractPdfPages(buffer, options);
         rawText = pdfData.fullText || '';
         pdfNumPages = pdfData.numpages || 1;
         extractedPages = pdfData.pages;

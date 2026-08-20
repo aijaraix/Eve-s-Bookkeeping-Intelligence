@@ -165,13 +165,25 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </div>
 
           {/* Live Extraction Walkthrough Button - Contextual ONLY when active */}
-          {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED') && onOpenQueueModal && (
+          {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED' || activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY') && onOpenQueueModal && (
             <button
               onClick={onOpenQueueModal}
-              className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center space-x-1.5 shadow-xs transition cursor-pointer animate-pulse"
+              className={`text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center space-x-1.5 shadow-xs transition cursor-pointer ${
+                activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY'
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-blue-600 hover:bg-blue-700 animate-pulse'
+              }`}
             >
-              <Cpu className="w-3.5 h-3.5 animate-spin" />
-              <span>Extraction Active ({activeQueueJob.pagesCompleted || 0} / {activeQueueJob.pagesTotal || 1} pages)</span>
+              {activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY' ? (
+                <Cpu className="w-3.5 h-3.5 text-amber-200" />
+              ) : (
+                <Cpu className="w-3.5 h-3.5 animate-spin" />
+              )}
+              <span>
+                {activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY'
+                  ? 'AI Analysis Paused (Retrying)'
+                  : `Live Walkthrough (${activeQueueJob.progress || 0}%)`}
+              </span>
             </button>
           )}
 

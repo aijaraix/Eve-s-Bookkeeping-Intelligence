@@ -38,6 +38,7 @@ import { AuditFindingsView } from './components/AuditFindingsView';
 import { SwarmDashboard } from './components/SwarmDashboard';
 import { StagedHoldingModal } from './components/StagedHoldingModal';
 import { ExtractionProgressModal } from './components/ExtractionProgressModal';
+import { LiveWalkthroughPill } from './components/LiveWalkthroughPill';
 import { SystemGuideView } from './components/SystemGuideView';
 import { SystemDiagnosticsView } from './components/SystemDiagnosticsView';
 import { ReviewerModeView } from './components/ReviewerModeView';
@@ -156,20 +157,24 @@ export default function App() {
         const jobs: any[] = data.jobs || [];
         if (jobs.length > 0) {
           // Priority 1: Job currently active or queued
-          const activeJob = jobs.find(j => j.status === 'PROCESSING' || j.status === 'QUEUED');
+          const activeJob = jobs.find(j => j.status === 'PROCESSING' || j.status === 'QUEUED' || j.status === 'WAITING_FOR_AI_CAPACITY');
           const latestJob = activeJob || jobs[0];
 
           if (latestJob) {
             setActiveQueueJob(latestJob);
 
-            if (latestJob.status === 'PROCESSING' || latestJob.status === 'QUEUED') {
+            if (latestJob.status === 'PROCESSING' || latestJob.status === 'QUEUED' || latestJob.status === 'WAITING_FOR_AI_CAPACITY') {
               setIngestionStatus(prev => ({
                 ...prev,
-                isIngesting: true,
+                isIngesting: prev.isIngesting, // Preserve user close/dismiss preference
                 progress: latestJob.progress || 10,
-                stepName: latestJob.currentStage || 'Server Background Extraction Active...',
+                stepName: latestJob.status === 'WAITING_FOR_AI_CAPACITY'
+                  ? 'AI Analysis Temporarily Paused (Waiting for Capacity)'
+                  : (latestJob.currentStage || 'Server Background Extraction Active...'),
                 stepNumber: Math.min(6, Math.ceil((latestJob.progress || 10) / 16)),
-                error: null
+                error: latestJob.status === 'WAITING_FOR_AI_CAPACITY'
+                  ? (latestJob.error || 'AI model capacity temporarily busy. Retrying automatically.')
+                  : null
               }));
             } else if (
               latestJob.status === 'COMPLETED' ||
@@ -177,26 +182,24 @@ export default function App() {
               latestJob.status === 'REVIEW_REQUIRED'
             ) {
               setIngestionStatus(prev => {
-                if (prev.isIngesting || prev.progress < 100) {
-                  return {
-                    ...prev,
-                    progress: 100,
-                    stepName: latestJob.currentStage || 'Extraction Complete!',
-                    stepNumber: 6,
-                    result: {
-                      workspace: activeWorkspace,
-                      extractedName: latestJob.documentTitle || activeWorkspace?.name || 'Workspace',
-                      docCount: 1,
-                      factsCount: latestJob.result?.facts?.length || 0
-                    }
-                  };
-                }
-                return prev;
+                return {
+                  ...prev,
+                  isIngesting: prev.isIngesting,
+                  progress: 100,
+                  stepName: latestJob.currentStage || 'Extraction Complete!',
+                  stepNumber: 6,
+                  result: {
+                    workspace: activeWorkspace,
+                    extractedName: latestJob.documentTitle || activeWorkspace?.name || 'Workspace',
+                    docCount: 1,
+                    factsCount: latestJob.result?.facts?.length || 0
+                  }
+                };
               });
             } else if (latestJob.status === 'STALLED' || latestJob.status === 'FAILED') {
               setIngestionStatus(prev => ({
                 ...prev,
-                isIngesting: true,
+                isIngesting: prev.isIngesting,
                 error: latestJob.lastError || latestJob.error || 'Ingestion thread stalled or failed.'
               }));
             }
@@ -452,6 +455,9 @@ export default function App() {
               if (attemptRes.status >= 500 && attempt < 3) {
                 console.warn(`[Upload Attempt ${attempt}/3 got server status ${attemptRes.status}], retrying...`);
                 await new Promise(r => setTimeout(r, 1000 * attempt));
+              } else {
+                // For non-5xx response codes (e.g. 413 Payload Too Large, 400 Bad Request), stop retrying
+                break;
               }
             }
           } catch (fetchErr: any) {
@@ -463,10 +469,11 @@ export default function App() {
           }
         }
 
-        // Attempt 2: If multipart FormData failed or got network exception, attempt Base64 JSON payload fallback
-        if (!res || !res.ok) {
+        // Attempt 2: If multipart FormData connection failed, attempt JSON payload upload fallback (for small files or text/link submissions)
+        const isSmallOrNoFile = !fileItem || fileItem.size < 10 * 1024 * 1024;
+        if (!res && isSmallOrNoFile) {
           try {
-            console.log("[Document Ingestion] Multipart FormData attempt unsuccessful, attempting Base64 JSON upload fallback...");
+            console.log("[Document Ingestion] FormData connection failed, attempting JSON upload fallback...");
             const base64Str = fileItem ? await fileToBase64(fileItem) : undefined;
             const jsonBody = {
               files: fileItem ? [{ name: fileItem.name, mimeType: fileItem.type || 'application/pdf', base64: base64Str }] : [],
@@ -478,7 +485,7 @@ export default function App() {
             };
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000);
+            const timeoutId = setTimeout(() => controller.abort(), 120000);
             const jsonRes = await fetch('/api/documents/upload', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -487,7 +494,7 @@ export default function App() {
             });
             clearTimeout(timeoutId);
 
-            if (jsonRes && jsonRes.ok) {
+            if (jsonRes) {
               res = jsonRes;
             }
           } catch (fallbackErr: any) {
@@ -497,19 +504,31 @@ export default function App() {
         }
 
         if (!res) {
-          throw new Error(`Upload connection error: Unable to reach processing server (${lastError?.message || 'Failed to fetch'}). If uploading a large file, try uploading smaller batches or using a Google Drive link.`);
+          const isLarge = fileItem && fileItem.size > 15 * 1024 * 1024;
+          const sizeMb = fileItem ? Math.round(fileItem.size / (1024 * 1024)) : 0;
+          throw new Error(`Upload connection error: Unable to reach processing server (${lastError?.message || 'Failed to fetch'}).` + (isLarge ? ` The file "${fileItem?.name}" is ${sizeMb}MB. Try uploading via Google Drive link or check your network connection.` : ` Please check your network connection and try again.`));
         }
 
         const contentType = res.headers.get('content-type') || '';
-        if (res.status === 413 || !contentType.includes('application/json')) {
-          const errText = await res.text();
+        if (res.status === 413 || (contentType && !contentType.includes('application/json'))) {
+          const errText = await res.text().catch(() => '');
           if (res.status === 413 || errText.toLowerCase().includes('413') || errText.toLowerCase().includes('payload too large')) {
-            throw new Error(`Uploaded payload exceeds maximum size limit (25MB). Please upload smaller files or use a Google Drive link.`);
+            throw new Error(`Uploaded file exceeds the maximum size limit allowed by the server. Please try uploading a smaller file or use a Google Drive link.`);
           }
-          throw new Error(`Server returned status ${res.status}: ${errText.slice(0, 100)}`);
+          if (!res.ok) {
+            throw new Error(`Server returned status ${res.status}: ${errText.slice(0, 100) || res.statusText}`);
+          }
         }
 
-        const data = await res.json();
+        let data: any = {};
+        try {
+          data = await res.json();
+        } catch (jsonErr: any) {
+          if (!res.ok) {
+            throw new Error(`Server error (${res.status}): Failed to parse response`);
+          }
+        }
+
         if (!res.ok) {
           throw new Error(data.error || `Upload server error (${res.status})`);
         }
@@ -1055,6 +1074,14 @@ export default function App() {
         documents={documents}
         userEmail={userEmail}
       />
+
+      {/* Persistent Floating Live Walkthrough Pill */}
+      {!ingestionStatus.isIngesting && activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED' || activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY') && (
+        <LiveWalkthroughPill
+          job={activeQueueJob}
+          onOpenWalkthrough={() => setIngestionStatus(prev => ({ ...prev, isIngesting: true }))}
+        />
+      )}
 
       {/* Floating Eve AI Assistant Copilot */}
       <FloatingEveChat
