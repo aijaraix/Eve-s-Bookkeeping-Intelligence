@@ -26,7 +26,7 @@ export class DeliverablesEngine {
         documentTitle: docTitle,
         sourceText: fact.sourceText || '',
         fxRateApplied: fact.fxDetails?.exchangeRate || 1.0,
-        verificationStatus: fact.verificationStatus || 'VERIFIED',
+        verificationStatus: fact.verificationStatus || fact.status || 'PROPOSED',
         candidateState: fact.candidateState || 'ACCEPTED'
       };
 

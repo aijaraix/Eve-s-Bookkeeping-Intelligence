@@ -11,6 +11,13 @@ import { normalizeFinancialValue } from '../forensicExtractionEngine.js';
 import { StatementFactCandidate, EvidenceCrossCheckResult } from './types.js';
 import { ExtractedFact } from '../../src/types.js';
 import { semanticTaskManager } from './SemanticTaskManager.js';
+import { extractBankStatementFromDocument } from '../bankStatementExtractor.js';
+import {
+  looksLikeBankStatement,
+  derivePeriodBounds,
+  isConfirmedEvidenceStatus
+} from '../failClosedGuards.js';
+import { SpreadsheetParser } from '../../src/lib/parser/spreadsheetParser.js';
 
 export interface HybridExtractionResult {
   success: boolean;
@@ -26,6 +33,8 @@ export interface HybridExtractionResult {
   documentMap: any;
   accountingValidations: any[];
   processingDurationMs: number;
+  pageManifests?: any[];
+  sourceBlocks?: any[];
   error?: string;
 }
 
@@ -60,17 +69,157 @@ export class HybridExtractionOrchestrator {
       // Step 1: Deterministic Physical Page Inventory & Source Block Extraction
       updateProgress('Preparing Documents', 10);
       const fileBuffer = fs.readFileSync(params.filePath);
-      const parsedDoc = await this.parser.parse({
+      const ext = path.extname(params.originalFilename || params.filePath || '').toLowerCase();
+      const isSpreadsheet = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv', '.ods'].includes(ext);
+      const mimeType = isSpreadsheet
+        ? (ext === '.csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        : 'application/pdf';
+
+      let parsedDoc = await this.parser.parse({
         filename: params.originalFilename,
         originalName: params.originalFilename,
         buffer: fileBuffer,
         size: fileBuffer.length,
-        mimeType: 'application/pdf'
+        mimeType
       });
 
-      const physicalPagesTotal = parsedDoc.pageManifests.length || parsedDoc.metadata.pages || 1;
+      if (isSpreadsheet) {
+        try {
+          const sheetParser = new SpreadsheetParser();
+          parsedDoc = await sheetParser.parse({
+            filename: params.originalFilename,
+            originalName: params.originalFilename,
+            buffer: fileBuffer,
+            size: fileBuffer.length,
+            mimeType
+          }, await sheetParser.inspect({
+            filename: params.originalFilename,
+            originalName: params.originalFilename,
+            buffer: fileBuffer,
+            size: fileBuffer.length,
+            mimeType
+          }));
+        } catch (sheetErr) {
+          console.warn('[HybridExtractionOrchestrator] Spreadsheet parse warning:', sheetErr);
+        }
+      }
+
+      const physicalPagesTotal = parsedDoc.pageManifests?.length || parsedDoc.metadata.pages || 1;
       console.log(`[HybridExtractionOrchestrator] Deterministic Physical Page Inventory: ${physicalPagesTotal} pages identified.`);
       updateProgress('Preparing Documents', 15);
+
+      const parsedText = `${parsedDoc.markdown || ''} ${(parsedDoc.sections || []).map((s: any) => s.text || '').join(' ')}`;
+      const bankDoc = looksLikeBankStatement(params.originalFilename, parsedText);
+
+      if (bankDoc || (isSpreadsheet && looksLikeBankStatement(params.originalFilename, parsedText))) {
+        updateProgress('Reading Bank Statement', 40);
+        const bankRes = extractBankStatementFromDocument({
+          doc: parsedDoc,
+          workspaceId: params.workspaceId,
+          documentId: params.documentId,
+          filename: params.originalFilename,
+          currency: params.currency
+        });
+        if (!bankRes.success) {
+          return {
+            success: false,
+            intakeId: params.intakeId,
+            documentId: params.documentId,
+            workspaceId: params.workspaceId,
+            physicalPagesTotal,
+            factsCandidateCount: 0,
+            factsConfirmedCount: 0,
+            factsCanonicalCount: 0,
+            canonicalFacts: [],
+            evidenceResults: [],
+            documentMap: { documentType: 'BANK_STATEMENT' },
+            accountingValidations: [],
+            processingDurationMs: Date.now() - startTime,
+            pageManifests: parsedDoc.pageManifests || [],
+            sourceBlocks: parsedDoc.sourceBlocks || [],
+            error: bankRes.error || 'Bank statement parse missed.'
+          };
+        }
+
+        const accountingValidations = AccountingValidationEngine.validateWorkspace(params.workspaceId, bankRes.facts);
+        updateProgress('Complete', 100);
+        return {
+          success: true,
+          intakeId: params.intakeId,
+          documentId: params.documentId,
+          workspaceId: params.workspaceId,
+          physicalPagesTotal,
+          factsCandidateCount: bankRes.facts.length,
+          factsConfirmedCount: 0,
+          factsCanonicalCount: bankRes.facts.length,
+          canonicalFacts: bankRes.facts,
+          evidenceResults: [],
+          documentMap: { documentType: 'BANK_STATEMENT', primaryReportingCurrency: params.currency },
+          accountingValidations: accountingValidations ? [accountingValidations] : [],
+          processingDurationMs: Date.now() - startTime,
+          pageManifests: parsedDoc.pageManifests || [],
+          sourceBlocks: parsedDoc.sourceBlocks || []
+        };
+      }
+
+      if (isSpreadsheet) {
+        updateProgress('Reading Spreadsheet', 50);
+        const tableFacts: ExtractedFact[] = [];
+        (parsedDoc.tables || []).forEach((table: any, tIdx: number) => {
+          (table.rows || []).forEach((row: string[], rIdx: number) => {
+            if (!row || row.length < 2) return;
+            const label = String(row[0] || '').trim();
+            if (!label || !/[a-zA-Z]{3,}/.test(label)) return;
+            for (let i = 1; i < row.length; i++) {
+              const cell = String(row[i] || '').trim();
+              const numMatch = cell.match(/-?\(?\$?€?£?\s*[\d,]+(?:\.\d+)?\)?/);
+              if (!numMatch) continue;
+              const source = `${label} | ${row.join(' | ')}`;
+              if (!cell || !source.includes(cell)) continue;
+              const clean = numMatch[0].replace(/[^\d.-]/g, '');
+              const parsed = parseFloat(clean.replace(/,/g, ''));
+              if (Number.isNaN(parsed) || parsed === 0) continue;
+              tableFacts.push({
+                id: `FCT-SHEET-${params.documentId}-${tIdx}-${rIdx}-${i}`,
+                workspaceId: params.workspaceId,
+                documentId: params.documentId,
+                factType: 'general',
+                extractionEngine: 'DETERMINISTIC_NATIVE',
+                labelOriginal: label,
+                labelNormalized: label,
+                valueOriginal: cell,
+                valueFunctional: String(parsed),
+                normalizedValue: parsed,
+                currencyOriginal: params.currency || '',
+                functionalCurrency: params.currency || '',
+                pageNumber: table.pageNumber || tIdx + 1,
+                sourceText: source,
+                status: 'pending_review',
+                extractionMethod: 'SPREADSHEET_CELL'
+              } as ExtractedFact);
+              break;
+            }
+          });
+        });
+        const accountingValidations = AccountingValidationEngine.validateWorkspace(params.workspaceId, tableFacts);
+        return {
+          success: true,
+          intakeId: params.intakeId,
+          documentId: params.documentId,
+          workspaceId: params.workspaceId,
+          physicalPagesTotal,
+          factsCandidateCount: tableFacts.length,
+          factsConfirmedCount: 0,
+          factsCanonicalCount: tableFacts.length,
+          canonicalFacts: tableFacts,
+          evidenceResults: [],
+          documentMap: { documentType: 'SPREADSHEET' },
+          accountingValidations: accountingValidations ? [accountingValidations] : [],
+          processingDurationMs: Date.now() - startTime,
+          pageManifests: parsedDoc.pageManifests || [],
+          sourceBlocks: parsedDoc.sourceBlocks || []
+        };
+      }
 
       // Step 2: Gemini Document Map Pass
       const docMapTask = semanticTaskManager.createTask({
@@ -104,6 +253,59 @@ export class HybridExtractionOrchestrator {
       console.log(`[HybridExtractionOrchestrator] Document Map complete for ${docMap.documentIssuer || 'Issuer'}. Statements identified: ${docMap.primaryStatements.length}`);
       updateProgress('Identifying Companies & Reporting Periods', 35);
 
+      const periodFromMap = docMap.fiscalPeriods?.[0] || docMap.primaryStatements?.[0]?.period || params.period;
+      const currencyFromMap = docMap.primaryReportingCurrency || docMap.currencies?.[0] || params.currency;
+      const periodBounds = derivePeriodBounds(periodFromMap);
+
+      if (looksLikeBankStatement(params.originalFilename, parsedText, docMap.documentType)) {
+        updateProgress('Reading Bank Statement', 40);
+        const bankRes = extractBankStatementFromDocument({
+          doc: parsedDoc,
+          workspaceId: params.workspaceId,
+          documentId: params.documentId,
+          filename: params.originalFilename,
+          currency: currencyFromMap
+        });
+        if (!bankRes.success) {
+          return {
+            success: false,
+            intakeId: params.intakeId,
+            documentId: params.documentId,
+            workspaceId: params.workspaceId,
+            physicalPagesTotal,
+            factsCandidateCount: 0,
+            factsConfirmedCount: 0,
+            factsCanonicalCount: 0,
+            canonicalFacts: [],
+            evidenceResults: [],
+            documentMap: docMap,
+            accountingValidations: [],
+            processingDurationMs: Date.now() - startTime,
+            pageManifests: parsedDoc.pageManifests || [],
+            sourceBlocks: parsedDoc.sourceBlocks || [],
+            error: bankRes.error || 'Bank statement parse missed.'
+          };
+        }
+        const accountingValidations = AccountingValidationEngine.validateWorkspace(params.workspaceId, bankRes.facts);
+        return {
+          success: true,
+          intakeId: params.intakeId,
+          documentId: params.documentId,
+          workspaceId: params.workspaceId,
+          physicalPagesTotal,
+          factsCandidateCount: bankRes.facts.length,
+          factsConfirmedCount: 0,
+          factsCanonicalCount: bankRes.facts.length,
+          canonicalFacts: bankRes.facts,
+          evidenceResults: [],
+          documentMap: docMap,
+          accountingValidations: accountingValidations ? [accountingValidations] : [],
+          processingDurationMs: Date.now() - startTime,
+          pageManifests: parsedDoc.pageManifests || [],
+          sourceBlocks: parsedDoc.sourceBlocks || []
+        };
+      }
+
       // Step 3: Targeted Primary Statement Extractions
       const allExtractedCandidates: StatementFactCandidate[] = [];
       const validStatements = docMap.primaryStatements.filter(s => s.statementType !== 'UNKNOWN' && s.physicalPageCandidates && s.physicalPageCandidates.length > 0);
@@ -133,7 +335,7 @@ export class HybridExtractionOrchestrator {
             statementType: statement.statementType,
             targetPhysicalPages: statement.physicalPageCandidates,
             reportingEntity: statement.reportingEntity || docMap.documentIssuer,
-            reportingPeriod: params.period || 'FY2025'
+            reportingPeriod: statement.period || periodFromMap
           });
           allExtractedCandidates.push(...candidates);
           semanticTaskManager.updateTaskStatus(stmtTask.taskId, 'COMPLETED', { factsProduced: candidates.length });
@@ -148,6 +350,35 @@ export class HybridExtractionOrchestrator {
       }
 
       console.log(`[HybridExtractionOrchestrator] Extracted ${allExtractedCandidates.length} fact candidates across primary statements.`);
+
+      const notePlans = NoteExtractionPlanner.planMaterialNoteTasks(params.intakeId, params.documentId, docMap);
+      for (let nIdx = 0; nIdx < notePlans.length; nIdx++) {
+        const notePlan = notePlans[nIdx];
+        const notePages = notePlan.resultData?.physicalPages || [];
+        if (!notePages.length) continue;
+        const noteTask = semanticTaskManager.createTask({
+          intakeId: params.intakeId,
+          documentId: params.documentId,
+          taskType: 'EXTRACT_NOTE',
+          stageLabel: `Reading note ${notePlan.resultData?.noteTitle || notePlan.resultData?.noteNumber || nIdx + 1}`
+        });
+        semanticTaskManager.updateTaskStatus(noteTask.taskId, 'RUNNING');
+        try {
+          const noteCandidates = await structuredStatementExtractor.extractPrimaryStatement({
+            filePath: params.filePath,
+            documentHash: params.documentHash,
+            statementType: `FOOTNOTE_${notePlan.resultData?.noteCategory || 'DISCLOSURE'}`,
+            targetPhysicalPages: notePages,
+            reportingEntity: docMap.documentIssuer,
+            reportingPeriod: periodFromMap
+          });
+          allExtractedCandidates.push(...noteCandidates);
+          semanticTaskManager.updateTaskStatus(noteTask.taskId, 'COMPLETED', { factsProduced: noteCandidates.length });
+        } catch (noteErr: any) {
+          console.warn(`[HybridExtractionOrchestrator] Note extraction warning:`, noteErr);
+          semanticTaskManager.updateTaskStatus(noteTask.taskId, 'COMPLETED_WITH_WARNINGS', { error: noteErr?.message });
+        }
+      }
 
       // Step 4: Evidence Cross-Check against Native Text & Page Manifests
       const evTask = semanticTaskManager.createTask({
@@ -169,7 +400,7 @@ export class HybridExtractionOrchestrator {
         evidenceResults.push(checkRes);
       });
 
-      const confirmedCount = evidenceResults.filter(e => e.evidenceStatus === 'CONFIRMED' || e.evidenceStatus === 'VISUALLY_CONFIRMED').length;
+      const confirmedCount = evidenceResults.filter(e => e.evidenceStatus === 'CONFIRMED').length;
       console.log(`[HybridExtractionOrchestrator] Evidence Cross-Check: ${confirmedCount} / ${allExtractedCandidates.length} facts confirmed against source.`);
       semanticTaskManager.updateTaskStatus(evTask.taskId, 'COMPLETED', { factsVerified: confirmedCount });
 
@@ -225,18 +456,19 @@ export class HybridExtractionOrchestrator {
           valueOriginal: c.rawValue,
           valueFunctional: normalizedVal,
           normalizedValue: normRes.normalizedBaseValue,
-          currencyOriginal: normRes.currency || c.currency || params.currency || "EUR",
-          functionalCurrency: normRes.currency || c.currency || params.currency || "EUR",
-          currency: normRes.currency || c.currency || params.currency || "EUR",
+          currencyOriginal: normRes.currency || c.currency || currencyFromMap || params.currency || "",
+          functionalCurrency: normRes.currency || c.currency || currencyFromMap || params.currency || "",
+          currency: normRes.currency || c.currency || currencyFromMap || params.currency || "",
           unitScale: normRes.resolvedScale,
           normalizedScaleMultiplier: normRes.scaleMultiplier,
           exchangeRate: "1.0000",
-          periodStart: "2025-01-01",
-          periodEnd: "2025-12-31",
+          periodStart: periodBounds.start,
+          periodEnd: periodBounds.end,
+          reportingPeriod: c.period || periodBounds.label || periodFromMap,
           pageNumber: c.physicalPage,
           sourceText: ev.matchedSourceText || c.sourceQuote || c.rowLabel,
           confidence: ev.confidenceScore,
-          status: ev.evidenceStatus === 'CONFIRMED' || ev.evidenceStatus === 'VISUALLY_CONFIRMED' ? 'approved' : 'pending_review',
+          status: isConfirmedEvidenceStatus(ev.evidenceStatus) ? 'approved' : 'pending_review',
           extractionMethod: `HYBRID_GEMINI_NATIVE_${c.statementType}`
         });
       });
@@ -244,27 +476,9 @@ export class HybridExtractionOrchestrator {
       // Resolve Canonical Facts
       const canonicalFacts = CanonicalFactResolver.promotePrimaryStatementFacts(rawFactList);
 
-      // Step 6: Accounting Equation Validations
-      const accountingValidations: any[] = [];
-      const revFact = canonicalFacts.find(f => f.factType === 'revenue');
-      const assetFact = canonicalFacts.find(f => f.factType === 'asset');
-      const liabFact = canonicalFacts.find(f => f.factType === 'liability');
-      const eqFact = canonicalFacts.find(f => f.factType === 'equity');
-
-      if (assetFact && liabFact && eqFact) {
-        const assets = parseFloat(assetFact.valueFunctional) || 0;
-        const liab = parseFloat(liabFact.valueFunctional) || 0;
-        const eq = parseFloat(eqFact.valueFunctional) || 0;
-        const diff = Math.abs(assets - (liab + eq));
-
-        accountingValidations.push({
-          equation: 'Assets = Liabilities + Equity',
-          passed: diff < 1000,
-          variance: diff,
-          leftHand: assets,
-          rightHand: liab + eq
-        });
-      }
+      // Step 6: Accounting Equation Validations (live engine — previously imported unused)
+      const workspaceValidation = AccountingValidationEngine.validateWorkspace(params.workspaceId, canonicalFacts);
+      const accountingValidations: any[] = workspaceValidation ? [workspaceValidation] : [];
 
       semanticTaskManager.updateTaskStatus(reconTask.taskId, 'COMPLETED');
 
@@ -296,7 +510,9 @@ export class HybridExtractionOrchestrator {
         evidenceResults,
         documentMap: docMap,
         accountingValidations,
-        processingDurationMs: durationMs
+        processingDurationMs: durationMs,
+        pageManifests: parsedDoc.pageManifests || [],
+        sourceBlocks: parsedDoc.sourceBlocks || []
       };
 
     } catch (err: any) {

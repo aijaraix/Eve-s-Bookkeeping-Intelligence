@@ -81,8 +81,8 @@ export class IntakeService {
       factsFoundCount: (params.stagedFacts || []).length,
       entitiesDiscoveredCount: 0,
       detectedEntities: [],
-      detectedReportingPeriods: ['FY 2025'],
-      detectedCurrencies: ['EUR'],
+      detectedReportingPeriods: [],
+      detectedCurrencies: [],
       detectedStatements: [],
       candidateRelationships: [],
       stagedFacts: params.stagedFacts || [],
@@ -231,7 +231,7 @@ export class IntakeService {
         intake.uploadedFiles[0]?.originalName?.replace(/\.[^/.]+$/, '').replace(/_/g, ' ') ||
         'Financial Workspace';
 
-      const period = intake.detectedReportingPeriods[0] || 'FY 2025';
+      const period = intake.detectedReportingPeriods[0] || undefined;
       const cleanCode = primaryEntityName.replace(/[^a-zA-Z]/g, '').substring(0, 4).toUpperCase() || 'PRJ';
 
       targetWs = {

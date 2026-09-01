@@ -19,6 +19,7 @@ import { runPhaseH4AdversarialTests } from "./server/tests/phaseH4Adversarial.te
 import { runPhaseH63AdversarialTests } from "./server/tests/phaseH63Adversarial.test.js";
 import { runPhaseH94AdversarialTests } from "./server/tests/phaseH94Adversarial.test.js";
 import { runPhaseH941CapacityRecoveryTests } from "./server/tests/phaseH941CapacityRecovery.test.js";
+import { runFailClosedTests } from "./server/tests/phaseFailClosed.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -613,6 +614,15 @@ assert(
   h941Res.failures.length === 0 && h941Res.passed === 6,
   `Phase H.9.4.1 Suite failed (${h941Res.failures.length} failures): ${h941Res.failures.join("; ")}`,
   "All 6/6 Phase H.9.4.1 Capacity Recovery & Persistence tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE FAIL-CLOSED: EXTRACT → DASHBOARD → REPORT]${colors.reset}`);
+const failClosedRes = runFailClosedTests();
+assert(
+  "Fail-closed CPA pipeline suite",
+  failClosedRes.failures.length === 0,
+  `Fail-closed suite failed (${failClosedRes.failures.length} failures): ${failClosedRes.failures.join("; ")}`,
+  `All ${failClosedRes.passed}/${failClosedRes.total} fail-closed regressions passed.`
 );
 
 

@@ -1043,8 +1043,7 @@ export interface QueueJobRecord {
   intakeSessionId?: string;
   documentId: string;
   documentTitle: string;
-  filePath?: string;
-  textData?: string;
+  documentHash?: string;
   functionalCurrency: string;
   engineMode?: string;
   status: IngestionJobStatus;

@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Workspace, DocumentRecord, FinancialSummary, BankAccountSummary } from '../types';
+import { Workspace, DocumentRecord, FinancialSummary, BankAccountSummary, ExtractedFact } from '../types';
 import { ProjectFinancialsTab } from './project-tabs/ProjectFinancialsTab';
 import { ProjectDocumentsTab } from './project-tabs/ProjectDocumentsTab';
 import { ProjectFindingsTab } from './project-tabs/ProjectFindingsTab';
 import { ProjectReportsTab } from './project-tabs/ProjectReportsTab';
 import { ProjectInsightsTab } from './project-tabs/ProjectInsightsTab';
 import { ProjectActivityTab } from './project-tabs/ProjectActivityTab';
+import { VerificationStateMachine } from '../../server/verificationStateMachine';
 import {
   ArrowLeft,
   Search,
@@ -72,6 +73,7 @@ interface ProjectDetailDashboardProps {
   onBackToProjects?: () => void;
   onOpenQueueModal?: () => void;
   activeQueueJob?: any;
+  userEmail?: string | null;
 }
 
 export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
@@ -82,6 +84,7 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
   onBackToProjects,
   onOpenQueueModal,
   activeQueueJob,
+  userEmail,
 }) => {
   const [activeTab, setActiveTab] = useState<
     'overview' | 'projects' | 'financials' | 'documents' | 'findings' | 'reports' | 'insights' | 'subsidiaries' | 'contacts' | 'activity' | 'geographic' | 'settings' | 'extraction'
@@ -181,7 +184,7 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
     regNumber: 'Not Available',
     dateIncorporated: 'Not Available',
     website: 'Not Available',
-    auditor: 'Hermes CPA AI System',
+    auditor: '—',
     legalCounsel: '—',
     bankingPartners: '—',
     ownership: '—',
@@ -284,19 +287,50 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
   // Bank Statement Summary
   const defaultBankSummary: BankAccountSummary | null = null;
 
-  const handleOpenTraceModal = (metricName: string, val: string, factId: string, rowLabel: string, docName: string, page: string, snippet: string, confidence: string = '99.2%') => {
+  const handleOpenTraceModal = (metricName: string, fact?: ExtractedFact | null, displayValue?: string) => {
+    if (!fact?.id) return;
+    const badge = VerificationStateMachine.getDashboardPresentation(fact);
+    const doc = documents.find(d => d.id === fact.documentId);
     setTracedMetricModal({
       metricName,
-      dashboardValue: val,
-      factId,
-      extractedRowLabel: rowLabel,
-      documentName: docName,
-      page,
-      sourceSnippet: snippet,
-      extractionEngine: 'Hermes 4-Agent Consensus Bureau (OCR + Canonical Model)',
-      confidence,
-      status: 'VALIDATED & RECONCILED'
+      dashboardValue: displayValue || fact.valueOriginal || String(fact.valueFunctional),
+      factId: fact.id,
+      extractedRowLabel: fact.labelOriginal || fact.labelNormalized,
+      documentName: doc?.originalName || doc?.filename || fact.sourceDocument || 'not extracted',
+      page: fact.pageNumber ? String(fact.pageNumber) : '—',
+      sourceSnippet: fact.sourceText || 'not extracted',
+      extractionEngine: fact.extractionEngine || fact.extractionMethod || '—',
+      confidence: badge.displayState,
+      status: badge.displayState
     });
+  };
+
+  const kpiFact = (key: string): ExtractedFact | undefined => summary?.kpiProvenanceMap?.[key];
+  const renderKpiCard = (title: string, key: string, value: string, icon: React.ReactNode, yoy?: string) => {
+    const fact = kpiFact(key);
+    const display = fact?.id && value && value !== '—' ? value : '—';
+    const badge = fact ? VerificationStateMachine.getDashboardPresentation(fact) : null;
+    return (
+      <div
+        onClick={() => fact?.id && handleOpenTraceModal(title, fact, display)}
+        className={`bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs ${fact?.id ? 'hover:border-blue-400 hover:shadow-md cursor-pointer' : ''}`}
+      >
+        <div className="flex items-center space-x-1.5 text-[11px] font-bold text-slate-600">
+          {icon}
+          <span>{title}</span>
+        </div>
+        <div className="mt-2">
+          <span className="text-xl font-black text-slate-900 tracking-tight font-mono">{display === '—' ? 'not extracted' : display}</span>
+          <p className="text-[10px] font-bold mt-0.5 flex items-center space-x-1">
+            <span className={yoy && yoy !== '—' ? 'text-emerald-600' : 'text-slate-400'}>{yoy && yoy !== '—' ? yoy : '—'}</span>
+            <span className="text-slate-400 font-normal">vs PY</span>
+          </p>
+          <p className={`mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded inline-block border ${badge?.badgeColor || 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+            {fact?.id ? badge?.displayState : 'not extracted'}
+          </p>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -467,109 +501,12 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
 
           {/* 6 TOP KPI METRIC CARDS ROW */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {/* Card 1: Revenue */}
-            <div
-              onClick={() => handleOpenTraceModal('Revenue', revValue, 'FCT-REV', 'Group Turnover / Revenue', documents[0]?.originalName || 'Financial_Report.pdf', '1', `Revenue: ${revValue}`)}
-              className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs hover:border-blue-400 hover:shadow-md transition cursor-pointer group"
-            >
-              <div className="flex items-center space-x-1.5 text-emerald-600 text-[11px] font-bold">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>Revenue</span>
-              </div>
-              <div className="mt-2">
-                <span className="text-xl font-black text-slate-900 tracking-tight font-mono">{revValue}</span>
-                <p className="text-[10px] font-bold text-emerald-600 mt-0.5 flex items-center space-x-1">
-                  <span>▲ {summary?.revenueYoYPct || '1.0%'}</span>
-                  <span className="text-slate-400 font-normal">vs PY</span>
-                </p>
-              </div>
-            </div>
-
-            {/* Card 2: Net Income */}
-            <div
-              onClick={() => handleOpenTraceModal('Net Income', netIncValue, 'FCT-NET', 'Net Profit Attributable to Group', documents[0]?.originalName || 'Financial_Report.pdf', '1', `Net Income: ${netIncValue}`)}
-              className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs hover:border-blue-400 hover:shadow-md transition cursor-pointer group"
-            >
-              <div className="flex items-center space-x-1.5 text-blue-600 text-[11px] font-bold">
-                <DollarSign className="w-3.5 h-3.5" />
-                <span>Net Income</span>
-              </div>
-              <div className="mt-2">
-                <span className="text-xl font-black text-slate-900 tracking-tight font-mono">{netIncValue}</span>
-                <p className="text-[10px] font-bold text-emerald-600 mt-0.5 flex items-center space-x-1">
-                  <span>▲ 8.3%</span>
-                  <span className="text-slate-400 font-normal">vs PY</span>
-                </p>
-              </div>
-            </div>
-
-            {/* Card 3: Total Assets */}
-            <div
-              onClick={() => handleOpenTraceModal('Total Assets', assetsValue, 'FCT-AST', 'Total Balance Sheet Assets', documents[0]?.originalName || 'Financial_Report.pdf', '1', `Total Assets: ${assetsValue}`)}
-              className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs hover:border-blue-400 hover:shadow-md transition cursor-pointer group"
-            >
-              <div className="flex items-center space-x-1.5 text-purple-600 text-[11px] font-bold">
-                <Layers className="w-3.5 h-3.5" />
-                <span>Total Assets</span>
-              </div>
-              <div className="mt-2">
-                <span className="text-xl font-black text-slate-900 tracking-tight font-mono">{assetsValue}</span>
-                <p className="text-[10px] font-bold text-emerald-600 mt-0.5 flex items-center space-x-1">
-                  <span>▲ 3.8%</span>
-                  <span className="text-slate-400 font-normal">vs PY</span>
-                </p>
-              </div>
-            </div>
-
-            {/* Card 4: Current Ratio */}
-            <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs hover:border-blue-400 hover:shadow-md transition cursor-pointer group">
-              <div className="flex items-center space-x-1.5 text-amber-600 text-[11px] font-bold">
-                <Scale className="w-3.5 h-3.5" />
-                <span>Current Ratio</span>
-              </div>
-              <div className="mt-2">
-                <span className="text-xl font-black text-slate-900 tracking-tight font-mono">
-                  {summary?.currentAssetsRaw && summary?.currentLiabilitiesRaw && summary.currentLiabilitiesRaw > 0
-                    ? (summary.currentAssetsRaw / summary.currentLiabilitiesRaw).toFixed(2)
-                    : '—'}
-                </span>
-                <p className="text-[10px] font-bold text-slate-400 mt-0.5 flex items-center space-x-1">
-                  <span>{summary?.currentAssetsRaw && summary?.currentLiabilitiesRaw ? 'Verified from Balance Sheet' : 'Requires CA & CL facts'}</span>
-                </p>
-              </div>
-            </div>
-
-            {/* Card 5: Audit Readiness */}
-            <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs hover:border-blue-400 hover:shadow-md transition cursor-pointer group">
-              <div className="flex items-center space-x-1.5 text-emerald-600 text-[11px] font-bold">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Audit Readiness</span>
-              </div>
-              <div className="mt-2">
-                <span className="text-xl font-black text-slate-900 tracking-tight font-mono">
-                  {companyDocs.length > 0 ? `${auditReadinessPct}%` : '—'}
-                </span>
-                <p className="text-[10px] font-bold text-emerald-600 mt-0.5 flex items-center space-x-1">
-                  <span>{auditReadinessPct === 100 ? 'Fully Verified' : 'In Progress'}</span>
-                </p>
-              </div>
-            </div>
-
-            {/* Card 6: Risk Score */}
-            <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs hover:border-blue-400 hover:shadow-md transition cursor-pointer group">
-              <div className="flex items-center space-x-1.5 text-rose-600 text-[11px] font-bold">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Validation Status</span>
-              </div>
-              <div className="mt-2 flex items-baseline justify-between">
-                <span className="text-base font-extrabold text-emerald-600">
-                  {summary?.hasValidatedFacts ? 'Validated' : 'Pending'}
-                </span>
-                <span className="text-xs text-slate-400 font-mono">
-                  {summary?.hasValidatedFacts ? 'Pass' : 'Unverified'}
-                </span>
-              </div>
-            </div>
+            {renderKpiCard('Revenue', 'revenue', revValue, <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />, summary?.revenueYoYPct)}
+            {renderKpiCard('Net Income', 'net_income', netIncValue, <DollarSign className="w-3.5 h-3.5 text-blue-600" />)}
+            {renderKpiCard('Total Assets', 'total_assets', assetsValue, <Layers className="w-3.5 h-3.5 text-purple-600" />)}
+            {renderKpiCard('Liabilities', 'total_liabilities', liabValue, <Scale className="w-3.5 h-3.5 text-amber-600" />)}
+            {renderKpiCard('Equity', 'total_equity', equityValue, <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />)}
+            {renderKpiCard('Operating Profit', 'operating_profit', ebitdaValue, <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />)}
           </div>
 
 
@@ -895,32 +832,28 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
                     <div className="flex justify-between items-center border-b border-slate-50 pb-1.5">
                       <span className="text-slate-600 font-semibold">Total Assets</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">{assetsValue}</strong>
-                        <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 3.8%</span>
+                        <strong className="text-slate-900">{kpiFact('total_assets')?.id ? assetsValue : 'not extracted'}</strong>
                       </div>
                     </div>
 
                     <div className="flex justify-between items-center border-b border-slate-50 pb-1.5">
                       <span className="text-slate-600 font-semibold">Total Liabilities</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">{liabValue}</strong>
-                        <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 2.1%</span>
+                        <strong className="text-slate-900">{kpiFact('total_liabilities')?.id ? liabValue : 'not extracted'}</strong>
                       </div>
                     </div>
 
                     <div className="flex justify-between items-center border-b border-slate-50 pb-1.5">
                       <span className="text-slate-600 font-semibold">Total Equity</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">{equityValue}</strong>
-                        <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 5.4%</span>
+                        <strong className="text-slate-900">{kpiFact('total_equity')?.id ? equityValue : 'not extracted'}</strong>
                       </div>
                     </div>
 
                     <div className="flex justify-between items-center">
                       <span className="text-slate-600 font-semibold">Working Capital</span>
                       <div className="text-right font-mono">
-                        <strong className="text-slate-900">€8.45B</strong>
-                        <span className="text-[10px] text-emerald-600 font-bold ml-2">▲ 6.2%</span>
+                        <strong className="text-slate-900">not extracted</strong>
                       </div>
                     </div>
                   </div>
@@ -1111,48 +1044,8 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs">
-                      <tr className="hover:bg-slate-50 transition">
-                        <td className="py-2.5 px-1 font-semibold text-slate-800">Review Revenue Recognition</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-medium">Sarah Johnson</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-mono">Jun 7, 2026</td>
-                        <td className="py-2.5 px-2 text-right">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-                            In Progress
-                          </span>
-                        </td>
-                      </tr>
-
-                      <tr className="hover:bg-slate-50 transition">
-                        <td className="py-2.5 px-1 font-semibold text-slate-800">Confirm Inventory Valuation</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-medium">Michael Brown</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-mono">Jun 7, 2026</td>
-                        <td className="py-2.5 px-2 text-right">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-                            In Progress
-                          </span>
-                        </td>
-                      </tr>
-
-                      <tr className="hover:bg-slate-50 transition">
-                        <td className="py-2.5 px-1 font-semibold text-slate-800">Lease Analysis Review</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-medium">Emily Davis</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-mono">Jun 8, 2026</td>
-                        <td className="py-2.5 px-2 text-right">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
-                            Not Started
-                          </span>
-                        </td>
-                      </tr>
-
-                      <tr className="hover:bg-slate-50 transition">
-                        <td className="py-2.5 px-1 font-semibold text-slate-800">Bank Reconciliation Review</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-medium">David Wilson</td>
-                        <td className="py-2.5 px-2 text-slate-500 font-mono">Jun 9, 2026</td>
-                        <td className="py-2.5 px-2 text-right">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
-                            Not Started
-                          </span>
-                        </td>
+                      <tr>
+                        <td className="py-4 px-1 text-slate-400 text-xs" colSpan={4}>No tasks recorded for this workspace.</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1181,70 +1074,20 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
                   <h3 className="text-sm font-bold text-slate-900">Engagement Team</h3>
                 </div>
 
-                <div className="space-y-2.5 text-xs">
-                  <div className="flex items-center justify-between border-b border-slate-50 pb-2">
+                <div className="space-y-2.5 text-xs text-slate-500">
+                  {userEmail ? (
                     <div className="flex items-center space-x-2.5">
                       <div className="w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-[11px]">
-                        JS
+                        {userEmail.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
-                        <span className="font-bold text-slate-800 block">Jane Smith</span>
-                        <span className="text-[10px] text-slate-400">Engagement Partner</span>
+                        <span className="font-bold text-slate-800 block">{userEmail}</span>
+                        <span className="text-[10px] text-slate-400">Signed-in user</span>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-1.5 text-slate-400">
-                      <Mail className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                      <Phone className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-b border-slate-50 pb-2">
-                    <div className="flex items-center space-x-2.5">
-                      <div className="w-7 h-7 rounded-full bg-blue-700 text-white flex items-center justify-center font-bold text-[11px]">
-                        MB
-                      </div>
-                      <div>
-                        <span className="font-bold text-slate-800 block">Michael Brown</span>
-                        <span className="text-[10px] text-slate-400">Senior Manager</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-1.5 text-slate-400">
-                      <Mail className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                      <Phone className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-b border-slate-50 pb-2">
-                    <div className="flex items-center space-x-2.5">
-                      <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-[11px]">
-                        SJ
-                      </div>
-                      <div>
-                        <span className="font-bold text-slate-800 block">Sarah Johnson</span>
-                        <span className="text-[10px] text-slate-400">Audit Manager</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-1.5 text-slate-400">
-                      <Mail className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                      <Phone className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2.5">
-                      <div className="w-7 h-7 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold text-[11px]">
-                        ED
-                      </div>
-                      <div>
-                        <span className="font-bold text-slate-800 block">Emily Davis</span>
-                        <span className="text-[10px] text-slate-400">Senior Associate</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-1.5 text-slate-400">
-                      <Mail className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                      <Phone className="w-3.5 h-3.5 hover:text-blue-600 cursor-pointer" />
-                    </div>
-                  </div>
+                  ) : (
+                    <p>No engagement team recorded. People are not invented.</p>
+                  )}
                 </div>
               </div>
 
@@ -1316,37 +1159,17 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
                 </div>
 
                 <div className="space-y-2.5 text-xs">
-                  <div className="flex items-start space-x-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600 mt-1 flex-shrink-0"></div>
-                    <div>
-                      <span className="font-semibold text-slate-800 block">Financial Statement FY 2025 uploaded</span>
-                      <span className="text-[10px] text-slate-400">by Sarah Johnson • 2 min ago</span>
+                  {companyDocs.length === 0 ? (
+                    <p className="text-slate-400">No activity yet. Uploads will appear here.</p>
+                  ) : companyDocs.slice(0, 4).map((doc) => (
+                    <div key={doc.id} className="flex items-start space-x-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-600 mt-1 flex-shrink-0"></div>
+                      <div>
+                        <span className="font-semibold text-slate-800 block">{doc.originalName || doc.filename} uploaded</span>
+                        <span className="text-[10px] text-slate-400">{doc.createdAt || '—'} · {doc.status}</span>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="flex items-start space-x-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-600 mt-1 flex-shrink-0"></div>
-                    <div>
-                      <span className="font-semibold text-slate-800 block">Audit finding marked as resolved</span>
-                      <span className="text-[10px] text-slate-400">by Michael Brown • 15 min ago</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start space-x-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-purple-600 mt-1 flex-shrink-0"></div>
-                    <div>
-                      <span className="font-semibold text-slate-800 block">Fact extraction completed</span>
-                      <span className="text-[10px] text-slate-400">by Eve AI Engine • 32 min ago</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start space-x-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-600 mt-1 flex-shrink-0"></div>
-                    <div>
-                      <span className="font-semibold text-slate-800 block">Task assigned: Lease Analysis Review</span>
-                      <span className="text-[10px] text-slate-400">to David Wilson • 1 hr ago</span>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
 
@@ -1382,7 +1205,7 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
 
       {/* ----------------- TAB: REPORTS ----------------- */}
       {activeTab === 'reports' && (
-        <ProjectReportsTab workspace={workspace} documents={documents} />
+        <ProjectReportsTab workspace={workspace} documents={documents} summary={summary} userEmail={userEmail} />
       )}
 
       {/* ----------------- TAB: INSIGHTS ----------------- */}
@@ -1480,6 +1303,9 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
             </div>
           </div>
 
+          {subsidiariesList.length === 0 ? (
+            <p className="text-xs text-slate-500 py-8 text-center">not extracted — subsidiaries are not invented.</p>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {subsidiariesList.map((sub, idx) => (
               <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
@@ -1492,6 +1318,7 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
@@ -1500,6 +1327,9 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-4">
           <h3 className="font-black text-sm text-slate-900 uppercase tracking-wider">Key Client Contacts & Management</h3>
 
+          {clientContacts.length === 0 ? (
+            <p className="text-xs text-slate-500 py-8 text-center">not extracted — people are not invented.</p>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {clientContacts.map((c, idx) => (
               <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2 text-xs">
@@ -1516,6 +1346,7 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
@@ -1536,19 +1367,19 @@ export const ProjectDetailDashboard: React.FC<ProjectDetailDashboardProps> = ({
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
               <Globe className="w-5 h-5 text-blue-600" />
               <div className="font-bold text-slate-900">Geographic Regions</div>
-              <p className="text-slate-600">Operating across Spain, Germany, UK, Brazil, and 12 total global markets.</p>
+              <p className="text-slate-600">not extracted — region mix is only shown when sourced from gated facts.</p>
             </div>
 
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
               <Leaf className="w-5 h-5 text-emerald-600" />
               <div className="font-bold text-slate-900">ESG & Sustainability Rating</div>
-              <p className="text-slate-600">Carbon Neutrality Target 2030 (Scope 1 & 2). ESG Score: 88 / 100.</p>
+              <p className="text-slate-600">not extracted — ESG scores are not invented.</p>
             </div>
 
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
               <Scale className="w-5 h-5 text-purple-600" />
               <div className="font-bold text-slate-900">Global Tax & Regulatory Compliance</div>
-              <p className="text-slate-600">SOX & EU CSRD Compliant. 100% Tax Filings Submitted and Verified.</p>
+              <p className="text-slate-600">not extracted — filings and auditor opinions are not assumed.</p>
             </div>
           </div>
 

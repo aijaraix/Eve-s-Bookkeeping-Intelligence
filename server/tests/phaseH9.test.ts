@@ -58,10 +58,10 @@ describe('Phase H.9 Hybrid Engine Architecture Unit Tests', () => {
     );
 
     expect(result.evidenceStatus).toBe('CONFIRMED');
-    expect(result.confidenceScore).toBe(0.99);
+    expect(result.confidenceScore).toBe(0.98);
   });
 
-  it('E. EvidenceCrossCheck marks scanned page facts as VISUALLY_CONFIRMED', () => {
+  it('E. EvidenceCrossCheck marks scanned page facts as UNCONFIRMED', () => {
     const candidate: StatementFactCandidate = {
       metricLabel: 'Total Assets',
       rawValue: '97062',
@@ -84,8 +84,8 @@ describe('Phase H.9 Hybrid Engine Architecture Unit Tests', () => {
       mockBlocks
     );
 
-    expect(result.evidenceStatus).toBe('VISUALLY_CONFIRMED');
-    expect(result.confidenceScore).toBeLessThanOrEqual(0.95);
+    expect(result.evidenceStatus).toBe('UNCONFIRMED');
+    expect(result.confidenceScore).toBe(0);
   });
 
   it('F. Scale multiplier is applied exactly once during normalization', () => {

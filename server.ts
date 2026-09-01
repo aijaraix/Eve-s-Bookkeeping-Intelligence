@@ -12,7 +12,6 @@ import { SpreadsheetParser } from "./src/lib/parser/spreadsheetParser";
 import { OCRParser } from "./src/lib/parser/ocrParser";
 import { WebParser } from "./src/lib/parser/webParser";
 import { DocumentIntelligenceAgent } from "./src/lib/agents/documentAgents";
-import { globalFactRegistry } from "./src/lib/factRegistry";
 import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
 import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
@@ -36,7 +35,15 @@ import {
 } from "./server/forensicExtractionEngine.js";
 import { intakeService } from "./server/intakeService.js";
 import { semanticTaskManager } from "./server/hybridExtraction/SemanticTaskManager.js";
-import { modelDiscoveryService } from "./server/modelDiscoveryService.js";
+import { ReportingEngine } from "./server/reportingEngine.js";
+import {
+  persistFactStatus,
+  persistFactConfidence,
+  isBannedMockFact,
+  isDemoRecord,
+  shouldRejectDriveUrlOnlyUpload,
+  shouldRejectEmptyUpload
+} from "./server/failClosedGuards.js";
 
 export const fileRouter = new FileRouter();
 export const anyDocParser = new AnyDocParser();
@@ -536,6 +543,7 @@ interface AppStorage {
   agentLogs?: any[];
   pageManifests?: any[];
   sourceBlocks?: any[];
+  reports?: any[];
 }
 
 let db: AppStorage = {
@@ -548,7 +556,8 @@ let db: AppStorage = {
   discrepancies: [],
   agentLogs: [],
   pageManifests: [],
-  sourceBlocks: []
+  sourceBlocks: [],
+  reports: []
 };
 
 backgroundIngestionQueue.setDbRef(db);
@@ -591,20 +600,29 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
         factType: fType,
         labelOriginal: f.labelOriginal || f.labelNormalized || 'Extracted Fact',
         labelNormalized: f.labelNormalized || f.labelOriginal || 'Extracted Fact',
-        valueOriginal: f.valueOriginal || String(f.valueFunctional || 0),
-        valueFunctional: String(f.valueFunctional || 0),
+        canonicalMetric: f.canonicalMetric,
+        statementType: f.statementType,
+        valueOriginal: f.valueOriginal || String(f.valueFunctional || ""),
+        valueFunctional: String(f.valueFunctional || ""),
+        normalizedValue: f.normalizedValue,
         currencyOriginal: f.currencyOriginal || wsCurrency,
-        functionalCurrency: wsCurrency,
-        exchangeRate: f.exchangeRate || "1.0000",
-        periodStart: f.periodStart || "2026-01-01",
-        periodEnd: f.periodEnd || "2026-12-31",
-        pageNumber: f.pageNumber || f.page || 1,
+        functionalCurrency: f.functionalCurrency || wsCurrency,
+        exchangeRate: f.exchangeRate,
+        periodStart: f.periodStart,
+        periodEnd: f.periodEnd,
+        reportingPeriod: f.reportingPeriod,
+        pageNumber: f.pageNumber || f.page,
         sourceText: f.sourceText || f.source_text || "",
-        confidence: f.confidence || 0.98,
-        status: f.status || 'approved',
-        extractionMethod: f.extractionMethod || 'Hermes Consensus Agent Swarm',
+        confidence: persistFactConfidence(f.confidence),
+        status: persistFactStatus(f.status, f.evidenceStatus),
+        extractionMethod: f.extractionMethod,
+        extractionEngine: f.extractionEngine,
         created_at: new Date().toISOString()
       };
+
+      if (isBannedMockFact(newFact)) {
+        return;
+      }
 
       if (existingIdx >= 0) {
         db.facts[existingIdx] = { ...db.facts[existingIdx], ...newFact };
@@ -617,6 +635,18 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     if (doc) {
       doc.extractedFactsCount = db.facts.filter(f => f.documentId === job.documentId).length;
       doc.status = "Completed";
+      if ((job as any).pagesTotal) doc.pageCount = (job as any).pagesTotal;
+    }
+
+    if ((job as any).pageManifests?.length) {
+      if (!db.pageManifests) db.pageManifests = [];
+      db.pageManifests = db.pageManifests.filter((pm: any) => pm.document_id !== job.documentId);
+      db.pageManifests.push(...(job as any).pageManifests.map((pm: any) => ({ ...pm, document_id: job.documentId, workspace_id: job.workspaceId })));
+    }
+    if ((job as any).sourceBlocks?.length) {
+      if (!db.sourceBlocks) db.sourceBlocks = [];
+      db.sourceBlocks = db.sourceBlocks.filter((sb: any) => sb.document_id !== job.documentId);
+      db.sourceBlocks.push(...(job as any).sourceBlocks.map((sb: any) => ({ ...sb, document_id: job.documentId })));
     }
 
     reprocessWorkspaceExtraction(job.workspaceId);
@@ -1007,12 +1037,15 @@ function loadStorage() {
       }
       if (db && Array.isArray(db.facts)) {
         db.facts = db.facts.filter((f: any) => {
+          if (isBannedMockFact(f)) return false;
           if (String(f.valueOriginal).includes("59.60B") || String(f.valueFunctional).includes("59.60B")) return false;
           const valNum = parseFloat(String(f.valueFunctional || "0"));
-          // Filter out concatenated multi-column corruption (quadrillions/trillions)
           if (valNum > 1e14 || valNum < -1e14) return false;
           return true;
         });
+        db.workspaces = (db.workspaces || []).filter((w: any) => !isDemoRecord(w));
+        db.documents = (db.documents || []).filter((d: any) => !isDemoRecord(d));
+        db.findings = (db.findings || []).filter((f: any) => !isDemoRecord(f));
         saveStorage();
       }
     }
@@ -2426,41 +2459,16 @@ app.post("/api/documents/upload", (req, res) => {
       const targetWorkspaceId = req.body?.workspaceId || "";
       const confirmAttachToExisting = req.body?.confirmAttachToExisting === "true";
 
-      // If no local files and a Google Drive / Cloud URL is provided, ingest from Drive link
-      if ((!fileList || fileList.length === 0) && driveUrl) {
-        const urlStr = String(driveUrl).trim();
-        let fileNameFromUrl = "Google_Drive_Document.pdf";
-        const driveMatch = urlStr.match(/\/file\/d\/([^\/]+)/) || urlStr.match(/id=([a-zA-Z0-9_-]+)/);
-        if (driveMatch) {
-          fileNameFromUrl = `Google_Drive_Doc_${driveMatch[1].substring(0, 8)}.pdf`;
-        } else {
-          const parts = urlStr.split("/").filter(Boolean);
-          const last = parts[parts.length - 1];
-          if (last && last.length > 3) fileNameFromUrl = last.split("?")[0];
-        }
-        fileList = [{
-          fieldname: "files",
-          originalname: fileNameFromUrl,
-          encoding: "7bit",
-          mimetype: "application/pdf",
-          buffer: Buffer.from(`Google Drive Document URL: ${urlStr}`),
-          size: 1024 * 1024 * 5
-        } as Express.Multer.File];
+      if (shouldRejectDriveUrlOnlyUpload(fileList.length, driveUrl)) {
+        return res.status(400).json({
+          error: "Google Drive URL ingest is not implemented. Upload the file directly. Refusing to create a URL-string PDF."
+        });
       }
 
-      // Robust Fallback: If no files and no drive URL, synthesize a working document from instructions or default financial paper
-      if (!fileList || fileList.length === 0) {
-        const cleanName = spokenInstruction.replace(/[^a-zA-Z0-9]/g, "_").replace(/^_+|_+$/g, "").slice(0, 25);
-        const fallbackFileName = cleanName.length >= 3 ? `${cleanName}_Audit.pdf` : "Financial_Statement.pdf";
-        
-        fileList = [{
-          fieldname: "files",
-          originalname: fallbackFileName,
-          encoding: "7bit",
-          mimetype: "application/pdf",
-          buffer: Buffer.from(`Audit Working Paper Document: ${spokenInstruction || "Financial Audit Working Papers"}`),
-          size: 1024 * 1024
-        } as Express.Multer.File];
+      if (shouldRejectEmptyUpload(fileList.length, driveUrl)) {
+        return res.status(400).json({
+          error: "No files uploaded. Refusing to synthesize an Audit Working Paper from empty input or spoken text."
+        });
       }
 
       // 1. Pre-parse all files ONCE up-front to prevent slow duplicate processing and timeout errors!
@@ -2482,20 +2490,18 @@ app.post("/api/documents/upload", (req, res) => {
             } else if (inspection.needsOCR) {
               return await ocrParser.parse(fileInput, inspection);
             } else {
-              return await anyDocParser.parse(fileInput, inspection, { maxPages: 30 });
+              return await anyDocParser.parse(fileInput, inspection);
             }
           })();
-          const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 10000));
+          const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 180000));
           canonicalDoc = await Promise.race([parsePromise, timeoutPromise]);
           
           if (!canonicalDoc) {
-            console.warn(`Pre-parsing ${file.originalname} timed out (>10s), using fast fallback for upload response.`);
-            throw new Error("Pre-parsing timeout fallback");
+            console.warn(`Pre-parsing ${file.originalname} timed out; storing file and deferring full page inventory to hybrid extraction.`);
+            throw new Error("PREPARSE_DEFERRED");
           }
         } catch (parseErr) {
           console.warn(`Error or timeout pre-parsing ${file.originalname}:`, parseErr);
-          const sample = file.buffer ? file.buffer.toString("utf-8", 0, Math.min(file.buffer.length, 30000)) : "";
-          const cleanAscii = sample.replace(/[^\x20-\x7E\n\r\t]/g, " ");
           canonicalDoc = {
             document_id: `DOC-${Math.floor(1000 + Math.random() * 9000)}`,
             project_id: "PRJ-CURRENT",
@@ -2507,14 +2513,16 @@ app.post("/api/documents/upload", (req, res) => {
               original_url: null,
               access_timestamp: new Date().toISOString()
             },
-            parser: { engine: "fallback", version: "1.0", ocr_used: false, confidence: 0.5 },
-            metadata: { pages: 1, language: "UNKNOWN", currency: "EUR", entityName: "Corporate Entity", period: undefined, totalWords: cleanAscii.split(/\s+/).length },
-            sections: [{ id: "fallback", title: "Document Preview", level: 1, text: cleanAscii }],
+            parser: { engine: "deferred", version: "1.0", ocr_used: false, confidence: 0 },
+            metadata: { pages: 0, language: "UNKNOWN", currency: undefined, entityName: undefined, period: undefined, totalWords: 0 },
+            sections: [],
             tables: [],
             assets: [],
-            markdown: cleanAscii,
-            warnings: [],
-            confidence: 0.5
+            markdown: "",
+            pageManifests: [],
+            sourceBlocks: [],
+            warnings: ["Pre-parse deferred. Full page inventory will be built from the stored file during hybrid extraction."],
+            confidence: 0
           };
         }
         preParsedDocs.push({ file, inspection, canonicalDoc });
@@ -2770,7 +2778,8 @@ app.post("/api/documents/upload", (req, res) => {
             p.canonicalDoc?.pageManifests,
             p.canonicalDoc?.sourceBlocks,
             intakeSession.id,
-            effectiveEngineMode
+            effectiveEngineMode,
+            docRec.sha256
           );
           createdQueueJobs.push(job);
         }
@@ -3019,20 +3028,19 @@ app.post("/api/documents/ingest-url", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL parameter is required" });
 
     const targetUrl = String(url).trim();
-    const isNestle = targetUrl.toLowerCase().includes("nestle");
     
     // Find or create workspace for url
     let ws = workspaceId ? db.workspaces.find(w => w.id === workspaceId) : null;
     if (!ws) {
-      const companyName = isNestle ? "Nestlé S.A." : "Corporate Entity";
+      const companyName = "Corporate Entity";
       ws = db.workspaces.find(w => w.name.toLowerCase() === companyName.toLowerCase());
       if (!ws) {
         ws = {
           id: `ws-${Date.now()}`,
           name: companyName,
-          code: isNestle ? "NESN" : "CORP",
-          currency: isNestle ? "CHF" : "EUR",
-          country: isNestle ? "Switzerland" : "Global",
+          code: "CORP",
+          currency: "EUR",
+          country: "Global",
           createdAt: new Date().toISOString()
         };
         db.workspaces.push(ws);
@@ -3041,7 +3049,7 @@ app.post("/api/documents/ingest-url", async (req, res) => {
 
     // Ingest via WebParser
     const fileInput = {
-      filename: isNestle ? "Nestle_Investor_Relations_FY2025.html" : "Web_Acquired_Document.html",
+      filename: "Web_Acquired_Document.html",
       originalName: targetUrl,
       mimeType: "text/html",
       size: 15240,
@@ -3066,10 +3074,10 @@ app.post("/api/documents/ingest-url", async (req, res) => {
       language: "en",
       currency: ws.currency,
       entityName: ws.name,
-      period: "FY 2025",
-      confidence: 0.99,
+      period: canonicalDoc.metadata?.period || "",
+      confidence: undefined,
       extractedFactsCount: classification.extractedFacts.length,
-      reviewStatus: "approved",
+      reviewStatus: "pending_review",
       createdAt: new Date().toISOString(),
       summary: `Firecrawl Web Ingestion from ${targetUrl}. Reconciled via Hermes 4-Agent Consensus.`
     };
@@ -3090,12 +3098,12 @@ app.post("/api/documents/ingest-url", async (req, res) => {
         valueFunctional: String(f.normalized_value),
         functionalCurrency: f.currency,
         exchangeRate: "1.0000",
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
+        periodStart: undefined,
+        periodEnd: undefined,
         pageNumber: f.page || 1,
         sourceText: f.source_text,
-        confidence: f.confidence,
-        status: f.validation_status.toLowerCase(),
+        confidence: persistFactConfidence(f.confidence),
+        status: persistFactStatus(f.validation_status, (f as any).evidenceStatus),
         extractionMethod: f.extraction_method
       });
     });
@@ -3116,28 +3124,66 @@ app.post("/api/documents/ingest-url", async (req, res) => {
 
 // Fact Provenance Registry Endpoint
 app.get("/api/facts/provenance", (req, res) => {
-  const { projectId } = req.query;
-  const facts = globalFactRegistry.getFactsForProject(String(projectId || "PRJ-CURRENT"));
+  const { projectId, workspaceId } = req.query;
+  const id = String(workspaceId || projectId || "");
+  const facts = db.facts.filter(f => !isBannedMockFact(f) && (f.workspaceId === id || (f as any).project_id === id));
   res.json({ success: true, facts });
 });
 
 // Deliverable Wizard Generation Endpoint
 app.post("/api/deliverables/generate", (req, res) => {
   try {
-    const { companyName, projectName, projectId, deliverableType, audience, detailLevel, brandColors } = req.body;
-    const report = wizardEngine.generateReport({
-      companyName: companyName || "Nestlé S.A.",
-      projectName: projectName || "FY 2025 Audit",
-      projectId: projectId || "PRJ-CURRENT",
-      deliverableType: deliverableType || "Annual Audit Report",
-      audience: audience || "Board of Directors",
-      detailLevel: detailLevel || "Executive",
-      brandColors
+    const { companyName, projectName, projectId, workspaceId, deliverableType, audience, detailLevel, brandColors, signedOffBy } = req.body;
+    const wsId = workspaceId || projectId;
+    if (!wsId) {
+      return res.status(400).json({ success: false, error: "workspaceId is required" });
+    }
+    const signer = signedOffBy || (req.headers["x-user-email"] as string) || "";
+    if (!signer || /sarah johnson/i.test(signer)) {
+      return res.status(401).json({ success: false, error: "A real authenticated user must sign off before export." });
+    }
+    const ws = db.workspaces.find(w => w.id === wsId);
+    const facts = db.facts.filter(f => f.workspaceId === wsId && !isBannedMockFact(f));
+    if (!facts.length) {
+      return res.status(422).json({ success: false, error: "REFUSED: Zero validated facts in db.facts. Empty extraction cannot generate a report." });
+    }
+
+    const entityName = companyName && !/nestlé|nestle/i.test(companyName) ? companyName : (ws?.name || "Reporting Entity");
+    const report = ReportingEngine.generateFinancialReport({
+      workspaceId: wsId,
+      title: `${deliverableType || "Financial Report"} — ${entityName}`,
+      reportingPeriod: facts[0]?.reportingPeriod || facts[0]?.periodEnd || "",
+      entityName,
+      currency: ws?.currency || facts[0]?.currencyOriginal,
+      facts,
+      documents: db.documents.filter(d => d.workspaceId === wsId) as any
     });
-    res.json({ success: true, report });
+
+    if (!db.reports) db.reports = [];
+    const stored = {
+    id: report.reportId || report.id || `REP-${Date.now()}`,
+      workspaceId: wsId,
+      title: report.title,
+      audience: audience || "Board of Directors",
+      deliverableType: deliverableType || "Financial Report",
+      status: "Draft",
+      signedOffBy: signer,
+      createdAt: new Date().toISOString(),
+      report
+    };
+    db.reports.unshift(stored);
+    saveStorage();
+
+    res.json({ success: true, report: stored });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to generate deliverable report" });
+    res.status(422).json({ success: false, error: err.message || "Failed to generate deliverable report" });
   }
+});
+
+app.get("/api/reports", (req, res) => {
+  const { workspaceId } = req.query;
+  const list = (db.reports || []).filter((r: any) => !workspaceId || r.workspaceId === workspaceId);
+  res.json({ success: true, reports: list });
 });
 
 app.get("/api/documents/:id/page-manifests", (req, res) => {
@@ -3415,22 +3461,34 @@ app.get("/api/deliverables/package", (req, res) => {
 
 app.get("/api/deliverables/download/:workspaceId", (req, res) => {
   const { workspaceId } = req.params;
-  const workspaceFacts = db.facts.filter(f => f.workspaceId === workspaceId || !workspaceId);
+  const workspaceFacts = db.facts.filter(f => (f.workspaceId === workspaceId || !workspaceId) && !isBannedMockFact(f));
+  const reportReady = workspaceFacts.filter((f) => {
+    try {
+      return ReportingEngine.evaluateFactEligibility(f as ExtractedFact).eligibilityStatus === "REPORT_READY";
+    } catch {
+      return false;
+    }
+  });
+  if (reportReady.length === 0) {
+    return res.status(422).json({
+      success: false,
+      error: "REFUSED: No REPORT_READY facts. Empty extraction cannot export a deliverable package."
+    });
+  }
   const workspaceDocs = db.documents.filter(d => d.workspaceId === workspaceId || !workspaceId);
   const workspaceEntities = corporateGroupService.getEntities(workspaceId as string);
   const fxRates = corporateGroupService.getFxRates();
-  const reconciliationRules = unboundedRegistryEngine.runAccountingReconciliation(workspaceFacts);
+  const reconciliationRules = unboundedRegistryEngine.runAccountingReconciliation(reportReady);
 
   const pkg = deliverablesEngine.createDeliverablePackage(
     workspaceId,
-    workspaceFacts,
+    reportReady,
     workspaceDocs,
     workspaceEntities,
     fxRates,
     reconciliationRules
   );
 
-  // Return formatted JSON downloadable attachment
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="audit_working_papers_${workspaceId}.json"`);
   return res.send(JSON.stringify(pkg, null, 2));
@@ -3595,7 +3653,7 @@ app.get("/api/facts", (req, res) => {
     return res.json([]);
   }
 
-  let list = db.facts.filter(f => f.workspaceId === workspaceId || (f as any).project_id === workspaceId);
+  let list = db.facts.filter(f => (f.workspaceId === workspaceId || (f as any).project_id === workspaceId) && !isBannedMockFact(f));
 
   if (entityId) {
     list = list.filter(f => f.entityId === entityId || (f as any).entity_id === entityId);
@@ -3900,10 +3958,10 @@ const QA_BENCHMARKS: Record<string, {
     name: "Unilever PLC",
     metrics: {
       "revenue": {
-        authoritativeValue: 59604000000,
-        authoritativeValueFormatted: "€59,604M",
-        ocrSourceText: "Unilever PLC Turnover FY 2025: €59,604 million (+4.2% USG)",
-        metricName: "Total Revenue"
+        authoritativeValue: 50503000000,
+        authoritativeValueFormatted: "€50,503M",
+        ocrSourceText: "Unilever PLC Turnover from continuing operations FY 2025: €50,503 million",
+        metricName: "Total Revenue (continuing operations)"
       },
       "net_income": {
         authoritativeValue: 6490000000,
@@ -4228,20 +4286,19 @@ app.get("/api/extraction/inspector", (req, res) => {
   }
 
   const wsDocs = ws ? db.documents.filter(d => d.workspaceId === ws.id) : [];
-  const wsFacts = ws ? db.facts.filter(f => f.workspaceId === ws.id) : [];
-
-  const isNestle = ws?.name.toLowerCase().includes("nestle") || wsDocs.some(d => d.filename.toLowerCase().includes("nestle"));
+  const wsFacts = ws ? db.facts.filter(f => f.workspaceId === ws.id && !isBannedMockFact(f)) : [];
+  const pageManifests = (db.pageManifests || []).filter((pm: any) => wsDocs.some(d => d.id === pm.document_id));
 
   res.json({
     workspace: ws,
-    pipelineStatus: wsFacts.length > 0 ? "VALIDATED" : "INSPECTING",
-    stagesCompleted: wsFacts.length > 0 ? 20 : 2,
-    totalStages: 20,
+    pipelineStatus: wsFacts.length > 0 ? "EXTRACTED" : "EMPTY",
+    stagesCompleted: wsFacts.length > 0 ? 7 : 0,
+    totalStages: 7,
     inspectionSummary: {
       filesInspectedCount: wsDocs.length,
-      sectionsIndexedCount: isNestle ? 5 : Math.max(1, wsDocs.length * 2),
-      statementsLocatedCount: isNestle ? 3 : wsDocs.length,
-      tablesExtractedCount: isNestle ? 12 : wsDocs.length * 3,
+      sectionsIndexedCount: pageManifests.length,
+      statementsLocatedCount: wsDocs.length,
+      tablesExtractedCount: 0,
       factsExtractedCount: wsFacts.length,
       factsValidatedCount: wsFacts.filter(f => f.status === "validated" || f.status === "approved").length
     },
@@ -4251,63 +4308,33 @@ app.get("/api/extraction/inspector", (req, res) => {
       sha256: d.sha256,
       sizeBytes: d.size,
       mimeType: d.mimeType,
-      pagesCount: isNestle ? 95 : 12,
-      nativeTextDetected: true,
-      encryptionStatus: "None",
-      corruptionStatus: "Clean",
-      ocrRequired: false,
-      status: "FILE_INSPECTED"
+      pagesCount: d.pageCount || pageManifests.filter((pm: any) => pm.document_id === d.id).length || 0,
+      nativeTextDetected: undefined,
+      encryptionStatus: "Unknown",
+      corruptionStatus: "Unknown",
+      ocrRequired: undefined,
+      status: d.status
     })),
     anyDocParsing: wsDocs.map(d => ({
       documentId: d.id,
-      engine: "AnyDoc Multi-Page Native Parser v4.2",
+      engine: d.engineMode || "HYBRID_GEMINI_NATIVE",
       markdownPreserved: true,
-      tablesPreservedCount: isNestle ? 12 : 3,
-      headingsPreservedCount: isNestle ? 48 : 8,
-      status: "PARSED"
+      tablesPreservedCount: undefined,
+      headingsPreservedCount: undefined,
+      status: d.status
     })),
-    logicalSections: isNestle ? [
-      { id: "sec-1", title: "Corporate Governance Report", pageRange: "Pages 1 – 15", category: "Governance" },
-      { id: "sec-2", title: "Compensation Report", pageRange: "Pages 16 – 30", category: "Remuneration" },
-      { id: "sec-3", title: "Consolidated Financial Statements", pageRange: "Pages 31 – 75", category: "Consolidated Financials", isAuthoritative: true },
-      { id: "sec-4", title: "Nestlé S.A. Standalone Financial Statements", pageRange: "Pages 76 – 90", category: "Parent Entity Financials", isAuthoritative: false },
-      { id: "sec-5", title: "Auditor Reports", pageRange: "Pages 91 – 95", category: "Audit & Statutory" }
-    ] : [
-      { id: "sec-1", title: "Financial Statements & Notes", pageRange: "Pages 1 – 12", category: "Financial Statements", isAuthoritative: true }
-    ],
-    extractedTables: [
-      {
-        id: "tbl-1",
-        title: "Consolidated Income Statement",
-        currency: isNestle ? "CHF" : ws?.currency || "EUR",
-        unitScale: "Millions",
-        period: "FY 2025",
-        rows: isNestle ? [
-          { label: "Sales", val2025: "89,490", val2024: "91,354" },
-          { label: "Other operating income", val2025: "1,286", val2024: "1,084" },
-          { label: "Cost of sales", val2025: "(49,579)", val2024: "(48,631)" },
-          { label: "Gross profit", val2025: "41,197", val2024: "43,807" },
-          { label: "Operating profit", val2025: "14,277", val2024: "16,277" },
-          { label: "Net profit", val2025: "9,033", val2024: "10,122" }
-        ] : [
-          { label: "Sales / Revenue", val2025: "12,545,250", val2024: "11,800,000" }
-        ]
-      }
-    ],
+    logicalSections: [],
+    extractedTables: [],
     extractedFacts: wsFacts,
     validationResults: {
-      validatorPass: true,
-      validatorNotes: "Stage 14: Independent Second Pass (Validator B) checked raw cell coordinates against extracted table rows. All row totals mathematically reconcile.",
-      accountingChecks: [
-        { test: "Assets = Liabilities + Equity", status: "PASSED", details: isNestle ? "132,500M CHF = 82,100M CHF + 50,400M CHF" : "Reconciled" },
-        { test: "Revenue - Cost = Gross Profit", status: "PASSED", details: isNestle ? "89,490M - 49,579M + 1,286M = 41,197M CHF" : "Reconciled" },
-        { test: "YoY Growth Percentage Accuracy", status: "PASSED", details: isNestle ? "(89,490 - 91,354) / 91,354 = -2.04% YoY" : "Reconciled" }
-      ],
+      validatorPass: false,
+      validatorNotes: wsFacts.length === 0 ? "No extracted facts." : "See AccountingValidationEngine results on the workspace.",
+      accountingChecks: [],
       hermesConsensus: {
-        documentAgent: "APPROVED",
-        financialAgent: "APPROVED",
-        validationAgent: "APPROVED",
-        decision: "VALIDATED_AND_PUBLISHED"
+        documentAgent: "NOT_A_VOTE",
+        financialAgent: "NOT_A_VOTE",
+        validationAgent: "NOT_A_VOTE",
+        decision: "PENDING_REVIEW"
       }
     }
   });

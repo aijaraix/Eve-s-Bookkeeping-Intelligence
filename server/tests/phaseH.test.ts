@@ -201,6 +201,7 @@ describe("Phase H — Customer UX, Project Workspace & Document-First Navigation
       extractionConfidence: 0.98,
       status: "VERIFIED" as const,
       workspaceId: "ws-default",
+      sourceText: "Reported revenue was 1250000 USD for the period.",
     };
 
     const evidenceRecord = AuditEvidenceEngine.getEvidenceRecord(sampleFact as any, {
