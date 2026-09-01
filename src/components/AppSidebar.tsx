@@ -387,12 +387,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   <div className="space-y-1">
                     <div className="flex justify-between text-[10px] text-slate-400 font-mono">
                       <span>STORAGE USED</span>
-                      <span className="text-slate-200 font-bold">&lt; 0.1%</span>
+                      <span className="text-slate-200 font-bold">{documents.length ? `${documents.length} file${documents.length === 1 ? '' : 's'}` : '—'}</span>
                     </div>
                     <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full w-[1%]" />
+                      <div className="bg-blue-500 h-full" style={{ width: documents.length ? `${Math.min(100, documents.length * 5)}%` : '0%' }} />
                     </div>
-                    <div className="text-[9px] text-slate-500 font-mono">18.4 MB of 250 GB</div>
+                    <div className="text-[9px] text-slate-500 font-mono">Uploaded files only — no demo corpus</div>
                   </div>
                 </div>
               </div>

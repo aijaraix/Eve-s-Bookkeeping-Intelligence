@@ -13,6 +13,9 @@ firebase-applet-config.json
 storage/queue_jobs.json
 storage/uploads/*
 !storage/uploads/.gitkeep
+storage/extraction_task_cache.json
+storage/intake_sessions.json
+storage/semantic_tasks.json
 db.storage.json
 ai_cpa_storage.json
 server/tests/fixtures/tmp_*
