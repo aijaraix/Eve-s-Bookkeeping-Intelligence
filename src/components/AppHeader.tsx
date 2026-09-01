@@ -17,7 +17,8 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { UserSession, ActiveView } from '../types';
-import { COMPANIES, PROJECTS } from '../data/mockData';
+import { usePractice } from '../context/PracticeContext';
+import { EMPTY_DISPLAY } from '../api/practiceClient';
 
 interface AppHeaderProps {
   activeView: ActiveView;
@@ -54,10 +55,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState('EUR (€)');
+  const { companies, projects, documents } = usePractice();
 
-  const currentCompany = COMPANIES.find((c) => c.id === selectedCompanyId) || COMPANIES[0];
-  const companyProjects = PROJECTS.filter((p) => p.companyId === selectedCompanyId);
-  const currentProject = PROJECTS.find((p) => p.id === selectedProjectId) || companyProjects[0] || PROJECTS[0];
+  const currentCompany = companies.find((c) => c.id === selectedCompanyId);
+  const companyProjects = projects.filter((p) => p.companyId === selectedCompanyId);
+  const currentProject = projects.find((p) => p.id === selectedProjectId) || companyProjects[0];
 
   const isGlobalView = ['overview', 'projects', 'companies', 'users-teams', 'activity-log'].includes(activeView);
 
@@ -65,7 +67,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     setActiveProjectTab(tab);
     if (tab === 'Overview') setActiveView('overview');
     else if (tab === 'Financials') setActiveView('financials-dashboard');
-    else if (tab === 'Documents (3)') setActiveView('documents');
+    else if (tab.startsWith('Documents')) setActiveView('documents');
     else if (tab === 'More Sections') setActiveView('ai-deliverables');
   };
 
@@ -112,15 +114,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               onChange={(e) => {
                 const newCompanyId = e.target.value;
                 setSelectedCompanyId(newCompanyId);
-                const firstProj = PROJECTS.find((p) => p.companyId === newCompanyId);
+                const firstProj = projects.find((p) => p.companyId === newCompanyId);
                 if (firstProj) setSelectedProjectId(firstProj.id);
+                else setSelectedProjectId(newCompanyId);
               }}
               className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer pr-2"
             >
-              <option value="all">🏢 All Client Companies (Global)</option>
-              {COMPANIES.map((comp) => (
+              <option value="">{companies.length ? 'Select client' : 'No extracted clients'}</option>
+              {companies.map((comp) => (
                 <option key={comp.id} value={comp.id}>
-                  {comp.name} ({comp.ticker})
+                  {comp.name} ({comp.ticker || EMPTY_DISPLAY})
                 </option>
               ))}
             </select>
@@ -222,21 +225,25 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <div>
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                {currentCompany.name}
+                {currentCompany?.name || 'No client selected'}
               </h2>
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                • {currentProject.name}
+                • {currentProject?.name || 'Submit documents to create an engagement'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Client Entity: {currentCompany.reg} • Country: {currentCompany.country} • Framework: {currentCompany.reporting} • Lead: {currentProject.assignedLead}
+              Client Entity: {currentCompany?.reg || EMPTY_DISPLAY} • Country: {currentCompany?.country || EMPTY_DISPLAY} • Framework: {currentCompany?.reporting || EMPTY_DISPLAY} • Lead: {currentProject?.assignedLead || EMPTY_DISPLAY}
             </p>
           </div>
 
           {/* Project Navigation Tabs */}
           <div className="flex items-center gap-6 border-b border-slate-200 pt-2 text-xs font-semibold">
-            {['Overview', 'Financials', 'Documents (3)', 'More Sections'].map((tab) => {
-              const isSelected = activeProjectTab === tab || (tab === 'Financials' && activeProjectTab.startsWith('Financials'));
+            {['Overview', 'Financials', `Documents (${documents.length})`, 'More Sections'].map((tab) => {
+              const isSelected =
+                (tab === 'Overview' && activeView === 'overview') ||
+                (tab === 'Financials' && (activeView === 'financials-dashboard' || activeProjectTab.startsWith('Financials'))) ||
+                (tab.startsWith('Documents') && activeView === 'documents') ||
+                (tab === 'More Sections' && activeView === 'ai-deliverables');
               return (
                 <button
                   key={tab}

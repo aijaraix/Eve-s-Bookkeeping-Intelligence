@@ -3,19 +3,19 @@ import {
   Building2,
   Briefcase,
   FileText,
-  ShieldCheck,
   TrendingUp,
   AlertTriangle,
   ArrowUpRight,
   Upload,
   Sparkles,
-  CheckCircle2,
   Search,
   ExternalLink,
   Bot
 } from 'lucide-react';
 import { ActiveView } from '../types';
-import { COMPANIES, PROJECTS } from '../data/mockData';
+import { usePractice } from '../context/PracticeContext';
+import { EMPTY_DISPLAY } from '../api/practiceClient';
+import { EmptyExtractionState } from './EmptyExtractionState';
 
 interface OverviewViewProps {
   onSelectCompany: (companyId: string) => void;
@@ -30,31 +30,31 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   onOpenUpload,
   onOpenReportWizard
 }) => {
+  const { companies, projects, documents, queueJobs, facts, summary, findings, swarmStatus } = usePractice();
   const [selectedSector, setSelectedSector] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const filteredCompanies = COMPANIES.filter((comp) => {
-    const matchesSector = selectedSector === 'ALL' || comp.sector.toLowerCase().includes(selectedSector.toLowerCase());
+  const filteredCompanies = companies.filter((comp) => {
+    const matchesSector = selectedSector === 'ALL' || (comp.sector || '').toLowerCase().includes(selectedSector.toLowerCase());
     const matchesSearch = comp.name.toLowerCase().includes(searchTerm.toLowerCase()) || comp.ticker.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSector && matchesSearch;
   });
 
-  const recentIngestedDocs = [
-    { title: 'Unilever_Annual_Report_2025.pdf', company: 'Unilever PLC', companyId: 'unilever', project: 'FY 2025 Financial Statement Audit', pages: 184, status: 'PARSED', facts: 342, time: '12 mins ago' },
-    { title: 'Novartis_Q4_Bank_Statements_Consolidated.pdf', company: 'Novartis AG', companyId: 'novartis', project: 'FY 2025 Global Compliance Audit', pages: 32, status: 'PARSED', facts: 114, time: '28 mins ago' },
-    { title: 'Sony_10K_USGAAP_Audited.pdf', company: 'Sony Group Corporation', companyId: 'sony', project: 'FY 2025 US GAAP 10-K Audit', pages: 210, status: 'PARSED', facts: 298, time: '1 hour ago' },
-    { title: 'Siemens_Trial_Balance_Dec2025.xlsx', company: 'Siemens AG', companyId: 'siemens', project: 'ESG & Financial Assurance FY25', pages: 14, status: 'PARSED', facts: 186, time: '3 hours ago' },
-  ];
-
-  const firmSwarmFeeds = [
-    { agent: 'Identity Verification Swarm', target: 'Sony Group Corp', detail: 'Balance Sheet Identity A = L + E validated across $92.1B assets. 0.00% variance.', time: 'Just now', type: 'SUCCESS' },
-    { agent: 'Tax & IFRS Rule Engine', target: 'Unilever PLC', detail: 'Deferred Tax Asset disclosure cross-referenced with Note 14 snippet on Page 42.', time: '4m ago', type: 'INFO' },
-    { agent: 'Variance Detection Agent', target: 'Novartis AG', detail: 'Flagged $14.2M foreign exchange translation discrepancy in European subsidiary.', time: '18m ago', type: 'WARNING' },
-  ];
+  const totalFacts = projects.reduce((acc, p) => acc + (p.facts || 0), 0);
+  const swarmFeeds = Array.isArray(swarmStatus?.events)
+    ? swarmStatus.events
+    : Array.isArray(swarmStatus?.agents)
+      ? swarmStatus.agents.map((a: any) => ({
+          agent: a.name || a.agent || 'Hermes agent',
+          target: a.target || '',
+          detail: a.detail || a.status || '',
+          time: a.time || a.updatedAt || '',
+          type: a.type || 'INFO'
+        }))
+      : [];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200 font-mono">
-      {/* Header Banner */}
       <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xl relative overflow-hidden border border-slate-800">
         <div className="flex items-center justify-between flex-wrap gap-4 relative z-10">
           <div>
@@ -62,13 +62,15 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold border border-blue-400/30">
                 PRACTICE MANAGEMENT DASHBOARD
               </span>
-              <span className="text-slate-400 text-xs">• 14 Active Client Companies</span>
+              <span className="text-slate-400 text-xs">
+                • {companies.length} Client Compan{companies.length === 1 ? 'y' : 'ies'}
+              </span>
             </div>
             <h1 className="text-2xl font-extrabold tracking-tight text-white mt-1">
               CPA Practice Master Dashboard
             </h1>
             <p className="text-xs text-slate-300 max-w-2xl mt-1 leading-relaxed">
-              Global oversight across all client organizations, engagement projects, ingested trial balances, and real-time AI compliance swarms.
+              Cards and KPIs fill only from extracted db.facts. Empty workspace shows {EMPTY_DISPLAY}.
             </p>
           </div>
 
@@ -91,54 +93,41 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
       </div>
 
-      {/* KPI Stats Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span>Total Monitored Portfolio AUM</span>
+            <span>Portfolio revenue (extracted)</span>
             <Building2 className="w-4 h-4 text-blue-600" />
           </div>
-          <div className="text-xl font-extrabold text-slate-900">€142.8B</div>
-          <div className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
-            <TrendingUp className="w-3 h-3" /> 5 Global Client Enterprises
-          </div>
+          <div className="text-xl font-extrabold text-slate-900">{summary?.revenue && facts.length ? summary.revenue : EMPTY_DISPLAY}</div>
+          <div className="text-[11px] text-slate-500 font-bold">{companies.length} extracted client{companies.length === 1 ? '' : 's'}</div>
         </div>
-
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs">
             <span>Active Audit Engagements</span>
             <Briefcase className="w-4 h-4 text-purple-600" />
           </div>
-          <div className="text-xl font-extrabold text-slate-900">28 Projects</div>
-          <div className="text-[11px] text-slate-500 font-semibold">
-            18 IFRS • 10 US GAAP
-          </div>
+          <div className="text-xl font-extrabold text-slate-900">{projects.length || EMPTY_DISPLAY}</div>
+          <div className="text-[11px] text-slate-500 font-semibold">From intake promotion</div>
         </div>
-
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs">
             <span>Parsed Financial Facts</span>
             <FileText className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-xl font-extrabold text-slate-900">1,840 Facts</div>
-          <div className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" /> 99.4% AI Provenance Score
-          </div>
+          <div className="text-xl font-extrabold text-slate-900">{totalFacts || EMPTY_DISPLAY}</div>
+          <div className="text-[11px] text-slate-500 font-bold">db.facts only</div>
         </div>
-
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs">
             <span>Partner Risk Flags</span>
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-xl font-extrabold text-amber-600">3 Attention Items</div>
-          <div className="text-[11px] text-amber-700 font-bold">
-            Requires CPA Sign-off
-          </div>
+          <div className="text-xl font-extrabold text-slate-900">{findings.length || EMPTY_DISPLAY}</div>
+          <div className="text-[11px] text-slate-500 font-bold">From /api/findings</div>
         </div>
       </div>
 
-      {/* Main Client Company Registry & Workspace Navigator */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -147,29 +136,23 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               Client Company Organizations & Active Engagements
             </h2>
             <p className="text-xs text-slate-500">
-              Select any client organization below to open its specialized audit workspace, statements, and audit working papers.
+              Select a client extracted from documents. Nothing is pre-seeded.
             </p>
           </div>
-
           <div className="flex items-center gap-3">
-            {/* Sector Filter Buttons */}
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
               {['ALL', 'Consumer', 'Healthcare', 'Tech', 'Industrial'].map((sec) => (
                 <button
                   key={sec}
                   onClick={() => setSelectedSector(sec)}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    selectedSector === sec
-                      ? 'bg-white text-slate-900 shadow-xs font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
+                    selectedSector === sec ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   {sec}
                 </button>
               ))}
             </div>
-
-            {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -183,154 +166,145 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </div>
         </div>
 
-        {/* Company Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredCompanies.map((comp) => {
-            const compProjects = PROJECTS.filter((p) => p.companyId === comp.id);
-            return (
-              <div
-                key={comp.id}
-                onClick={() => {
-                  onSelectCompany(comp.id);
-                  onSelectView('financials-dashboard');
-                }}
-                className="bg-slate-50/70 hover:bg-white p-4 rounded-xl border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer space-y-3 group"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 font-extrabold text-sm flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                      {comp.name.charAt(0)}
+        {filteredCompanies.length === 0 ? (
+          <EmptyExtractionState
+            title="No client companies"
+            detail="Submit a PDF or bank statement. Company cards appear after intake promotion writes a workspace and facts."
+            onUpload={onOpenUpload}
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredCompanies.map((comp) => {
+              const compProjects = projects.filter((p) => p.companyId === comp.id);
+              return (
+                <div
+                  key={comp.id}
+                  onClick={() => {
+                    onSelectCompany(comp.id);
+                    onSelectView('financials-dashboard');
+                  }}
+                  className="bg-slate-50/70 hover:bg-white p-4 rounded-xl border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer space-y-3 group"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 font-extrabold text-sm flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                        {comp.name.charAt(0)}
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors flex items-center gap-1">
+                          {comp.name}
+                          <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </h3>
+                        <p className="text-[10px] text-slate-500">{comp.country || EMPTY_DISPLAY} • {comp.reporting} • {comp.ticker || EMPTY_DISPLAY}</p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                      Health {comp.healthScore}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] pt-1 border-t border-slate-200/60">
+                    <div>
+                      <span className="text-slate-400 block">Revenue</span>
+                      <span className="font-bold text-slate-800">{comp.revenue}</span>
                     </div>
                     <div>
-                      <h3 className="text-xs font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors flex items-center gap-1">
-                        {comp.name}
-                        <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </h3>
-                      <p className="text-[10px] text-slate-500">{comp.country} • {comp.reporting} • {comp.ticker}</p>
+                      <span className="text-slate-400 block">Net Income</span>
+                      <span className="font-bold text-slate-800">{comp.netIncome}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">Total Assets</span>
+                      <span className="font-bold text-slate-800">{comp.assets}</span>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    Health {comp.healthScore}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-[10px] pt-1 border-t border-slate-200/60">
-                  <div>
-                    <span className="text-slate-400 block">Revenue</span>
-                    <span className="font-bold text-slate-800">{comp.revenue}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Net Income</span>
-                    <span className="font-bold text-slate-800">{comp.netIncome}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Total Assets</span>
-                    <span className="font-bold text-slate-800">{comp.assets}</span>
+                  <div className="flex items-center justify-between text-[11px] pt-1 text-slate-500">
+                    <span>{compProjects.length} Active Engagement(s)</span>
+                    <span className="text-blue-600 font-bold group-hover:underline flex items-center gap-0.5">
+                      Open Workspace <ExternalLink className="w-3 h-3" />
+                    </span>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between text-[11px] pt-1 text-slate-500">
-                  <span>{compProjects.length} Active Engagement(s)</span>
-                  <span className="text-blue-600 font-bold group-hover:underline flex items-center gap-0.5">
-                    Open Workspace <ExternalLink className="w-3 h-3" />
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Two Column Section: Multi-Document Organization Router & Real-Time AI Swarm */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Practice Document Ingestion Router */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                 <FileText className="w-4 h-4 text-blue-600" />
-                Practice Document Organization & Routing Queue
+                Document ingestion queue
               </h3>
-              <p className="text-[11px] text-slate-500">
-                Incoming documents automatically separated into client organizations and project scopes.
-              </p>
+              <p className="text-[11px] text-slate-500">Live jobs from /api/queue/jobs and /api/documents.</p>
             </div>
-            <button
-              onClick={onOpenUpload}
-              className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
-            >
+            <button onClick={onOpenUpload} className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer">
               <Upload className="w-3.5 h-3.5" /> Submit Document
             </button>
           </div>
-
-          <div className="space-y-2.5">
-            {recentIngestedDocs.map((doc, idx) => (
-              <div
-                key={idx}
-                onClick={() => {
-                  onSelectCompany(doc.companyId);
-                  onSelectView('documents');
-                }}
-                className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 transition-all cursor-pointer flex items-center justify-between gap-3 text-xs"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
-                    <FileText className="w-4 h-4" />
-                  </div>
+          {documents.length === 0 && queueJobs.length === 0 ? (
+            <p className="text-xs text-slate-500">{EMPTY_DISPLAY} No documents extracted yet.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  onClick={() => {
+                    onSelectCompany(doc.workspaceId);
+                    onSelectView('documents');
+                  }}
+                  className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 transition-all cursor-pointer flex items-center justify-between gap-3 text-xs"
+                >
                   <div className="min-w-0">
-                    <p className="font-bold text-slate-900 truncate">{doc.title}</p>
-                    <p className="text-[10px] text-slate-500 truncate">
-                      Organization: <span className="font-semibold text-slate-700">{doc.company}</span> • Project: {doc.project}
-                    </p>
+                    <p className="font-bold text-slate-900 truncate">{doc.originalName || doc.filename}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{doc.entityName || EMPTY_DISPLAY} • {doc.status}</p>
                   </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    {doc.facts} Facts
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                    {doc.extractedFactsCount || 0} Facts
                   </span>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{doc.time}</p>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+              {queueJobs.map((job) => (
+                <div key={job.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs flex items-center justify-between">
+                  <span className="font-bold text-slate-800 truncate">{job.documentTitle}</span>
+                  <span className="text-[10px] text-slate-500">{job.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Cross-Client AI Swarm Activity Log */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                 <Bot className="w-4 h-4 text-purple-600" />
-                Practice-Wide Autonomous AI Audit Swarms
+                Hermes swarm telemetry
               </h3>
-              <p className="text-[11px] text-slate-500">
-                Live background verification across all active client balance sheets & disclosures.
-              </p>
+              <p className="text-[11px] text-slate-500">Live /api/swarm/status only. No simulated “just now” checks.</p>
             </div>
-            <button
-              onClick={() => onSelectView('hermes-swarm')}
-              className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 cursor-pointer"
-            >
+            <button onClick={() => onSelectView('hermes-swarm')} className="text-xs font-bold text-purple-600 cursor-pointer">
               View All Swarms
             </button>
           </div>
-
-          <div className="space-y-3">
-            {firmSwarmFeeds.map((feed, idx) => (
-              <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    {feed.agent}
-                  </span>
-                  <span className="text-[10px] text-slate-400">{feed.time}</span>
+          {swarmFeeds.length === 0 ? (
+            <p className="text-xs text-slate-500">{EMPTY_DISPLAY} Swarm idle until extraction runs.</p>
+          ) : (
+            <div className="space-y-3">
+              {swarmFeeds.map((feed: any, idx: number) => (
+                <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900">{feed.agent}</span>
+                    <span className="text-[10px] text-slate-400">{feed.time || EMPTY_DISPLAY}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    {feed.target ? `Target: ${feed.target} — ` : ''}{feed.detail}
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-600">
-                  Target: <span className="font-semibold text-slate-800">{feed.target}</span> — {feed.detail}
-                </p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

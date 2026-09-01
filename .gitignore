@@ -1,0 +1,19 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+firebase-applet-config.json
+!firebase-applet-config.json.example
+
+# Persistence & Runtime Storage
+storage/queue_jobs.json
+storage/uploads/*
+!storage/uploads/.gitkeep
+db.storage.json
+ai_cpa_storage.json
+server/tests/fixtures/tmp_*
+
