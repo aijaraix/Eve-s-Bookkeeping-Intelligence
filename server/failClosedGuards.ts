@@ -38,7 +38,8 @@ export function amountAppearsInSourceBlock(rawValue: string | number | undefined
   const raw = String(rawValue).trim();
   if (!raw) return false;
 
-  if (sourceText.includes(raw)) return true;
+  const isPureNumeric = /^[\d.,\s\-()]+$/.test(raw);
+  if (!isPureNumeric && sourceText.includes(raw)) return true;
 
   const amountDigits = raw.replace(/[^0-9.]/g, "");
   if (!amountDigits || amountDigits.length < 2) return false;

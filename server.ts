@@ -440,6 +440,7 @@ interface ExtractedFact {
   exchangeRate?: string;
   periodStart?: string;
   periodEnd?: string;
+  reportingPeriod?: string;
   pageNumber: number;
   sourceText: string;
   confidence: number;
@@ -3161,7 +3162,7 @@ app.post("/api/deliverables/generate", (req, res) => {
 
     if (!db.reports) db.reports = [];
     const stored = {
-    id: report.reportId || report.id || `REP-${Date.now()}`,
+    id: report.id || `REP-${Date.now()}`,
       workspaceId: wsId,
       title: report.title,
       audience: audience || "Board of Directors",

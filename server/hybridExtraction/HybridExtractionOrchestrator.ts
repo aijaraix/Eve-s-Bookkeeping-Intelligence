@@ -359,7 +359,7 @@ export class HybridExtractionOrchestrator {
         const noteTask = semanticTaskManager.createTask({
           intakeId: params.intakeId,
           documentId: params.documentId,
-          taskType: 'EXTRACT_NOTE',
+          taskType: 'EXTRACT_MATERIAL_NOTES',
           stageLabel: `Reading note ${notePlan.resultData?.noteTitle || notePlan.resultData?.noteNumber || nIdx + 1}`
         });
         semanticTaskManager.updateTaskStatus(noteTask.taskId, 'RUNNING');

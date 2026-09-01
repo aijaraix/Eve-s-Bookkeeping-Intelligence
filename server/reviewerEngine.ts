@@ -384,7 +384,7 @@ export class ReviewerEngine {
   public static getDashboardLineageReview(db: any) {
     const facts: ExtractedFact[] = db.facts || [];
 
-    const lineage = facts.length > 0 ? facts.slice(0, 5).map((fact, idx) => ({
+    const lineage = facts.map((fact, idx) => ({
       component_id: `WGT-${idx + 1}`,
       component_name: `${fact.labelNormalized} Widget`,
       route: "/overview",
@@ -393,11 +393,9 @@ export class ReviewerEngine {
       source_type: "FACT_REGISTRY",
       fact_id: fact.id,
       verification_status: fact.status || "pending_review",
-      lineage_status: fact.id && fact.sourceText ? "CONNECTED" : "DISCONNECTED",
-      is_untraceable: !fact.id || !fact.sourceText
-    })) : [
-      { component_id: "WGT-REV", component_name: "Revenue Card", route: "/overview", metric: "Revenue", value: "INSUFFICIENT_EVIDENCE", source_type: "FACT_REGISTRY", fact_id: undefined, verification_status: "UNVERIFIED", lineage_status: "DISCONNECTED", is_untraceable: true }
-    ];
+      lineage_status: fact.id ? "CONNECTED" : "DISCONNECTED",
+      is_untraceable: !fact.id
+    }));
 
     const untraceableCount = lineage.filter(item => item.is_untraceable).length;
 

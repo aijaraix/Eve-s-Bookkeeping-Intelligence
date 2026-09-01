@@ -160,9 +160,6 @@ export class DocumentIntelligenceAgent {
     let bankSummary: BankAccountSummary | undefined;
     let bankTransactions: BankTransaction[] | undefined;
 
-    let bankSummary: BankAccountSummary | undefined;
-    let bankTransactions: BankTransaction[] | undefined;
-
     // 6. SPECIALIZED EXTRACTOR: BANK STATEMENT (fail closed — no fixtures)
     if (category === 'Bank Statement') {
       const parseAmount = (regex: RegExp): number | null => {
@@ -220,7 +217,7 @@ export class DocumentIntelligenceAgent {
             workspaceId: doc.project_id,
             companyName: entityName,
             title: 'Bank statement parse missed',
-            category: 'Bank Statement',
+            category: 'Cash',
             risk: 'High',
             finAgentStatus: 'Disagree',
             auditAgentStatus: 'Disagree',
@@ -228,7 +225,7 @@ export class DocumentIntelligenceAgent {
             consensusScore: 0,
             confidenceScore: 0,
             materiality: 0,
-            status: 'Open',
+            status: 'Needs Review',
             nextAction: 'Upload a statement with dated transactions or beginning/ending balances. Fixture values are not used.',
             period,
             createdDate: new Date().toISOString().split('T')[0],
@@ -472,7 +469,7 @@ export class DocumentIntelligenceAgent {
         workspaceId: doc.project_id,
         companyName: entityName,
         title: 'Bank statement parse missed',
-        category: 'Bank Statement',
+        category: 'Cash',
         risk: 'High',
         finAgentStatus: 'Disagree',
         auditAgentStatus: 'Disagree',
@@ -480,7 +477,7 @@ export class DocumentIntelligenceAgent {
         consensusScore: 0,
         confidenceScore: 0,
         materiality: 0,
-        status: 'Open',
+        status: 'Needs Review',
         nextAction: 'No dated transactions extracted. Re-upload native statement.',
         period,
         createdDate: nowStr,
