@@ -30,22 +30,44 @@ import {
 import { ActiveView, FinancialFact, AccountingIdentityCheck, FinancialRatio, QueueJobStatus, AuditLogItem, UserSession } from './types';
 import { AppSidebar } from './components/AppSidebar';
 import { AppHeader } from './components/AppHeader';
+import { OverviewView } from './components/OverviewView';
 import { FinancialDashboardView } from './components/FinancialDashboardView';
+import { IncomeStatementView } from './components/IncomeStatementView';
+import { BalanceSheetView } from './components/BalanceSheetView';
+import { CashFlowView } from './components/CashFlowView';
+import { RatiosView } from './components/RatiosView';
+import { SegmentAnalysisView } from './components/SegmentAnalysisView';
+import { ComparativeTrendView } from './components/ComparativeTrendView';
+import { ForecastView } from './components/ForecastView';
+import { HermesSwarmView } from './components/HermesSwarmView';
+import { AuditFindingsView } from './components/AuditFindingsView';
+import { AIDeliverablesView } from './components/AIDeliverablesView';
+import { ProjectsView } from './components/ProjectsView';
+import { CompaniesView } from './components/CompaniesView';
+import { DocumentsView } from './components/DocumentsView';
+import { UsersTeamsView } from './components/UsersTeamsView';
+import { ActivityLogView } from './components/ActivityLogView';
 import { FloatingEveChat } from './components/FloatingEveChat';
 import { LoginModal, DEMO_USERS } from './components/LoginModal';
 import { UploadModal } from './components/UploadModal';
 import { ProvenanceInspectorModal } from './components/ProvenanceInspectorModal';
+import { ReportWizardModal } from './components/ReportWizardModal';
 
 export default function App() {
   // Navigation & View State
-  const [activeView, setActiveView] = useState<ActiveView>('financials-dashboard');
-  const [activeProjectTab, setActiveProjectTab] = useState<string>('Financials');
+  const [activeView, setActiveView] = useState<ActiveView>('overview');
+  const [activeProjectTab, setActiveProjectTab] = useState<string>('Overview');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCollapsedSidebar, setIsCollapsedSidebar] = useState(false);
+
+  // Multi-Client Company & Engagement Context State
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('unilever');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('proj-unilever-fy25');
 
   // Modals & User Session State
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isReportWizardOpen, setIsReportWizardOpen] = useState(false);
   const [selectedFact, setSelectedFact] = useState<FinancialFact | null>(null);
 
   // User Authentication Session
@@ -294,13 +316,20 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         {/* Top Header Bar */}
         <AppHeader
+          activeView={activeView}
+          setActiveView={setActiveView}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
           onOpenLogin={() => setIsLoginOpen(true)}
           onOpenUpload={() => setIsUploadOpen(true)}
+          onOpenReportWizard={() => setIsReportWizardOpen(true)}
           userSession={userSession}
           activeProjectTab={activeProjectTab}
           setActiveProjectTab={setActiveProjectTab}
           isCollapsedSidebar={isCollapsedSidebar}
+          selectedCompanyId={selectedCompanyId}
+          setSelectedCompanyId={setSelectedCompanyId}
+          selectedProjectId={selectedProjectId}
+          setSelectedProjectId={setSelectedProjectId}
         />
 
         {/* Content Workspace */}
@@ -309,116 +338,92 @@ export default function App() {
             isCollapsedSidebar ? 'lg:ml-20' : 'lg:ml-72'
           }`}
         >
-          {/* Default / Financial Dashboard View */}
-          {(activeView === 'financials-dashboard' || activeView === 'overview') && (
+          {activeView === 'overview' && (
+            <OverviewView
+              onSelectCompany={(companyId) => {
+                setSelectedCompanyId(companyId);
+                setActiveView('financials-dashboard');
+              }}
+              onSelectView={setActiveView}
+              onOpenUpload={() => setIsUploadOpen(true)}
+              onOpenReportWizard={() => setIsReportWizardOpen(true)}
+            />
+          )}
+
+          {activeView === 'financials-dashboard' && (
             <FinancialDashboardView />
           )}
 
-          {/* Income Statement View */}
           {activeView === 'income-statement' && (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-4 p-6">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900 font-mono">Consolidated Income Statement</h2>
-                  <p className="text-xs text-slate-500">Unilever PLC • FY 2025 • In EUR Millions</p>
-                </div>
-                <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                  IFRS Audited
-                </span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left font-mono text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-400 uppercase">
-                      <th className="py-2.5 px-4">Line Item</th>
-                      <th className="py-2.5 px-4 text-right">FY 2025</th>
-                      <th className="py-2.5 px-4 text-right">FY 2024</th>
-                      <th className="py-2.5 px-4 text-center">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {financialFacts
-                      .filter((f) => f.statementType === 'INCOME_STATEMENT')
-                      .map((fact) => (
-                        <tr key={fact.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelectedFact(fact)}>
-                          <td className="py-3 px-4 font-bold text-slate-800">{fact.label}</td>
-                          <td className="py-3 px-4 text-right font-bold text-slate-900">{fact.formattedValue}</td>
-                          <td className="py-3 px-4 text-right text-slate-500">€49,610.00M</td>
-                          <td className="py-3 px-4 text-center">
-                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">
-                              {fact.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <IncomeStatementView onSelectFact={(fact) => setSelectedFact(fact)} />
           )}
 
-          {/* Balance Sheet View */}
           {activeView === 'balance-sheet' && (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-4 p-6">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900 font-mono">Consolidated Balance Sheet</h2>
-                  <p className="text-xs text-slate-500">Assets, Liabilities & Equity • Identity Identity Checked</p>
-                </div>
-                <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Assets = L + E Verified
-                </span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left font-mono text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-400 uppercase">
-                      <th className="py-2.5 px-4">Balance Sheet Metric</th>
-                      <th className="py-2.5 px-4 text-right">FY 2025</th>
-                      <th className="py-2.5 px-4 text-center">Confidence</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {financialFacts
-                      .filter((f) => f.statementType === 'BALANCE_SHEET')
-                      .map((fact) => (
-                        <tr key={fact.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelectedFact(fact)}>
-                          <td className="py-3 px-4 font-bold text-slate-800">{fact.label}</td>
-                          <td className="py-3 px-4 text-right font-bold text-slate-900">{fact.formattedValue}</td>
-                          <td className="py-3 px-4 text-center">
-                            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold">
-                              {(fact.confidence * 100).toFixed(1)}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <BalanceSheetView />
           )}
 
-          {/* Fallback for other sidebar views */}
-          {!['financials-dashboard', 'overview', 'income-statement', 'balance-sheet'].includes(activeView) && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
-                <Building2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900 font-mono uppercase">
-                  {activeView.replace('-', ' ')}
-                </h3>
-                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                  Active Audit Workspace for Unilever PLC. All data streams and AI agents are running in real-time.
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveView('financials-dashboard')}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer inline-flex items-center gap-2"
-              >
-                Return to Summary Dashboard
-              </button>
-            </div>
+          {activeView === 'cash-flow' && (
+            <CashFlowView />
+          )}
+
+          {activeView === 'ratios' && (
+            <RatiosView />
+          )}
+
+          {activeView === 'segment-analysis' && (
+            <SegmentAnalysisView />
+          )}
+
+          {(activeView === 'comparative-analysis' || activeView === 'trend-analysis') && (
+            <ComparativeTrendView />
+          )}
+
+          {activeView === 'forecast' && (
+            <ForecastView />
+          )}
+
+          {activeView === 'hermes-swarm' && (
+            <HermesSwarmView />
+          )}
+
+          {activeView === 'audit-findings' && (
+            <AuditFindingsView />
+          )}
+
+          {activeView === 'ai-deliverables' && (
+            <AIDeliverablesView onOpenReportWizard={() => setIsReportWizardOpen(true)} />
+          )}
+
+          {activeView === 'projects' && (
+            <ProjectsView
+              onSelectView={setActiveView}
+              onSelectCompany={setSelectedCompanyId}
+              onSelectProject={setSelectedProjectId}
+              onOpenUpload={() => setIsUploadOpen(true)}
+            />
+          )}
+
+          {activeView === 'companies' && (
+            <CompaniesView
+              onSelectView={setActiveView}
+              onSelectCompany={setSelectedCompanyId}
+              onOpenUpload={() => setIsUploadOpen(true)}
+            />
+          )}
+
+          {activeView === 'documents' && (
+            <DocumentsView
+              onOpenUpload={() => setIsUploadOpen(true)}
+              onInspectDocument={() => setSelectedFact(financialFacts[0])}
+            />
+          )}
+
+          {activeView === 'users-teams' && (
+            <UsersTeamsView />
+          )}
+
+          {activeView === 'activity-log' && (
+            <ActivityLogView />
           )}
         </main>
 
@@ -440,6 +445,11 @@ export default function App() {
         onAddJob={handleAddJob}
       />
 
+      <ReportWizardModal
+        isOpen={isReportWizardOpen}
+        onClose={() => setIsReportWizardOpen(false)}
+      />
+
       <ProvenanceInspectorModal
         fact={selectedFact}
         onClose={() => setSelectedFact(null)}
@@ -447,3 +457,4 @@ export default function App() {
     </div>
   );
 }
+

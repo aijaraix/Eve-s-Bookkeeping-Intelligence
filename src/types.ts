@@ -1,3 +1,36 @@
+export interface Company {
+  id: string;
+  name: string;
+  ticker: string;
+  country: string;
+  reporting: 'IFRS' | 'US GAAP';
+  currency: string;
+  healthScore: string;
+  status: 'AUDITED' | 'IN_PROGRESS' | 'REVIEW_REQUIRED';
+  reg: string;
+  sector: string;
+  revenue: string;
+  netIncome: string;
+  assets: string;
+  activeProjectsCount: number;
+}
+
+export interface Project {
+  id: string;
+  companyId: string;
+  companyName: string;
+  name: string;
+  ticker: string;
+  sector: string;
+  status: 'IN_PROGRESS' | 'COMPLETED' | 'PENDING_REVIEW';
+  reporting: 'IFRS' | 'US GAAP';
+  assignedLead: string;
+  facts: number;
+  docsCount: number;
+  startDate: string;
+  dueDate: string;
+}
+
 export interface UserSession {
   id: string;
   email: string;
