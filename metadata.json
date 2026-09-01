@@ -1,7 +1,6 @@
 {
-  "name": "AI CPA Core",
-  "description": "Enterprise-grade multi-agent financial document intelligence and accounting assistant platform",
-  "requestFramePermissions": ["microphone", "geolocation"],
+  "name": "AI CPA - Financial Ingestion & Audit Studio",
+  "description": "Enterprise-grade financial statement extraction, forensic reconciliation, and CPA-grade audit intelligence studio.",
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
-

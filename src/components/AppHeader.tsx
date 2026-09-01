@@ -1,305 +1,190 @@
-import React, { useState } from 'react';
-import { Search, Plus, Upload, Bell, HelpCircle, Calendar, Coins, User, ChevronDown, Menu, Cpu } from 'lucide-react';
-import { Workspace } from '../types';
+import React from 'react';
+import {
+  Menu,
+  Search,
+  Plus,
+  ChevronDown,
+  Calendar,
+  Bell,
+  HelpCircle,
+  ArrowLeft,
+  Share2,
+  Download,
+  ChevronRight
+} from 'lucide-react';
+import { UserSession } from '../types';
 
 interface AppHeaderProps {
-  currentView: string;
-  onOpenSearch: () => void;
-  onOpenNewProject: () => void;
+  onToggleMobileSidebar: () => void;
+  onOpenLogin: () => void;
   onOpenUpload: () => void;
-  userEmail: string | null;
-  onOpenSignIn: () => void;
-  globalCurrency: string;
-  setGlobalCurrency: (currency: string) => void;
-  globalLanguage: string;
-  setGlobalLanguage: (lang: string) => void;
-  activeWorkspace?: Workspace | null;
-  onOpenMobileMenu?: () => void;
-  activeQueueJob?: any;
-  onOpenQueueModal?: () => void;
+  userSession: UserSession;
+  activeProjectTab: string;
+  setActiveProjectTab: (tab: string) => void;
+  isCollapsedSidebar: boolean;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
-  currentView,
-  onOpenSearch,
-  onOpenNewProject,
+  onToggleMobileSidebar,
+  onOpenLogin,
   onOpenUpload,
-  userEmail,
-  onOpenSignIn,
-  globalCurrency,
-  setGlobalCurrency,
-  activeWorkspace,
-  onOpenMobileMenu,
-  activeQueueJob,
-  onOpenQueueModal,
+  userSession,
+  activeProjectTab,
+  setActiveProjectTab,
+  isCollapsedSidebar
 }) => {
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [dateRange, setDateRange] = useState(activeWorkspace?.period || 'FY 2025 Consolidated');
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-
-  const getViewTitle = () => {
-    switch (currentView) {
-      case 'overview':
-        return {
-          title: 'Home',
-          subtitle: 'Command center for your financial snapshot, recent changes, active reviews, and AI insights.',
-        };
-      case 'projects':
-        return {
-          title: 'Engagements & Workspaces',
-          subtitle: 'Manage client workspaces and historical engagements across your portfolio.',
-        };
-      case 'companies':
-        return {
-          title: 'Companies & Structure',
-          subtitle: 'Entity directory, corporate group relationships, and multi-currency reporting.',
-        };
-      case 'documents':
-        return {
-          title: 'Documents',
-          subtitle: 'Uploaded financial statements, tax filings, general ledgers, and audit evidence.',
-        };
-      case 'financials':
-      case 'income':
-      case 'balance':
-      case 'cash':
-        return {
-          title: 'Financial Statements & Analytics',
-          subtitle: 'Unified financial workspace with audited income statement, balance sheet, and analytics.',
-        };
-      case 'findings':
-      case 'review':
-        return {
-          title: 'Review Center',
-          subtitle: 'Human-in-the-loop control center for resolving discrepancies, low-confidence extractions, and verification requests.',
-        };
-      case 'reports':
-        return {
-          title: 'Reports & AI Intelligence',
-          subtitle: 'Client-ready financial deliverables, management packages, and AI CPA assistant.',
-        };
-      case 'insights':
-      case 'chat':
-        return {
-          title: 'AI Insights & Hermes Copilot',
-          subtitle: 'Real-time financial intelligence, anomaly detection, and CPA rule verification.',
-        };
-      case 'workflow':
-        return {
-          title: 'Workflow & Task Management',
-          subtitle: 'Engagement milestone planning, task delegation, and approval chains.',
-        };
-      case 'teams':
-        return {
-          title: 'Users & Engagement Teams',
-          subtitle: 'Audit partner assignments, team roles, permissions, and sign-off authorizations.',
-        };
-      case 'activity':
-        return {
-          title: 'Activity Log & System Telemetry',
-          subtitle: 'Immutable audit trail of document uploads, risk modifications, and system events.',
-        };
-      case 'settings':
-        return {
-          title: 'System & Platform Settings',
-          subtitle: 'Configure firm preferences, AI copilot parameters, compliance standards, and integrations.',
-        };
-      default:
-        return {
-          title: 'Eve\'s Bookkeeping Intelligence',
-          subtitle: 'Accurate Records • Smart Insights • Confident Decisions.',
-        };
-    }
-  };
-
-  const { title, subtitle } = getViewTitle();
-
-  const userInitials = userEmail
-    ? userEmail.split('@')[0].substring(0, 2).toUpperCase()
-    : 'JS';
-
   return (
-    <header className="bg-white border-b border-neutral-200 px-4 sm:px-6 py-3.5 sticky top-0 z-30 shadow-2xs">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
-        
-        {/* Left Title & Mobile Menu Trigger */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {/* Hamburger button for mobile */}
-            {onOpenMobileMenu && (
-              <button
-                onClick={onOpenMobileMenu}
-                className="lg:hidden p-2 min-h-[44px] min-w-[44px] rounded-xl border border-neutral-200 bg-neutral-50 hover:bg-neutral-100 text-neutral-700 flex items-center justify-center transition cursor-pointer shrink-0"
-                aria-label="Open mobile navigation menu"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
-            )}
-            <div>
-              <h1 className="text-lg sm:text-xl font-extrabold text-neutral-900 tracking-tight flex flex-wrap items-center gap-2">
-                <span>{title}</span>
-                {activeWorkspace && currentView !== 'overview' && currentView !== 'projects' && (
-                  <span className="text-[10px] sm:text-[11px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
-                    ● Active Engagement
-                  </span>
-                )}
+    <header
+      className={`bg-white border-b border-slate-200 sticky top-0 z-30 transition-all ${
+        isCollapsedSidebar ? 'lg:ml-20' : 'lg:ml-72'
+      }`}
+    >
+      {/* Top Bar Row */}
+      <div className="px-6 py-3 flex items-center justify-between border-b border-slate-100 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          {/* Mobile Hamburger Menu Toggle */}
+          <button
+            onClick={onToggleMobileSidebar}
+            className="lg:hidden p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+            title="Toggle Navigation Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-extrabold text-slate-900 font-mono tracking-tight">
+                Eve's Bookkeeping Intelligence
               </h1>
-              <p className="text-xs text-neutral-500 mt-0.5 line-clamp-1 sm:line-clamp-none">{subtitle}</p>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                • Active Engagement
+              </span>
             </div>
+            <p className="text-xs text-slate-500 hidden sm:block">
+              Accurate Records • Smart Insights • Confident Decisions.
+            </p>
           </div>
         </div>
 
-        {/* Right Search, Actions & Profile Tools */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          
-          {/* Global Search Bar Trigger */}
-          <div
-            onClick={onOpenSearch}
-            className="flex items-center space-x-2 bg-neutral-100/80 hover:bg-neutral-100 border border-neutral-200 rounded-xl px-3.5 py-2 text-xs text-neutral-500 cursor-pointer w-full sm:w-64 transition"
-          >
-            <Search className="w-4 h-4 text-neutral-400 shrink-0" />
-            <span className="truncate flex-1 font-medium">Search companies, projects...</span>
-            <kbd className="font-mono text-[10px] bg-white text-neutral-500 border border-neutral-200 rounded px-1.5 py-0.5 shadow-2xs">
-              ⌘K
-            </kbd>
+        {/* Header Right Controls */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Search Bar */}
+          <div className="relative hidden md:block">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search companies, projects... ⌘K"
+              className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl w-56 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white transition-all font-mono"
+            />
           </div>
-
-          {/* Live Extraction Walkthrough Button - Contextual ONLY when active */}
-          {activeQueueJob && (activeQueueJob.status === 'PROCESSING' || activeQueueJob.status === 'QUEUED' || activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY') && onOpenQueueModal && (
-            <button
-              onClick={onOpenQueueModal}
-              className={`text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center space-x-1.5 shadow-xs transition cursor-pointer ${
-                activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY'
-                  ? 'bg-amber-600 hover:bg-amber-700'
-                  : 'bg-blue-600 hover:bg-blue-700 animate-pulse'
-              }`}
-            >
-              {activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY' ? (
-                <Cpu className="w-3.5 h-3.5 text-amber-200" />
-              ) : (
-                <Cpu className="w-3.5 h-3.5 animate-spin" />
-              )}
-              <span>
-                {activeQueueJob.status === 'WAITING_FOR_AI_CAPACITY'
-                  ? 'AI Analysis Paused (Retrying)'
-                  : `Live Walkthrough (${activeQueueJob.progress || 0}%)`}
-              </span>
-            </button>
-          )}
 
           {/* New Project Button */}
           <button
-            onClick={onOpenNewProject}
-            className="bg-[#0b1739] hover:bg-[#12224d] text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center space-x-1.5 shadow-xs transition cursor-pointer"
+            onClick={onOpenUpload}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Project</span>
           </button>
 
-          {/* Currency Toggle Dropdown */}
-          <div className="flex items-center space-x-1 bg-neutral-50 border border-neutral-200 rounded-xl px-2 py-1 text-xs font-mono font-bold text-neutral-800">
-            <Coins className="w-3.5 h-3.5 text-amber-600" />
-            <select
-              value={globalCurrency}
-              onChange={(e) => setGlobalCurrency(e.target.value)}
-              className="bg-transparent text-xs font-bold text-neutral-900 focus:outline-none cursor-pointer"
-            >
-              <option value="EUR">EUR (€)</option>
-              <option value="USD">USD ($)</option>
-              <option value="GBP">GBP (£)</option>
-              <option value="JPY">JPY (¥)</option>
-              <option value="BRL">BRL (R$)</option>
-              <option value="CHF">CHF (Fr)</option>
-              <option value="CAD">CAD ($)</option>
-              <option value="AUD">AUD ($)</option>
-            </select>
-          </div>
+          {/* Currency Selector */}
+          <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs text-slate-700 font-mono cursor-pointer">
+            <span className="text-amber-600">💱</span>
+            <span>EUR (€)</span>
+            <ChevronDown className="w-3 h-3 text-slate-400" />
+          </button>
 
-          {/* Date Range Selector */}
-          <div className="relative">
-            <button
-              onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-              className="bg-white hover:bg-neutral-50 text-neutral-700 border border-neutral-300 text-xs font-medium px-3 py-2 rounded-xl flex items-center space-x-2 transition cursor-pointer"
-            >
-              <Calendar className="w-3.5 h-3.5 text-neutral-500" />
-              <span className="font-mono text-[11px] font-semibold">{dateRange}</span>
-            </button>
-            {isDatePickerOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-neutral-200 p-2 z-40 text-xs space-y-1">
-                {['FY 2025 Consolidated', 'FY 2024 Comparative Period', 'FY 2023 Historic Period'].map((range) => (
-                  <div
-                    key={range}
-                    onClick={() => {
-                      setDateRange(range);
-                      setIsDatePickerOpen(false);
-                    }}
-                    className={`px-3 py-2 rounded-lg cursor-pointer transition font-mono ${
-                      dateRange === range ? 'bg-neutral-100 font-bold text-blue-600' : 'hover:bg-neutral-50 text-neutral-700'
-                    }`}
-                  >
-                    {range}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Date Range Picker */}
+          <button className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs text-slate-700 font-mono cursor-pointer">
+            <Calendar className="w-3.5 h-3.5 text-red-500" />
+            <span>Jun 1 – Jun 7, 2024</span>
+          </button>
 
-          {/* Notification Bell */}
-          <div className="relative">
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2 rounded-xl border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-100 relative transition cursor-pointer"
-            >
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white animate-pulse" />
-            </button>
-            {showNotifications && (
-              <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-neutral-200 p-4 z-40 text-xs">
-                <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-3">
-                  <span className="font-bold text-neutral-900">Notifications (3 Unread)</span>
-                  <span className="text-[10px] text-blue-600 cursor-pointer font-semibold" onClick={() => setShowNotifications(false)}>
-                    Mark all read
-                  </span>
-                </div>
-                <div className="space-y-3">
-                  <div className="p-2 bg-blue-50/60 rounded-xl border border-blue-100">
-                    <p className="font-bold text-neutral-900">High Risk Finding Detected</p>
-                    <p className="text-[11px] text-neutral-600">Revenue cut-off test pending in GlobalTech Solutions.</p>
-                    <span className="text-[10px] text-neutral-400 font-mono">10 mins ago</span>
-                  </div>
-                  <div className="p-2 bg-neutral-50 rounded-xl border border-neutral-200">
-                    <p className="font-bold text-neutral-900">Document Processing Complete</p>
-                    <p className="text-[11px] text-neutral-600">Income Statement FY 2023 parsed successfully.</p>
-                    <span className="text-[10px] text-neutral-400 font-mono">25 mins ago</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Notifications */}
+          <button className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 relative transition-colors cursor-pointer">
+            <Bell className="w-4 h-4" />
+            <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5 ring-2 ring-white" />
+          </button>
 
-          {/* Help Button */}
-          <button
-            onClick={() => alert('Eve\'s Bookkeeping Advisory Platform. For support or CPA guidance, contact audit-support@evesbookkeeping.com.')}
-            className="p-2 rounded-xl border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-100 transition cursor-pointer"
-            title="Help & Documentation"
-          >
+          {/* Help Icon */}
+          <button className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer">
             <HelpCircle className="w-4 h-4" />
           </button>
 
-          {/* User Profile Avatar / Sign In */}
+          {/* User Profile Pill */}
           <button
-            onClick={onOpenSignIn}
-            className="flex items-center space-x-2 bg-neutral-900 text-white rounded-xl px-2.5 py-1.5 hover:bg-neutral-800 transition cursor-pointer shadow-xs"
-            title={userEmail ? `Signed in as ${userEmail}` : 'Sign In / Switch Account'}
+            onClick={onOpenLogin}
+            className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors cursor-pointer"
           >
-            <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-[11px]">
-              {userInitials}
+            <div className="w-6 h-6 rounded-full bg-emerald-900 text-emerald-300 font-bold text-[10px] font-mono flex items-center justify-center">
+              SH
             </div>
-            <span className="text-xs font-semibold max-w-[100px] truncate hidden sm:inline">
-              {userEmail ? userEmail.split('@')[0] : 'Sign In'}
+            <span className="text-xs font-bold font-mono text-slate-800 hidden xl:inline">
+              sholom
             </span>
           </button>
+        </div>
+      </div>
 
+      {/* Project Context Sub-Header */}
+      <div className="px-6 py-4 space-y-3">
+        {/* Back Link & Actions */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <button className="text-xs text-slate-500 hover:text-slate-900 flex items-center gap-1 transition-colors cursor-pointer">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to Projects</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer">
+              <Share2 className="w-3.5 h-3.5 text-slate-500" />
+              <span>Share</span>
+            </button>
+            <button className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer">
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>Export</span>
+            </button>
+            <button className="px-3.5 py-1.5 rounded-xl bg-[#1E3A8A] hover:bg-blue-900 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer">
+              <span>Actions</span>
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Title & Metadata */}
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-extrabold text-slate-900 font-mono tracking-tight">
+              Unilever PLC
+            </h2>
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              • In Progress
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1 font-mono">
+            Audit Engagement • FY 2025 • Jan 1 – Dec 31, 2025 • 🌐 EUR
+          </p>
+        </div>
+
+        {/* Project Navigation Tabs */}
+        <div className="flex items-center gap-6 border-b border-slate-200 pt-2 text-xs font-semibold">
+          {['Overview', 'Financials', 'Documents (3)', 'More Sections'].map((tab) => {
+            const isSelected = activeProjectTab === tab || (tab === 'Financials' && activeProjectTab.startsWith('Financials'));
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveProjectTab(tab)}
+                className={`pb-2.5 transition-all flex items-center gap-1 cursor-pointer ${
+                  isSelected
+                    ? 'border-b-2 border-blue-600 text-blue-700 font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>{tab}</span>
+                {tab === 'More Sections' && <ChevronDown className="w-3 h-3" />}
+              </button>
+            );
+          })}
         </div>
       </div>
     </header>
