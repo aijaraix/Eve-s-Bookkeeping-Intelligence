@@ -1,162 +1,30 @@
+/**
+ * DEMO fixtures only. Production views must not import this module.
+ * Tagged dataOrigin: "DEMO" so fail-closed guards treat records as unreachable live facts.
+ */
 import { Company, Project } from '../types';
 
-export const COMPANIES: Company[] = [
+export const DATA_ORIGIN = 'DEMO' as const;
+
+export const COMPANIES: Array<Company & { dataOrigin: 'DEMO' }> = [
   {
-    id: 'unilever',
-    name: 'Unilever PLC',
+    id: 'demo-unilever',
+    workspaceId: 'demo-unilever',
+    dataOrigin: 'DEMO',
+    name: 'DEMO Unilever PLC (not live)',
     ticker: 'UL',
     country: 'United Kingdom',
     reporting: 'IFRS',
     currency: 'EUR (€)',
-    healthScore: '98/100',
-    status: 'IN_PROGRESS',
-    reg: 'UK Companies House #00041424',
-    sector: 'Consumer Goods & Retail',
-    revenue: '€60.1B',
-    netIncome: '€6.5B',
-    assets: '€78.4B',
-    activeProjectsCount: 3
-  },
-  {
-    id: 'novartis',
-    name: 'Novartis AG',
-    ticker: 'NVS',
-    country: 'Switzerland',
-    reporting: 'IFRS',
-    currency: 'USD ($)',
-    healthScore: '96/100',
-    status: 'AUDITED',
-    reg: 'CHE-103.867.266',
-    sector: 'Healthcare & Pharmaceuticals',
-    revenue: '$45.4B',
-    netIncome: '$8.6B',
-    assets: '$54.2B',
-    activeProjectsCount: 2
-  },
-  {
-    id: 'sony',
-    name: 'Sony Group Corporation',
-    ticker: 'SONY',
-    country: 'Japan',
-    reporting: 'US GAAP',
-    currency: 'USD ($)',
-    healthScore: '94/100',
-    status: 'IN_PROGRESS',
-    reg: 'JP-9010401052465',
-    sector: 'Technology & Consumer Electronics',
-    revenue: '$89.2B',
-    netIncome: '$7.4B',
-    assets: '$92.1B',
-    activeProjectsCount: 2
-  },
-  {
-    id: 'siemens',
-    name: 'Siemens AG',
-    ticker: 'SIE',
-    country: 'Germany',
-    reporting: 'IFRS',
-    currency: 'EUR (€)',
-    healthScore: '99/100',
-    status: 'AUDITED',
-    reg: 'DE-HRB 6684',
-    sector: 'Industrial Engineering & Tech',
-    revenue: '€77.8B',
-    netIncome: '€8.5B',
-    assets: '€148.2B',
-    activeProjectsCount: 1
-  },
-  {
-    id: 'roche',
-    name: 'Roche Holding AG',
-    ticker: 'ROG',
-    country: 'Switzerland',
-    reporting: 'IFRS',
-    currency: 'CHF (Fr)',
-    healthScore: '97/100',
-    status: 'IN_PROGRESS',
-    reg: 'CHE-105.867.777',
-    sector: 'Biotechnology & Health',
-    revenue: 'CHF 58.7B',
-    netIncome: 'CHF 11.5B',
-    assets: 'CHF 88.9B',
-    activeProjectsCount: 2
+    healthScore: 'DEMO',
+    status: 'REVIEW_REQUIRED',
+    reg: 'DEMO',
+    sector: 'DEMO',
+    revenue: 'DEMO',
+    netIncome: 'DEMO',
+    assets: 'DEMO',
+    activeProjectsCount: 0
   }
 ];
 
-export const PROJECTS: Project[] = [
-  {
-    id: 'proj-unilever-fy25',
-    companyId: 'unilever',
-    companyName: 'Unilever PLC',
-    name: 'FY 2025 Financial Statement Audit',
-    ticker: 'UL',
-    sector: 'Consumer Goods',
-    status: 'IN_PROGRESS',
-    reporting: 'IFRS',
-    assignedLead: 'Steve Stein, CPA',
-    facts: 342,
-    docsCount: 12,
-    startDate: '2025-01-10',
-    dueDate: '2025-04-15'
-  },
-  {
-    id: 'proj-unilever-mna',
-    companyId: 'unilever',
-    companyName: 'Unilever PLC',
-    name: 'Q3 Enterprise M&A Due Diligence',
-    ticker: 'UL',
-    sector: 'Consumer Goods',
-    status: 'IN_PROGRESS',
-    reporting: 'IFRS',
-    assignedLead: 'Sarah Jenkins, CPA',
-    facts: 188,
-    docsCount: 8,
-    startDate: '2025-02-01',
-    dueDate: '2025-05-30'
-  },
-  {
-    id: 'proj-novartis-audit',
-    companyId: 'novartis',
-    companyName: 'Novartis AG',
-    name: 'FY 2025 Global Compliance Audit',
-    ticker: 'NVS',
-    sector: 'Healthcare',
-    status: 'COMPLETED',
-    reporting: 'IFRS',
-    assignedLead: 'Michael Chang, CPA',
-    facts: 412,
-    docsCount: 18,
-    startDate: '2025-01-05',
-    dueDate: '2025-03-01'
-  },
-  {
-    id: 'proj-sony-usgaap',
-    companyId: 'sony',
-    companyName: 'Sony Group Corporation',
-    name: 'FY 2025 US GAAP 10-K Audit',
-    ticker: 'SONY',
-    sector: 'Technology',
-    status: 'IN_PROGRESS',
-    reporting: 'US GAAP',
-    assignedLead: 'Elena Rostova, CPA',
-    facts: 298,
-    docsCount: 14,
-    startDate: '2025-01-15',
-    dueDate: '2025-04-30'
-  },
-  {
-    id: 'proj-siemens-esg',
-    companyId: 'siemens',
-    companyName: 'Siemens AG',
-    name: 'ESG & Financial Assurance FY25',
-    ticker: 'SIE',
-    sector: 'Industrial',
-    status: 'COMPLETED',
-    reporting: 'IFRS',
-    assignedLead: 'Steve Stein, CPA',
-    facts: 256,
-    docsCount: 9,
-    startDate: '2025-01-02',
-    dueDate: '2025-02-28'
-  }
-];
+export const PROJECTS: Array<Project & { dataOrigin: 'DEMO' }> = [];

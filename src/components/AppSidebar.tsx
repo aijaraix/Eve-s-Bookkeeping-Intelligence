@@ -24,6 +24,8 @@ import {
   HardDrive
 } from 'lucide-react';
 import { ActiveView, UserSession } from '../types';
+import { usePractice } from '../context/PracticeContext';
+import { EMPTY_DISPLAY } from '../api/practiceClient';
 
 interface AppSidebarProps {
   activeView: ActiveView;
@@ -49,6 +51,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   userSession
 }) => {
   const [isFinancialsOpen, setIsFinancialsOpen] = useState(true);
+  const { companies, documents, queueJobs, projects } = usePractice();
+  const processed = documents.filter((d) => /complete|parsed|done/i.test(d.status || '')).length;
+  const processing = queueJobs.filter((j) => j.status === 'PROCESSING' || j.status === 'QUEUED').length;
 
   const handleNavClick = (view: ActiveView) => {
     setActiveView(view);
@@ -128,7 +133,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               </div>
               {!isCollapsed && (
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-blue-900/60 text-blue-300 border border-blue-700/50">
-                  3
+                  {projects.length}
                 </span>
               )}
             </button>
@@ -334,30 +339,22 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   RECENT PROJECTS
                 </div>
                 <div className="space-y-1">
-                  <div className="px-3 py-1.5 rounded-lg hover:bg-slate-800/40 text-[11px] flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-slate-200">Novartis AG</div>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 font-mono">
-                        Active
-                      </span>
-                    </div>
-                  </div>
-                  <div className="px-3 py-1.5 rounded-lg hover:bg-slate-800/40 text-[11px] flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-slate-200">Sony Group Corporation</div>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 font-mono">
-                        Active
-                      </span>
-                    </div>
-                  </div>
-                  <div className="px-3 py-1.5 rounded-xl bg-blue-900/30 border border-blue-600/40 text-[11px] flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-white">Unilever PLC</div>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 font-mono">
-                        Active
-                      </span>
-                    </div>
-                  </div>
+                  {companies.length === 0 ? (
+                    <div className="px-3 py-1.5 text-[11px] text-slate-500">No extracted clients</div>
+                  ) : (
+                    companies.slice(0, 5).map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => handleNavClick('financials-dashboard')}
+                        className="w-full text-left px-3 py-1.5 rounded-lg hover:bg-slate-800/40 text-[11px]"
+                      >
+                        <div className="font-bold text-slate-200">{c.name}</div>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 font-mono">
+                          {c.revenue || EMPTY_DISPLAY}
+                        </span>
+                      </button>
+                    ))
+                  )}
                 </div>
                 <button
                   onClick={() => handleNavClick('projects')}
@@ -376,26 +373,26 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-14 h-14 rounded-full border-4 border-blue-600 border-t-emerald-500 flex flex-col items-center justify-center shrink-0">
-                      <span className="text-sm font-extrabold text-white font-mono leading-none">3</span>
+                      <span className="text-sm font-extrabold text-white font-mono leading-none">{documents.length}</span>
                       <span className="text-[7px] text-slate-400 uppercase leading-none mt-0.5">Docs</span>
                     </div>
                     <div className="text-[10px] space-y-0.5 text-slate-400 font-mono">
-                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500" /> Processed 0 (0%)</div>
-                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> Processing 0 (0%)</div>
-                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Needs Review 0 (0%)</div>
-                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400" /> Failed 0 (0%)</div>
+                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500" /> Processed {processed}</div>
+                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> Processing {processing}</div>
+                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Needs Review 0</div>
+                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400" /> Failed 0</div>
                     </div>
                   </div>
 
                   <div className="space-y-1">
                     <div className="flex justify-between text-[10px] text-slate-400 font-mono">
                       <span>STORAGE USED</span>
-                      <span className="text-slate-200 font-bold">&lt; 0.1%</span>
+                      <span className="text-slate-200 font-bold">{documents.length ? `${documents.length} file${documents.length === 1 ? '' : 's'}` : '—'}</span>
                     </div>
                     <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full w-[1%]" />
+                      <div className="bg-blue-500 h-full" style={{ width: documents.length ? `${Math.min(100, documents.length * 5)}%` : '0%' }} />
                     </div>
-                    <div className="text-[9px] text-slate-500 font-mono">18.4 MB of 250 GB</div>
+                    <div className="text-[9px] text-slate-500 font-mono">Uploaded files only — no demo corpus</div>
                   </div>
                 </div>
               </div>

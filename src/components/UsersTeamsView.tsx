@@ -1,54 +1,35 @@
 import React from 'react';
-import { Users, UserPlus, Shield, CheckCircle2 } from 'lucide-react';
+import { Users, UserPlus, Shield } from 'lucide-react';
+import { usePractice } from '../context/PracticeContext';
+import { DEMO_USERS } from './LoginModal';
 
 export const UsersTeamsView: React.FC = () => {
+  const { userSession } = usePractice();
   const users = [
-    { name: 'Steve Stein, CPA', email: 'stevestein4454@gmail.com', role: 'Lead CPA Partner', org: 'Eve CPA & Advisory', status: 'ACTIVE' },
-    { name: 'Sarah Jenkins', email: 's.jenkins@evecpa.com', role: 'Senior Audit Manager', org: 'Eve CPA & Advisory', status: 'ACTIVE' },
-    { name: 'Audit Reviewer', email: 'reviewer@client.com', role: 'Guest Reviewer', org: 'Unilever Audit Committee', status: 'INVITED' }
+    userSession,
+    ...DEMO_USERS.filter((u) => u.email !== userSession.email).slice(0, 2)
   ];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200 font-mono">
-      {/* Header */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Users, Roles & Team Access Control</h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-              RBAC Enabled
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Audit Team Members & Granular Permission Management
-          </p>
+          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Users, Roles & Team Access Control</h2>
+          <p className="text-xs text-slate-500 mt-1">Authenticated practice users — not a financial fact source</p>
         </div>
-
-        <button className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer">
+        <button className="px-3.5 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer">
           <UserPlus className="w-3.5 h-3.5" />
-          <span>Invite Team Member</span>
+          Invite Team Member
         </button>
       </div>
-
-      {/* Users Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {users.map((u, i) => (
-          <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-900">{u.name}</span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                {u.status}
-              </span>
-            </div>
-
+        {users.map((u) => (
+          <div key={u.email} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <span className="text-xs font-bold text-slate-900">{u.name}</span>
             <p className="text-xs text-slate-500">{u.email}</p>
-
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-              <span className="font-bold text-blue-600 flex items-center gap-1">
-                <Shield className="w-3 h-3" /> {u.role}
-              </span>
-              <span className="text-slate-400">{u.org}</span>
-            </div>
+            <span className="font-bold text-blue-600 text-xs flex items-center gap-1">
+              <Shield className="w-3 h-3" /> {u.role}
+            </span>
           </div>
         ))}
       </div>
