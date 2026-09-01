@@ -1,5 +1,5 @@
 import { CanonicalDocumentModel } from '../parser/types';
-import { globalFactRegistry, ProvenanceRecord } from '../factRegistry';
+import { ProvenanceRecord } from '../factRegistry';
 import { BankTransaction, BankAccountSummary, HermesFinding } from '../../types';
 
 export interface DocumentClassificationResult {
@@ -160,71 +160,119 @@ export class DocumentIntelligenceAgent {
     let bankSummary: BankAccountSummary | undefined;
     let bankTransactions: BankTransaction[] | undefined;
 
-    // 6. SPECIALIZED EXTRACTOR: BANK STATEMENT
+    // 6. SPECIALIZED EXTRACTOR: BANK STATEMENT (fail closed — no fixtures)
     if (category === 'Bank Statement') {
-      const bankNameMatch = rawText.match(/(Bank of America|Chase|Wells Fargo|Citi|HSBC|Barclays|BNP Paribas|UBS|Credit Suisse|[A-Z][a-zA-Z\s]+Bank)/i);
-      const bankName = bankNameMatch ? bankNameMatch[1].trim() : 'Bank of America';
-
-      // Parse Account Summary Values
-      const parseAmount = (regex: RegExp, fallback: number = 0): number => {
+      const parseAmount = (regex: RegExp): number | null => {
         const m = rawText.match(regex);
-        if (m && m[1]) {
-          const clean = m[1].replace(/\,/g, '').trim();
-          const val = parseFloat(clean);
-          return isNaN(val) ? fallback : val;
-        }
-        return fallback;
+        if (!m || !m[1]) return null;
+        const clean = m[1].replace(/,/g, '').trim();
+        const val = parseFloat(clean);
+        return isNaN(val) ? null : val;
       };
 
-      // Extract Bank Account Summary numbers from text
-      let begBal = parseAmount(/(?:beginning balance|starting balance|previous balance|opening balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i, -29.13);
-      if (rawText.includes('-$29.13') || rawText.includes('-29.13')) begBal = -29.13;
+      const begBal = parseAmount(/(?:beginning balance|starting balance|previous balance|opening balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i);
+      const deposits = parseAmount(/(?:total deposits|deposits and credits|additions)[\s:$]*(\$?[\d,]+\.\d{2})/i);
+      const withdrawals = parseAmount(/(?:total withdrawals|withdrawals and debits|subtractions)[\s:$]*(-?\$?[\d,]+\.\d{2})/i);
+      const fees = parseAmount(/(?:service fees|total fees|fees)[\s:$]*(-?\$?[\d,]+\.\d{2})/i);
+      const endBal = parseAmount(/(?:ending balance|new balance|closing balance)[\s:$]*(\$?[\d,]+\.\d{2})/i);
 
-      let deposits = parseAmount(/(?:total deposits|deposits and credits|additions)[\s:$]*(\$?[\d,]+\.\d{2})/i, 723.00);
-      if (rawText.includes('723.00')) deposits = 723.00;
+      const txnDateRe = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/;
+      const amtRe = /-?\$?\d{1,3}(?:,\d{3})*\.\d{2}/;
+      const parsedTxns: BankTransaction[] = [];
+      rawText.split('\n').forEach((line, idx) => {
+        const dm = line.match(txnDateRe);
+        const am = line.match(amtRe);
+        if (!dm || !am) return;
+        const amount = parseFloat(am[0].replace(/[$,]/g, ''));
+        if (isNaN(amount)) return;
+        if (!line.includes(am[0])) return;
+        parsedTxns.push({
+          id: `TXN-${doc.document_id}-${parsedTxns.length + 1}`,
+          workspaceId: doc.project_id,
+          documentId: doc.document_id,
+          date: dm[1],
+          postingDate: dm[1],
+          description: line.replace(txnDateRe, '').replace(amtRe, '').replace(/\s+/g, ' ').trim() || 'Transaction',
+          rawDescription: line.trim(),
+          amount,
+          transactionType: amount >= 0 ? 'deposit' : 'withdrawal',
+          category: 'Extracted Bank Transaction',
+          sourcePage: 1,
+          confidence: 0,
+          reconciled: false
+        });
+      });
 
-      let withdrawals = parseAmount(/(?:total withdrawals|withdrawals and debits|subtractions)[\s:$]*(-?\$?[\d,]+\.\d{2})/i, 678.39);
-      if (rawText.includes('678.39')) withdrawals = 678.39;
+      if (parsedTxns.length === 0 && begBal == null && endBal == null) {
+        return {
+          category,
+          classificationConfidence: 0,
+          entityName,
+          reportingPeriod: period,
+          reportingCurrency: currency,
+          unitScale,
+          extractedFacts: [],
+          findings: [{
+            id: `FND-${doc.document_id}-bank-miss`,
+            workspaceId: doc.project_id,
+            companyName: entityName,
+            title: 'Bank statement parse missed',
+            category: 'Cash',
+            risk: 'High',
+            finAgentStatus: 'Disagree',
+            auditAgentStatus: 'Disagree',
+            riskAgentStatus: 'Disagree',
+            consensusScore: 0,
+            confidenceScore: 0,
+            materiality: 0,
+            status: 'Needs Review',
+            nextAction: 'Upload a statement with dated transactions or beginning/ending balances. Fixture values are not used.',
+            period,
+            createdDate: new Date().toISOString().split('T')[0],
+            finAgentOpinion: 'No dated transactions or balances found in source text.',
+            finAgentConfidence: 0,
+            auditAgentOpinion: 'Refuse to invent Bank of America / Stripe / AWS transactions.',
+            auditAgentConfidence: 0,
+            riskAgentOpinion: 'Unextracted bank file must not look reconciled.',
+            riskAgentConfidence: 0,
+            aiRecommendation: 'Re-upload native PDF/CSV/XLSX bank activity.',
+            relatedDocsCount: 1,
+            relatedJeCount: 0,
+            relatedAccountsCount: 0,
+            relatedTasksCount: 0,
+            agentOpinions: []
+          }]
+        };
+      }
 
-      let fees = parseAmount(/(?:service fees|total fees|fees)[\s:$]*(-?\$?[\d,]+\.\d{2})/i, 2.50);
-      if (rawText.includes('2.50')) fees = 2.50;
-
-      let endBal = parseAmount(/(?:ending balance|new balance|closing balance)[\s:$]*(\$?[\d,]+\.\d{2})/i, 12.98);
-      if (rawText.includes('12.98')) endBal = 12.98;
-
-      let avgBal = parseAmount(/(?:average balance|average ledger balance)[\s:$]*(\$?[\d,]+\.\d{2})/i, 353.42);
-      if (rawText.includes('353.42')) avgBal = 353.42;
-
-      // Mathematical Reconciliation:
-      // Beginning Balance + Deposits - Withdrawals - Fees
-      const calcEndBal = Math.round((begBal + deposits - withdrawals - fees) * 100) / 100;
-      const reconciliationPassed = Math.abs(calcEndBal - endBal) < 0.05;
+      const bankNameMatch = rawText.match(/([A-Z][a-zA-Z\s]+Bank|[A-Z][a-zA-Z\s]+Credit Union)/);
+      const calcEnd = begBal != null ? Math.round(((begBal + (deposits || 0) - (withdrawals || 0) - (fees || 0)) * 100)) / 100 : null;
 
       bankSummary = {
-        bankName,
+        bankName: bankNameMatch ? bankNameMatch[1].trim() : '',
         accountHolder: entityName,
-        accountType: 'Business Checking',
-        maskedAccountNumber: '...4892',
-        periodStart: '2026-06-01',
-        periodEnd: '2026-06-30',
+        accountType: '',
+        maskedAccountNumber: '',
+        periodStart: period || '',
+        periodEnd: period || '',
         currency,
-        beginningBalance: begBal,
-        totalDeposits: deposits,
-        totalWithdrawals: withdrawals,
+        beginningBalance: begBal ?? 0,
+        totalDeposits: deposits ?? parsedTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0),
+        totalWithdrawals: withdrawals ?? parsedTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0),
         totalChecks: 0,
-        totalFees: fees,
-        endingBalance: endBal,
-        averageBalance: avgBal,
-        depositCount: 3,
-        withdrawalCount: 4,
-        transactionCount: 7,
-        calculatedEndingBalance: calcEndBal,
-        reconciliationPassed
+        totalFees: fees ?? 0,
+        endingBalance: endBal ?? 0,
+        averageBalance: 0,
+        depositCount: parsedTxns.filter(t => t.amount > 0).length,
+        withdrawalCount: parsedTxns.filter(t => t.amount < 0).length,
+        transactionCount: parsedTxns.length,
+        calculatedEndingBalance: calcEnd ?? 0,
+        reconciliationPassed: begBal != null && endBal != null && calcEnd != null ? Math.abs(calcEnd - endBal) < 0.05 : false
       };
+      bankTransactions = parsedTxns;
 
-      // Create Provenance Records for Bank Account Summary
-      const createBankFact = (label: string, normLabel: string, val: number, sourceText: string) => ({
-        fact_id: `FCT-BS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      const createBankFact = (label: string, normLabel: string, val: number, sourceText: string): ProvenanceRecord => ({
+        fact_id: `FCT-BS-${doc.document_id}-${normLabel.replace(/\s+/g, '-')}`,
         document_id: doc.document_id,
         project_id: doc.project_id,
         source_filename: doc.source.filename,
@@ -233,126 +281,25 @@ export class DocumentIntelligenceAgent {
         source_text: sourceText,
         original_label: label,
         normalized_label: normLabel,
-        original_value: val >= 0 ? `$${val.toFixed(2)}` : `-$${Math.abs(val).toFixed(2)}`,
+        original_value: String(val),
         normalized_value: val,
         currency,
         unit_scale: 'Units' as const,
         reporting_period: period,
-        extraction_method: 'Hermes Document Intelligence Agent v4 (OCR & Pattern Extraction)',
-        confidence: 0.99,
-        validation_status: 'VALIDATED' as const,
-        validator_notes: reconciliationPassed ? 'Reconciled: Beginning Balance + Deposits - Withdrawals - Fees = Ending Balance' : 'Reconciliation variance detected',
+        extraction_method: 'BANK_STATEMENT_NATIVE_PARSE',
+        confidence: 0,
+        validation_status: 'EXTRACTED',
         created_at: new Date().toISOString()
       });
 
-      extractedFacts.push(
-        createBankFact('Beginning Balance', 'Beginning Cash Balance', begBal, `Beginning balance on June 1, 2026: -$29.13`),
-        createBankFact('Total Deposits / Credits', 'Deposits and Credits', deposits, `Deposits and other credits: $723.00`),
-        createBankFact('Total Withdrawals / Debits', 'Withdrawals and Debits', withdrawals, `Withdrawals and other debits: -$678.39`),
-        createBankFact('Service Fees', 'Bank Service Fees', fees, `Service fees charged: -$2.50`),
-        createBankFact('Ending Balance', 'Ending Cash Balance', endBal, `Ending balance on June 30, 2026: $12.98`),
-        createBankFact('Average Ledger Balance', 'Average Ledger Balance', avgBal, `Average ledger balance for June 2026: $353.42`)
-      );
-
-      // Bank Transactions extraction
-      bankTransactions = [
-        {
-          id: `TXN-${doc.document_id}-1`,
-          workspaceId: doc.project_id,
-          documentId: doc.document_id,
-          date: '2026-06-03',
-          postingDate: '2026-06-03',
-          description: 'Client Payment Deposit - Stripe Transfer #STRP-882193',
-          rawDescription: 'STRIPE PAYMENTS TRANSFER STRP-882193 AICREATESAI INC',
-          amount: 500.00,
-          transactionType: 'deposit',
-          counterparty: 'Stripe Payments',
-          category: 'Sales Revenue / Customer Deposit',
-          sourcePage: 2,
-          confidence: 0.99,
-          reconciled: true
-        },
-        {
-          id: `TXN-${doc.document_id}-2`,
-          workspaceId: doc.project_id,
-          documentId: doc.document_id,
-          date: '2026-06-08',
-          postingDate: '2026-06-08',
-          description: 'AWS Cloud Hosting Services',
-          rawDescription: 'AMAZON WEB SERVICES AWS.AMAZON.COM WA',
-          amount: 245.80,
-          transactionType: 'withdrawal',
-          counterparty: 'Amazon Web Services',
-          category: 'Software & Infrastructure / Cloud Hosting',
-          sourcePage: 2,
-          confidence: 0.99,
-          reconciled: true
-        },
-        {
-          id: `TXN-${doc.document_id}-3`,
-          workspaceId: doc.project_id,
-          documentId: doc.document_id,
-          date: '2026-06-12',
-          postingDate: '2026-06-12',
-          description: 'Client Payment Deposit - Wire Transfer #WT-44109',
-          rawDescription: 'WIRE TRANS INCOMING REF WT-44109 ACME CONSULTING',
-          amount: 223.00,
-          transactionType: 'deposit',
-          counterparty: 'Acme Consulting',
-          category: 'Sales Revenue / Professional Services',
-          sourcePage: 2,
-          confidence: 0.98,
-          reconciled: true
-        },
-        {
-          id: `TXN-${doc.document_id}-4`,
-          workspaceId: doc.project_id,
-          documentId: doc.document_id,
-          date: '2026-06-18',
-          postingDate: '2026-06-18',
-          description: 'Google Workspace Subscriptions',
-          rawDescription: 'GOOGLE WORKSPACE GSUITE CC GOOGLE.COM',
-          amount: 182.59,
-          transactionType: 'withdrawal',
-          counterparty: 'Google LLC',
-          category: 'Software & Subscriptions',
-          sourcePage: 2,
-          confidence: 0.99,
-          reconciled: true
-        },
-        {
-          id: `TXN-${doc.document_id}-5`,
-          workspaceId: doc.project_id,
-          documentId: doc.document_id,
-          date: '2026-06-22',
-          postingDate: '2026-06-22',
-          description: 'Office Depot Tech & Supplies',
-          rawDescription: 'OFFICE DEPOT #1029 SAN FRANCISCO CA',
-          amount: 250.00,
-          transactionType: 'withdrawal',
-          counterparty: 'Office Depot',
-          category: 'Office Supplies & Equipment',
-          sourcePage: 2,
-          confidence: 0.97,
-          reconciled: true
-        },
-        {
-          id: `TXN-${doc.document_id}-6`,
-          workspaceId: doc.project_id,
-          documentId: doc.document_id,
-          date: '2026-06-28',
-          postingDate: '2026-06-28',
-          description: 'Monthly Account Maintenance Service Fee',
-          rawDescription: 'MONTHLY MAINT SERVICE FEE - BUS CHECKING',
-          amount: 2.50,
-          transactionType: 'fee',
-          counterparty: 'Bank of America',
-          category: 'Bank Service Fees & Charges',
-          sourcePage: 2,
-          confidence: 0.99,
-          reconciled: true
-        }
-      ];
+      if (begBal != null) {
+        const src = rawText.match(/(?:beginning balance|starting balance|previous balance|opening balance)[\s:$]*-?\$?[\d,]+\.\d{2}/i)?.[0] || '';
+        extractedFacts.push(createBankFact('Beginning Balance', 'Beginning Cash Balance', begBal, src));
+      }
+      if (endBal != null) {
+        const src = rawText.match(/(?:ending balance|new balance|closing balance)[\s:$]*-?\$?[\d,]+\.\d{2}/i)?.[0] || '';
+        extractedFacts.push(createBankFact('Ending Balance', 'Ending Cash Balance', endBal, src));
+      }
     } else {
       // General Extraction: Parse numbers directly from tables, sections, and markdown text
       const addedLabels = new Set<string>();
@@ -388,9 +335,9 @@ export class DocumentIntelligenceAgent {
           currency,
           unit_scale: unitScale,
           reporting_period: period,
-          extraction_method: 'Hermes AnyDoc + Fin AI Agent Table Engine',
-          confidence: 0.98,
-          validation_status: 'VALIDATED',
+          extraction_method: 'TABLE_CELL_PARSE',
+          confidence: 0,
+          validation_status: 'EXTRACTED',
           created_at: new Date().toISOString()
         });
       };
@@ -512,97 +459,46 @@ export class DocumentIntelligenceAgent {
       });
     }
 
-    // 8. Generate Hermes Multi-Agent Consensus Findings (Stage 4)
+    // 8. Findings from extraction only — no simulated 3/3 unanimous vote
     const findings: HermesFinding[] = [];
     const nowStr = new Date().toISOString().split('T')[0];
 
-    const revenueFact = extractedFacts.find(f => f.normalized_label.toLowerCase().includes('revenue') || f.normalized_label.toLowerCase().includes('turnover'));
-    const assetFact = extractedFacts.find(f => f.normalized_label.toLowerCase().includes('asset'));
-
-    if (revenueFact) {
-      const conf = Math.round((revenueFact.confidence || 0.95) * 100);
+    if (category === 'Bank Statement' && (!bankTransactions || bankTransactions.length === 0) && extractedFacts.length === 0) {
       findings.push({
-        id: `FND-${doc.document_id}-rev`,
+        id: `FND-${doc.document_id}-bank-miss`,
         workspaceId: doc.project_id,
         companyName: entityName,
-        title: "Revenue Recognition & Contract Asset Verification",
-        category: "Revenue",
-        risk: "Low",
-        finAgentStatus: "Agree",
-        auditAgentStatus: "Agree",
-        riskAgentStatus: "Agree",
-        consensusScore: 99,
-        confidenceScore: conf,
-        materiality: Math.round(Math.abs(revenueFact.normalized_value) * 0.005) || 5000000,
-        status: "Auto Resolved",
-        nextAction: "Hermes Consensus reached: Verified revenue line item directly against source text.",
+        title: 'Bank statement parse missed',
+        category: 'Cash',
+        risk: 'High',
+        finAgentStatus: 'Disagree',
+        auditAgentStatus: 'Disagree',
+        riskAgentStatus: 'Disagree',
+        consensusScore: 0,
+        confidenceScore: 0,
+        materiality: 0,
+        status: 'Needs Review',
+        nextAction: 'No dated transactions extracted. Re-upload native statement.',
         period,
         createdDate: nowStr,
-        finAgentOpinion: `Fin AI Agent verified revenue line item: ${revenueFact.original_value} (${revenueFact.original_label}).`,
-        finAgentConfidence: conf,
-        auditAgentOpinion: `Audit Agent cross-referenced revenue trace in page ${revenueFact.page} source snippet: "${revenueFact.source_text.slice(0, 100)}"`,
-        auditAgentConfidence: 98,
-        riskAgentOpinion: "Risk Agent evaluated cutoff and valuation risks as low.",
-        riskAgentConfidence: 97,
-        aiRecommendation: "Approve revenue line-items for financial reports.",
+        finAgentOpinion: 'Parse missed.',
+        finAgentConfidence: 0,
+        auditAgentOpinion: 'No invented fixtures.',
+        auditAgentConfidence: 0,
+        riskAgentOpinion: 'Unextracted.',
+        riskAgentConfidence: 0,
+        aiRecommendation: 'Fail closed.',
         relatedDocsCount: 1,
         relatedJeCount: 0,
-        relatedAccountsCount: 1,
+        relatedAccountsCount: 0,
         relatedTasksCount: 0,
-        agentOpinions: [
-          { agentName: 'FIN_AGENT', status: 'Agree', confidence: conf, opinion: `Fin AI Agent verified revenue line item: ${revenueFact.original_value}` },
-          { agentName: 'AUDIT_AGENT', status: 'Agree', confidence: 98, opinion: `Audit Agent verified page ${revenueFact.page} source snippet.` },
-          { agentName: 'RISK_AGENT', status: 'Agree', confidence: 97, opinion: "Risk Agent evaluated cutoff risk as low." },
-          { agentName: 'HERMES_SUPERVISOR', status: 'Agree', confidence: 99, opinion: "Hermes Supervisor achieved 3/3 unanimous consensus." }
-        ]
+        agentOpinions: []
       });
     }
-
-    if (assetFact) {
-      const conf = Math.round((assetFact.confidence || 0.95) * 100);
-      findings.push({
-        id: `FND-${doc.document_id}-assets`,
-        workspaceId: doc.project_id,
-        companyName: entityName,
-        title: "Asset Valuation & Balance Sheet Mathematical Reconciliation",
-        category: "Compliance",
-        risk: "Low",
-        finAgentStatus: "Agree",
-        auditAgentStatus: "Agree",
-        riskAgentStatus: "Agree",
-        consensusScore: 98,
-        confidenceScore: conf,
-        materiality: Math.round(Math.abs(assetFact.normalized_value) * 0.005) || 10000000,
-        status: "Auto Resolved",
-        nextAction: "Sign off on balance sheet mathematical reconciliation.",
-        period,
-        createdDate: nowStr,
-        finAgentOpinion: `Fin AI verified assets: ${assetFact.original_value} (${assetFact.original_label}).`,
-        finAgentConfidence: conf,
-        auditAgentOpinion: `Audit Agent verified balance sheet statement snippet: "${assetFact.source_text.slice(0, 100)}"`,
-        auditAgentConfidence: 97,
-        riskAgentOpinion: "Risk Agent confirmed compliance with statutory requirements.",
-        riskAgentConfidence: 96,
-        aiRecommendation: "Approve total assets line-item.",
-        relatedDocsCount: 1,
-        relatedJeCount: 0,
-        relatedAccountsCount: 1,
-        relatedTasksCount: 0,
-        agentOpinions: [
-          { agentName: 'FIN_AGENT', status: 'Agree', confidence: conf, opinion: `Fin AI verified assets: ${assetFact.original_value}` },
-          { agentName: 'AUDIT_AGENT', status: 'Agree', confidence: 97, opinion: `Audit Agent verified balance sheet statement.` },
-          { agentName: 'RISK_AGENT', status: 'Agree', confidence: 96, opinion: "Risk Agent confirmed statutory compliance." },
-          { agentName: 'HERMES_SUPERVISOR', status: 'Agree', confidence: 98, opinion: "Hermes Supervisor achieved 3/3 unanimous consensus." }
-        ]
-      });
-    }
-
-    // Register facts in Fact Registry
-    extractedFacts.forEach(f => globalFactRegistry.addFact(f));
 
     return {
       category,
-      classificationConfidence: 0.98,
+      classificationConfidence: extractedFacts.length > 0 ? 0.8 : 0,
       entityName,
       reportingPeriod: period,
       reportingCurrency: currency,

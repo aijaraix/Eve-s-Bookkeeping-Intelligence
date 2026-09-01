@@ -51,7 +51,7 @@ export class SpreadsheetParser implements DocumentParser {
       const headers: string[] = (jsonRows[0] as string[]) || ['Account Code', 'Description', 'Debit', 'Credit', 'Net Amount'];
       const rows: string[][] = [];
 
-      jsonRows.slice(1, 50).forEach((rowObj: any) => {
+      jsonRows.slice(1).forEach((rowObj: any) => {
         if (Array.isArray(rowObj) && rowObj.some(val => val !== null && val !== undefined)) {
           rows.push(rowObj.map(val => String(val ?? '')));
         }
@@ -59,7 +59,7 @@ export class SpreadsheetParser implements DocumentParser {
 
       // Extract specific cell coordinates (e.g. F121, B12, etc.) for accounting line item lineage
       const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:Z100');
-      for (let R = range.s.r; R <= Math.min(range.e.r, 50); ++R) {
+      for (let R = range.s.r; R <= range.e.r; ++R) {
         for (let C = range.s.c; C <= Math.min(range.e.c, 15); ++C) {
           const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
           const cell = sheet[cellAddress];
@@ -110,13 +110,13 @@ export class SpreadsheetParser implements DocumentParser {
         engine: 'spreadsheet',
         version: '0.18.5-native',
         ocr_used: false,
-        confidence: 0.99
+        confidence: 0
       },
       metadata: {
         pages: sheetNames.length,
         language: detectLanguageFromText(markdown).language,
-        currency: 'EUR',
-        entityName: file.filename.split('.')[0].replace(/[-_]/g, ' ').trim() || 'Corporate Entity',
+        currency: '',
+        entityName: file.filename.split('.')[0].replace(/[-_]/g, ' ').trim() || '',
         period: detectPeriodFromText(markdown) || undefined,
         totalWords: allCells.length * 3
       },
@@ -131,7 +131,7 @@ export class SpreadsheetParser implements DocumentParser {
       assets: [],
       markdown,
       warnings: [],
-      confidence: 0.99
+      confidence: 0
     };
   }
 

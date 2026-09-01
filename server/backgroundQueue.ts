@@ -4,6 +4,7 @@ import { executeSwarmPipeline } from "./swarm/SwarmOrchestrator.js";
 import { hybridExtractionOrchestrator } from "./hybridExtraction/HybridExtractionOrchestrator.js";
 import { LLM_CONFIG, getGeminiDiagnosticStatus } from "./llmGateway.js";
 import { intakeService } from "./intakeService.js";
+import { assertRealDocumentHash } from "./failClosedGuards.js";
 import {
   ExtractedFact,
   DiscrepancyItem,
@@ -333,7 +334,8 @@ export class BackgroundIngestionQueue {
     pageManifests?: any[],
     sourceBlocks?: any[],
     intakeSessionId?: string,
-    engineMode?: string
+    engineMode?: string,
+    documentHash?: string
   ): QueueJob {
     if (!workspaceId) {
       throw new Error("Mandatory workspaceId (projectId) missing for ingestion session. Workers cannot create orphan jobs.");
@@ -462,6 +464,7 @@ export class BackgroundIngestionQueue {
       documentId,
       documentTitle,
       filePath,
+      documentHash,
       textData: undefined,
       functionalCurrency,
       engineMode: engineMode || process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE',
@@ -628,7 +631,7 @@ export class BackgroundIngestionQueue {
           workspaceId: queuedJob.workspaceId,
           filePath: queuedJob.filePath || '',
           originalFilename: queuedJob.documentTitle,
-          documentHash: `HASH-${queuedJob.documentId}`,
+          documentHash: assertRealDocumentHash(queuedJob.documentHash),
           currency: queuedJob.functionalCurrency,
           onProgress: (stageName: string, progressPercent: number) => {
             queuedJob.currentStage = stageName;
@@ -650,11 +653,14 @@ export class BackgroundIngestionQueue {
           }));
 
           queuedJob.factsExtractedCount = canonicalFacts.length;
+          queuedJob.pagesTotal = hybridRes.physicalPagesTotal || queuedJob.pagesTotal;
           queuedJob.pagesCompleted = queuedJob.pagesTotal;
           queuedJob.tasksCompleted = queuedJob.tasksTotal;
           queuedJob.progress = 100;
           queuedJob.status = "COMPLETED";
           queuedJob.completedAt = new Date().toISOString();
+          (queuedJob as any).pageManifests = hybridRes.pageManifests || [];
+          (queuedJob as any).sourceBlocks = hybridRes.sourceBlocks || [];
 
           // Promote Intake Session to Project if associated with an intake session
           if (queuedJob.intakeSessionId && this.dbRef) {

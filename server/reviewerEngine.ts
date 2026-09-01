@@ -107,7 +107,7 @@ export class ReviewerEngine {
         facts_extracted: facts.length,
         facts_verified: verifiedFacts,
         facts_unverified: unverifiedFacts,
-        untraceable_dashboard_values: 0,
+        untraceable_dashboard_values: facts.filter(f => !f.id || !f.sourceText || !f.pageNumber).length,
         accounting_identity_status: discrepancies > 0 ? "VARIANCE_DETECTED" : unverifiedFacts > 0 ? "REVIEW_REQUIRED" : "BALANCED"
       },
       architecture_pipeline_flow: [
@@ -280,8 +280,8 @@ export class ReviewerEngine {
         scale: f.scale || f.unitScale || 'Units',
         reporting_period: f.reportingPeriod || (f as any).fiscalPeriod || 'Not Specified',
         value_origin: (f as any).valueOrigin || 'REPORTED',
-        source_confidence: f.confidence || 0.98,
-        verification_status: f.status || 'VALIDATED',
+        source_confidence: typeof f.confidence === 'number' ? f.confidence : undefined,
+        verification_status: f.status || 'pending_review',
         pipeline_version: "v3.7-sonnet-hybrid",
         source_provenance: {
           document_id: f.documentId || 'doc-1',
@@ -293,7 +293,7 @@ export class ReviewerEngine {
           table_row: f.labelOriginal,
           table_column: f.reportingPeriod || 'Current Period',
           verbatim_text_snippet: f.sourceText || `${f.labelOriginal}: ${f.valueOriginal}`,
-          bounding_box_coords: { xMin: 120, yMin: 240, xMax: 480, yMax: 260 }
+          bounding_box_coords: f.provenance?.boundingBox || (f as any).boundingCoordinates || undefined
         }
       };
     });
@@ -304,7 +304,9 @@ export class ReviewerEngine {
     const fact = (db.facts || []).find((f: any) => f.id === factId);
     if (!fact) return null;
 
-    const page = fact.pageNumber || fact.source_page || 1;
+    const page = fact.pageNumber || fact.source_page;
+    const matchingDoc = (db.documents || []).find((d: any) => d.id === fact.documentId || d.id === fact.document_id);
+    const bbox = fact.provenance?.boundingBox || fact.boundingCoordinates || null;
     return {
       fact_id: fact.id,
       canonical_metric: fact.canonicalMetric || fact.labelNormalized,
@@ -312,19 +314,19 @@ export class ReviewerEngine {
       normalized_label: fact.labelNormalized,
       reported_value: fact.valueOriginal || String(fact.valueFunctional),
       normalized_value: (fact.normalizedValue ?? fact.normalized_value ?? CanonicalFactResolver.calculateNormalizedValue(fact)) || 0,
-      currency: fact.currency || "EUR",
-      unit_scale: fact.scale || fact.unitScale || "Millions",
-      period: fact.reportingPeriod || "FY 2025",
-      verification_status: fact.status || "VALIDATED",
+      currency: fact.currency || fact.currencyOriginal || "",
+      unit_scale: fact.scale || fact.unitScale || "",
+      period: fact.reportingPeriod || fact.periodEnd || "",
+      verification_status: fact.status || "pending_review",
       complete_provenance_chain: {
-        workspace: { id: fact.workspaceId || "ws-default", name: "Project Workspace" },
-        document: { id: fact.documentId || "doc-1", filename: fact.sourceDocument || "Source_Document.pdf", file_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
-        page: { page_number: page, printed_page: page, native_text_available: true, ocr_used: false },
-        section: { name: fact.statementType || "Financial Statements", section_id: `SEC-${page}` },
-        source_block: { block_id: `BLK-${fact.documentId || 'doc-1'}-FCT-${fact.id}`, block_type: fact.tableName ? "Table" : "Paragraph" },
-        table_coordinates: { row_label: fact.labelOriginal, column_header: fact.reportingPeriod || "FY 2025", row_index: 2, col_index: 1 },
-        page_coordinates: { xMin: 120, yMin: 240, xMax: 480, yMax: 260 },
-        raw_evidence_snippet: fact.sourceText || `${fact.labelOriginal}: ${fact.valueOriginal}`
+        workspace: { id: fact.workspaceId, name: (db.workspaces || []).find((w: any) => w.id === fact.workspaceId)?.name },
+        document: { id: fact.documentId || matchingDoc?.id, filename: fact.sourceDocument || matchingDoc?.originalName || matchingDoc?.filename, file_hash: matchingDoc?.sha256 || "" },
+        page: { page_number: page, printed_page: page, native_text_available: undefined, ocr_used: undefined },
+        section: { name: fact.statementType || "", section_id: fact.sourceUnitId },
+        source_block: { block_id: fact.sourceUnitId, block_type: fact.tableName ? "Table" : "Paragraph" },
+        table_coordinates: { row_label: fact.labelOriginal, column_header: fact.columnLabel || fact.reportingPeriod, row_index: fact.provenance?.tableRowIndex, col_index: fact.provenance?.tableColIndex },
+        page_coordinates: bbox || undefined,
+        raw_evidence_snippet: fact.sourceText || ""
       }
     };
   }
@@ -353,14 +355,19 @@ export class ReviewerEngine {
       "Non-GAAP & Underlying Performance Measures"
     ];
 
-    const categoryBreakdown = categories.map((cat, idx) => {
-      const matchCount = Math.max(1, Math.floor(facts.length / categories.length) + (idx === 0 ? 3 : 0));
+    const categoryBreakdown = categories.map((cat) => {
+      const matchCount = facts.filter(f => {
+        const blob = `${f.canonicalMetric || ''} ${f.labelNormalized || ''} ${f.statementType || ''} ${cat}`.toLowerCase();
+        const key = cat.toLowerCase().split(/[&,(]/)[0].trim();
+        return key.length > 3 && blob.includes(key.split(' ')[0]);
+      }).length;
+      const verified = facts.filter(f => String(f.status || '').toLowerCase() === 'approved' || String(f.verificationStatus || '').toLowerCase() === 'verified').length;
       return {
         category: cat,
         facts_extracted: matchCount,
-        verified_count: matchCount,
-        review_required_count: 0,
-        coverage_status: "COMPLETE"
+        verified_count: matchCount === 0 ? 0 : undefined,
+        review_required_count: matchCount,
+        coverage_status: matchCount > 0 ? "PARTIAL" : "NOT_EXTRACTED"
       };
     });
 
@@ -377,7 +384,7 @@ export class ReviewerEngine {
   public static getDashboardLineageReview(db: any) {
     const facts: ExtractedFact[] = db.facts || [];
 
-    const lineage = facts.length > 0 ? facts.slice(0, 5).map((fact, idx) => ({
+    const lineage = facts.map((fact, idx) => ({
       component_id: `WGT-${idx + 1}`,
       component_name: `${fact.labelNormalized} Widget`,
       route: "/overview",
@@ -385,12 +392,10 @@ export class ReviewerEngine {
       value: fact.valueOriginal || String(fact.valueFunctional),
       source_type: "FACT_REGISTRY",
       fact_id: fact.id,
-      verification_status: "VERIFIED",
-      lineage_status: "CONNECTED",
-      is_untraceable: false
-    })) : [
-      { component_id: "WGT-REV", component_name: "Revenue Card", route: "/overview", metric: "Revenue", value: "INSUFFICIENT_EVIDENCE", source_type: "FACT_REGISTRY", fact_id: undefined, verification_status: "UNVERIFIED", lineage_status: "DISCONNECTED", is_untraceable: true }
-    ];
+      verification_status: fact.status || "pending_review",
+      lineage_status: fact.id ? "CONNECTED" : "DISCONNECTED",
+      is_untraceable: !fact.id
+    }));
 
     const untraceableCount = lineage.filter(item => item.is_untraceable).length;
 

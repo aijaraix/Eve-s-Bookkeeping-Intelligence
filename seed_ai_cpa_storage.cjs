@@ -590,10 +590,10 @@ const findings = [
     confidenceScore: 99,
     materiality: 298000000,
     status: 'Auto Resolved',
-    nextAction: 'Reconciled turnover of €59.60B across annual report and regulatory filing.',
+    nextAction: 'DEMO seed only — not reachable from live UI.',
     period: 'FY 2025',
     createdDate: '2026-08-07',
-    finAgentOpinion: 'Fin AI verified turnover at €59,604M.',
+    finAgentOpinion: 'DEMO seed — continuing-operations turnover is €50,503M.',
     finAgentConfidence: 99,
     auditAgentOpinion: 'Audit Agent verified IFRS 15 revenue recognition schedules.',
     auditAgentConfidence: 98,
@@ -672,7 +672,7 @@ const agentLogs = [
     timestamp: '2026-08-07 17:54:32',
     inputSummary: 'Initiated 4-Agent Forensic Audit Scan for Unilever PLC (3 Source Files).',
     findings: [
-      'Extracted turnover €59.60B across unilever-annual-report-and-accounts-2025.pdf.',
+      'DEMO seed: Extracted turnover €50.503B continuing operations.',
       'Verified 0 material discrepancies across 3 uploaded files.',
       'Consensus Score: 99.2% PASS.'
     ]
@@ -683,7 +683,7 @@ const agentLogs = [
     timestamp: '2026-08-07 17:54:31',
     inputSummary: 'Parsed structured tables and footnotes across 3 Unilever PDF documents.',
     findings: [
-      'Turnover: €59,604,000,000 (Confidence: 99.8%)',
+      'Turnover: €50,503,000,000 (DEMO seed, not live UI)',
       'Net Income: €6,490,000,000 (Confidence: 99.7%)',
       'Total Assets: €78,500,000,000 (Confidence: 99.9%)'
     ]
@@ -705,7 +705,7 @@ const agentLogs = [
     timestamp: '2026-08-07 17:54:30',
     inputSummary: 'Executed Balance Sheet & Income Statement mathematical equations.',
     findings: [
-      'Gross Profit = Revenue - Cost of Sales: €59.60B - €32.79B = €26.81B (Verified)',
+      'DEMO seed: Gross Profit uses continuing-operations turnover €50.503B.',
       'Assets = Liabilities + Equity: €78.50B = €58.51B + €19.99B (Verified)'
     ]
   },
@@ -742,7 +742,7 @@ const auditLogs = [
     timestamp: '2026-08-07T17:54:33.000Z',
     actor: 'Hermes Lead Auditor',
     action: 'Forensic Audit Consensus Signed Off',
-    details: 'Verified 3 source files for Unilever PLC. Revenue: €59.60B, Net Income: €6.49B, Assets: €78.50B.'
+    details: 'DEMO seed for Unilever PLC. Continuing-ops turnover €50.503B. Unreachable from live UI.'
   },
   {
     id: 'LOG-aapl-1',
@@ -762,16 +762,18 @@ const auditLogs = [
   }
 ];
 
+const tagDemo = (arr) => (arr || []).map((row) => ({ ...row, dataOrigin: 'DEMO' }));
+
 const db = {
-  workspaces,
-  documents,
-  facts,
-  findings,
+  workspaces: tagDemo(workspaces),
+  documents: tagDemo(documents),
+  facts: tagDemo(facts),
+  findings: tagDemo(findings),
   snapshots: [],
-  auditLogs,
+  auditLogs: tagDemo(auditLogs),
   discrepancies: [],
-  agentLogs
+  agentLogs: tagDemo(agentLogs)
 };
 
 fs.writeFileSync(STORAGE_FILE, JSON.stringify(db, null, 2));
-console.log('Successfully seeded ai_cpa_storage.json with Unilever, Apple Inc., and Microsoft Corp!');
+console.log('Seeded DEMO-tagged ai_cpa_storage.json. Live UI filters dataOrigin=DEMO.');

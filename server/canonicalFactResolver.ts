@@ -85,7 +85,7 @@ export class CanonicalFactResolver {
     // Status check
     const status = String(fact.status || "").toUpperCase();
     const verState = String(fact.verificationStatus || fact.verification_state || "").toUpperCase();
-    if (status === "PROPOSED" || status === "REJECTED" || status === "BLOCKED") return false;
+    if (status === "PROPOSED" || status === "PENDING_REVIEW" || status === "REJECTED" || status === "BLOCKED") return false;
     if (verState === "UNVERIFIED" || verState === "REJECTED" || verState === "CONFLICTED") return false;
 
     // Normalized value check

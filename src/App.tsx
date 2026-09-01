@@ -842,6 +842,7 @@ export default function App() {
               onBackToProjects={() => setCurrentView('projects')}
               activeQueueJob={activeQueueJob}
               onOpenQueueModal={() => setIngestionStatus(prev => ({ ...prev, isIngesting: true }))}
+              userEmail={userEmail}
             />
           )}
 

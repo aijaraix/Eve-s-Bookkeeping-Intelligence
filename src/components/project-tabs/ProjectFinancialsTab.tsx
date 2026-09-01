@@ -55,6 +55,7 @@ import {
   Line,
   CartesianGrid
 } from 'recharts';
+import { VerificationStateMachine } from '../../../server/verificationStateMachine';
 
 interface ProjectFinancialsTabProps {
   workspace: Workspace;
@@ -99,7 +100,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
   >('summary');
 
   // Filters for Financial Workspace
-  const [periodFilter, setPeriodFilter] = useState('YTD (Jan 1 – Jun 7, 2025) vs PY');
+  const [periodFilter, setPeriodFilter] = useState('Current period vs prior (when extracted)');
   const [comparisonFilter, setComparisonFilter] = useState('Prior Year');
   const [viewMode, setViewMode] = useState<'monthly' | 'quarterly' | 'annual'>('monthly');
   const [entityFilter, setEntityFilter] = useState('All Entities (Consolidated)');
@@ -146,11 +147,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
     : '—';
 
   const topKpiMetrics = [
-    { title: 'Revenue', val: hasFacts && summary?.revenue && summary.revenue !== "—" ? `${currSymbol}${summary.revenue}` : "—", change: summary?.revenueYoYPct && summary.revenueYoYPct !== "—" ? `↑ ${summary.revenueYoYPct}` : "—", vs: 'vs PY', icon: TrendingUp, color: 'text-emerald-600', sparkData: summary?.revenueRaw ? [summary.revenueRaw * 0.9, summary.revenueRaw] : [] },
-    { title: 'Gross Profit', val: hasFacts && summary?.grossProfit && summary.grossProfit !== "—" ? `${currSymbol}${summary.grossProfit}` : "—", change: summary?.grossMarginPct && summary.grossMarginPct !== "—" ? `Margin: ${summary.grossMarginPct}` : "—", vs: '', icon: DollarSign, color: 'text-blue-600', sparkData: summary?.grossProfitRaw ? [summary.grossProfitRaw * 0.9, summary.grossProfitRaw] : [] },
-    { title: 'EBITDA / Operating Profit', val: hasFacts && summary?.operatingIncome && summary.operatingIncome !== "—" ? `${currSymbol}${summary.operatingIncome}` : "—", change: '—', vs: '', icon: BarChart3, color: 'text-purple-600', sparkData: summary?.operatingIncomeRaw ? [summary.operatingIncomeRaw * 0.9, summary.operatingIncomeRaw] : [] },
-    { title: 'Net Income', val: hasFacts && summary?.netIncome && summary.netIncome !== "—" ? `${currSymbol}${summary.netIncome}` : "—", change: '—', vs: '', icon: DollarSign, color: 'text-emerald-600', sparkData: summary?.netIncomeRaw ? [summary.netIncomeRaw * 0.9, summary.netIncomeRaw] : [] },
-    { title: 'Total Assets', val: hasFacts && summary?.assets && summary.assets !== "—" ? `${currSymbol}${summary.assets}` : "—", change: '—', vs: '', icon: Layers, color: 'text-indigo-600', sparkData: summary?.assetsRaw ? [summary.assetsRaw * 0.9, summary.assetsRaw] : [] },
+    { title: 'Revenue', val: hasFacts && summary?.revenue && summary.revenue !== "—" ? `${currSymbol}${summary.revenue}` : "—", change: summary?.revenueYoYPct && summary.revenueYoYPct !== "—" ? `↑ ${summary.revenueYoYPct}` : "—", vs: 'vs PY', icon: TrendingUp, color: 'text-emerald-600', sparkData: [] },
+    { title: 'Gross Profit', val: hasFacts && summary?.grossProfit && summary.grossProfit !== "—" ? `${currSymbol}${summary.grossProfit}` : "—", change: summary?.grossMarginPct && summary.grossMarginPct !== "—" ? `Margin: ${summary.grossMarginPct}` : "—", vs: '', icon: DollarSign, color: 'text-blue-600', sparkData: [] },
+    { title: 'EBITDA / Operating Profit', val: hasFacts && summary?.operatingIncome && summary.operatingIncome !== "—" ? `${currSymbol}${summary.operatingIncome}` : "—", change: '—', vs: '', icon: BarChart3, color: 'text-purple-600', sparkData: [] },
+    { title: 'Net Income', val: hasFacts && summary?.netIncome && summary.netIncome !== "—" ? `${currSymbol}${summary.netIncome}` : "—", change: '—', vs: '', icon: DollarSign, color: 'text-emerald-600', sparkData: [] },
+    { title: 'Total Assets', val: hasFacts && summary?.assets && summary.assets !== "—" ? `${currSymbol}${summary.assets}` : "—", change: '—', vs: '', icon: Layers, color: 'text-indigo-600', sparkData: [] },
     { title: 'Current Ratio', val: hasFacts ? calculatedCurrentRatio : '—', change: '—', vs: '', icon: Scale, color: 'text-amber-600', sparkData: [] }
   ];
 
@@ -168,19 +169,19 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
     : '—';
 
   const ratiosTableData = hasFacts ? [
-    { ratio: 'Gross Margin', ytd: summary?.grossMarginPct || '—', py: '—', change: '—', benchmark: '41.0%', status: summary?.grossMarginPct ? 'Verified' : '—' },
-    { ratio: 'Net Margin', ytd: summary?.netIncomeRaw && summary?.revenueRaw ? `${((summary.netIncomeRaw / summary.revenueRaw) * 100).toFixed(1)}%` : '—', py: '—', change: '—', benchmark: '9.5%', status: 'Verified' },
-    { ratio: 'ROA', ytd: calculatedROA, py: '—', change: '—', benchmark: '7.0%', status: calculatedROA !== '—' ? 'Verified' : '—' },
-    { ratio: 'ROE', ytd: calculatedROE, py: '—', change: '—', benchmark: '11.0%', status: calculatedROE !== '—' ? 'Verified' : '—' },
-    { ratio: 'Current Ratio', ytd: calculatedCurrentRatio, py: '—', change: '—', benchmark: '1.10', status: calculatedCurrentRatio !== '—' ? 'Verified' : '—' }
+    { ratio: 'Gross Margin', ytd: summary?.grossMarginPct || '—', py: '—', change: '—', benchmark: '—', status: summary?.grossMarginPct ? 'From facts' : 'not extracted' },
+    { ratio: 'Net Margin', ytd: summary?.netIncomeRaw && summary?.revenueRaw ? `${((summary.netIncomeRaw / summary.revenueRaw) * 100).toFixed(1)}%` : '—', py: '—', change: '—', benchmark: '—', status: '—' },
+    { ratio: 'ROA', ytd: calculatedROA, py: '—', change: '—', benchmark: '—', status: calculatedROA !== '—' ? 'From facts' : 'not extracted' },
+    { ratio: 'ROE', ytd: calculatedROE, py: '—', change: '—', benchmark: '—', status: calculatedROE !== '—' ? 'From facts' : 'not extracted' },
+    { ratio: 'Current Ratio', ytd: calculatedCurrentRatio, py: '—', change: '—', benchmark: '—', status: calculatedCurrentRatio !== '—' ? 'From facts' : 'not extracted' }
   ] : [];
 
   // Top Accounts Movement Data
   const topAccountsMovement = hasFacts ? [
-    { account: 'Sales Revenue', ytd: summary?.revenue && summary.revenue !== "—" ? `${currSymbol}${summary.revenue}` : "—", py: '—', changeDol: '—', changePct: summary?.revenueYoYPct || '—', trend: summary?.revenueRaw ? [summary.revenueRaw * 0.9, summary.revenueRaw] : [] },
-    { account: 'Cost of Goods Sold', ytd: summary?.costOfRevenue && summary.costOfRevenue !== "—" ? `${currSymbol}${summary.costOfRevenue}` : "—", py: '—', changeDol: '—', changePct: '—', trend: summary?.costOfRevenueRaw ? [summary.costOfRevenueRaw * 0.9, summary.costOfRevenueRaw] : [] },
-    { account: 'Gross Profit', ytd: summary?.grossProfit && summary.grossProfit !== "—" ? `${currSymbol}${summary.grossProfit}` : "—", py: '—', changeDol: '—', changePct: '—', trend: summary?.grossProfitRaw ? [summary.grossProfitRaw * 0.9, summary.grossProfitRaw] : [] },
-    { account: 'Net Income', ytd: summary?.netIncome && summary.netIncome !== "—" ? `${currSymbol}${summary.netIncome}` : "—", py: '—', changeDol: '—', changePct: '—', trend: summary?.netIncomeRaw ? [summary.netIncomeRaw * 0.9, summary.netIncomeRaw] : [] },
+    { account: 'Sales Revenue', ytd: summary?.revenue && summary.revenue !== "—" ? `${currSymbol}${summary.revenue}` : "—", py: '—', changeDol: '—', changePct: summary?.revenueYoYPct || '—', trend: [] },
+    { account: 'Cost of Goods Sold', ytd: summary?.costOfRevenue && summary.costOfRevenue !== "—" ? `${currSymbol}${summary.costOfRevenue}` : "—", py: '—', changeDol: '—', changePct: '—', trend: [] },
+    { account: 'Gross Profit', ytd: summary?.grossProfit && summary.grossProfit !== "—" ? `${currSymbol}${summary.grossProfit}` : "—", py: '—', changeDol: '—', changePct: '—', trend: [] },
+    { account: 'Net Income', ytd: summary?.netIncome && summary.netIncome !== "—" ? `${currSymbol}${summary.netIncome}` : "—", py: '—', changeDol: '—', changePct: '—', trend: [] },
     { account: 'Cash & Cash Equivalents', ytd: summary?.cash && summary.cash !== "—" ? `${currSymbol}${summary.cash}` : "—", py: '—', changeDol: '—', changePct: '—', trend: [] }
   ].filter(acc => acc.ytd !== "—") : [];
 
@@ -192,33 +193,62 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
   ].filter(cf => cf.ytd !== "—") : [];
 
   // Data Health Score Gauge Donut
-  const dataHealthDonutData = [
-    { name: 'Complete', value: 92, color: '#10b981' },
-    { name: 'Partially Missing', value: 5, color: '#f59e0b' },
-    { name: 'Missing', value: 3, color: '#ef4444' }
-  ];
+  const approvedCount = facts.filter(f => String(f.status).toLowerCase() === 'approved' || String(f.status).toLowerCase() === 'validated').length;
+  const pendingCount = facts.filter(f => String(f.status).toLowerCase().includes('pending') || String(f.status).toLowerCase() === 'proposed').length;
+  const missingCount = Math.max(0, facts.length - approvedCount - pendingCount);
+  const dataHealthDonutData = facts.length > 0 ? [
+    { name: 'Approved', value: approvedCount, color: '#10b981' },
+    { name: 'Pending review', value: pendingCount, color: '#f59e0b' },
+    { name: 'Other', value: missingCount, color: '#94a3b8' }
+  ].filter(d => d.value > 0) : [];
 
   // Open Trace Provenance Modal Helper
+  const factForLabel = (label: string) =>
+    facts.find((f) => {
+      const blob = `${f.labelNormalized || ''} ${f.labelOriginal || ''} ${f.canonicalMetric || ''}`.toLowerCase();
+      return blob.includes(label.toLowerCase()) || blob.includes(label.toLowerCase().replace(/\s+/g, '_'));
+    });
+
   const openTrace = (
-    metricName: string,
-    value: string,
-    document: string = 'Financial_Report.pdf',
-    page: string = '42',
-    account: string = 'Group Revenue',
-    snippet: string = 'Consolidated sales revenue for the period reached the reported total.'
+    metricOrFact: string | ExtractedFact | null | undefined,
+    value?: string,
+    _document?: string,
+    _page?: string,
+    _account?: string,
+    _snippet?: string
   ) => {
+    const fact = typeof metricOrFact === 'object' && metricOrFact ? metricOrFact : factForLabel(String(metricOrFact || ''));
+    const fallbackName = typeof metricOrFact === 'string' ? metricOrFact : fact?.labelNormalized;
+    if (!fact?.id) {
+      setSelectedSourceMapping({
+        metricName: fallbackName || 'not extracted',
+        value: '—',
+        document: 'not extracted',
+        page: '—',
+        sheet: undefined,
+        cell: undefined,
+        account: fallbackName || '',
+        confidence: 'not extracted',
+        hermesConsensus: '—',
+        humanReviewer: '—',
+        snippet: 'This figure was not extracted from a source document.'
+      });
+      return;
+    }
+    const badge = VerificationStateMachine.getDashboardPresentation(fact);
+    const doc = documents.find(d => d.id === fact.documentId);
     setSelectedSourceMapping({
-      metricName,
-      value,
-      document,
-      page,
-      sheet: 'Income_Statement_Consolidated',
-      cell: 'E14',
-      account,
-      confidence: '99.8%',
-      hermesConsensus: '3/3 Unanimous Node Consensus',
-      humanReviewer: 'Sarah Johnson (Senior Audit Manager)',
-      snippet
+      metricName: fact.labelNormalized || fact.labelOriginal || fallbackName || '',
+      value: fact.valueOriginal || value || String(fact.valueFunctional),
+      document: doc?.originalName || doc?.filename || fact.sourceDocument || '',
+      page: fact.pageNumber ? String(fact.pageNumber) : '—',
+      sheet: fact.tableName,
+      cell: fact.provenance?.cellRange,
+      account: fact.labelOriginal,
+      confidence: badge.displayState,
+      hermesConsensus: '—',
+      humanReviewer: '—',
+      snippet: fact.sourceText || 'not extracted'
     });
   };
 
@@ -776,7 +806,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
                 <p className="text-xs text-slate-500">As of Dec 31, 2025 vs Dec 31, 2024 (In Millions EUR)</p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => openTrace('Total Assets', '€78,500M')} className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold hover:bg-slate-100 cursor-pointer flex items-center gap-1.5">
+                  <button onClick={() => openTrace('Total Assets', summary?.assets)} className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold hover:bg-slate-100 cursor-pointer flex items-center gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
                   <span>Trace Provenance</span>
                 </button>
@@ -903,7 +933,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
                 <h2 className="text-base font-black text-slate-900">Consolidated Statement of Cash Flows</h2>
                 <p className="text-xs text-slate-500">FY 2025 vs FY 2024 (Indirect Method)</p>
               </div>
-              <button onClick={() => openTrace('Ending Cash Balance', '€8,910M')} className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold hover:bg-slate-100 cursor-pointer flex items-center gap-1.5">
+              <button onClick={() => openTrace('Ending Cash Balance', summary?.cash)} className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold hover:bg-slate-100 cursor-pointer flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
                 <span>Trace Cash Evidence</span>
               </button>
@@ -1080,7 +1110,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
                     <span>Industry Benchmark: {r.benchmark}</span>
                   </div>
                   <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-600">
-                    <strong>AI Note:</strong> Outperforming sector benchmark by {r.change}. Solvency remains within target range.
+                    <strong>Note:</strong> Industry benchmarks are not extracted. Ratios shown only when sourced from gated facts.
                   </div>
                 </div>
               ))}
@@ -1092,29 +1122,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
         {subTab === 'variance' && (
           <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-4">
             <h2 className="text-base font-black text-slate-900">Variance & Materiality Exception Analysis</h2>
-            <p className="text-xs text-slate-500">Automated detection of line items exceeding 5% or €1M threshold</p>
-
-            <div className="space-y-3 pt-2 text-xs">
-              <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-2">
-                <div className="flex justify-between items-center font-bold text-amber-950">
-                  <span className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600" />
-                    Marketing & Brand Investment Spike (+18.1% YoY)
-                  </span>
-                  <span className="font-mono font-black text-amber-900">+€830,000,000</span>
-                </div>
-                <p className="text-slate-700">
-                  Material variance identified in Personal Care EMEA region. Verified against WPP Master Services Agreement.
-                </p>
-                <div className="flex gap-2 pt-1">
-                  <button onClick={() => openTrace('Marketing Expense', '€5,410M')} className="px-2.5 py-1 rounded bg-amber-900 text-white font-bold cursor-pointer">
-                    Investigate Evidence
-                  </button>
-                  <button className="px-2.5 py-1 rounded border border-amber-300 bg-white font-bold text-amber-900 cursor-pointer">
-                    Ask Eve AI
-                  </button>
-                </div>
-              </div>
+            <p className="text-xs text-slate-500">Variance is only shown when comparative facts exist for the same line item.</p>
+            <div className="py-12 text-center text-slate-500 text-xs space-y-2">
+              <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-bold">not extracted</p>
+              <p className="text-slate-400">No comparative period facts are available. Exceptions are not invented.</p>
             </div>
           </div>
         )}
@@ -1123,21 +1135,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
         {subTab === 'segments' && (
           <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-4">
             <h2 className="text-base font-black text-slate-900">Business Segments & Product Divisions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-              {[
-                { seg: 'Personal Care', rev: '€23.40B', pct: '39.3%', margin: '18.2%' },
-                { seg: 'Beauty & Wellbeing', rev: '€14.80B', pct: '24.8%', margin: '21.5%' },
-                { seg: 'Foods & Refreshments', rev: '€21.40B', pct: '35.9%', margin: '14.8%' }
-              ].map((s, i) => (
-                <div key={i} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
-                  <span className="text-xs font-black text-slate-900">{s.seg}</span>
-                  <div className="text-2xl font-black font-mono text-blue-900">{s.rev}</div>
-                  <div className="flex justify-between text-slate-500 font-semibold">
-                    <span>Group Share: {s.pct}</span>
-                    <span>Op Margin: {s.margin}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="py-12 text-center text-slate-500 text-xs space-y-2">
+              <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-bold">not extracted</p>
+              <p className="text-slate-400">Segment revenue is only shown when extracted from source statements.</p>
             </div>
           </div>
         )}
@@ -1146,35 +1147,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
         {subTab === 'entities' && (
           <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-4">
             <h2 className="text-base font-black text-slate-900">Consolidated Legal Entities & Subsidiaries</h2>
-            <div className="overflow-x-auto text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="text-[10px] font-black text-slate-400 uppercase border-b border-slate-200 bg-slate-50">
-                    <th className="py-2.5 px-3">Entity Name</th>
-                    <th className="py-2.5 px-3">Country</th>
-                    <th className="py-2.5 px-3">Ownership</th>
-                    <th className="py-2.5 px-3 font-mono text-right">Revenue</th>
-                    <th className="py-2.5 px-3 font-mono text-right">Net Income</th>
-                    <th className="py-2.5 px-3 text-right">Consolidation</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {[
-                    { name: workspace.name || 'Parent Entity', country: 'Primary Jurisdiction', own: '100% Parent', rev: '€28,400M', net: '€3,120M', status: 'Full Consolidation' },
-                    { name: `${workspace.name || 'Client'} Europe B.V.`, country: 'Netherlands', own: '100% Sub', rev: '€18,200M', net: '€2,010M', status: 'Full Consolidation' },
-                    { name: `${workspace.name || 'Client'} Americas Inc.`, country: 'United States', own: '100% Sub', rev: '€13,000M', net: '€1,360M', status: 'Full Consolidation' }
-                  ].map((e, i) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-3 font-bold text-slate-900">{e.name}</td>
-                      <td className="py-2.5 px-3 text-slate-600">{e.country}</td>
-                      <td className="py-2.5 px-3 text-slate-500 font-mono">{e.own}</td>
-                      <td className="py-2.5 px-3 font-mono text-right font-black text-slate-900">{e.rev}</td>
-                      <td className="py-2.5 px-3 font-mono text-right text-emerald-600">{e.net}</td>
-                      <td className="py-2.5 px-3 text-right"><span className="px-2 py-0.5 rounded bg-blue-100 text-blue-900 font-bold">{e.status}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="py-12 text-center text-slate-500 text-xs space-y-2">
+              <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-bold">not extracted</p>
+              <p className="text-slate-400">Subsidiary revenue is not invented. Upload group statements to populate this table.</p>
             </div>
           </div>
         )}
@@ -1183,33 +1159,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
         {subTab === 'currencies' && (
           <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-4">
             <h2 className="text-base font-black text-slate-900">Foreign Exchange Rates & Translation Matrix</h2>
-            <div className="overflow-x-auto text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="text-[10px] font-black text-slate-400 uppercase border-b border-slate-200 bg-slate-50">
-                    <th className="py-2.5 px-3">Orig Currency</th>
-                    <th className="py-2.5 px-3">Reporting Currency</th>
-                    <th className="py-2.5 px-3 font-mono text-right">FX Rate</th>
-                    <th className="py-2.5 px-3">Rate Date</th>
-                    <th className="py-2.5 px-3 font-mono text-right">FX Gain/Loss</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {[
-                    { orig: 'USD ($)', rep: 'EUR (€)', rate: '0.9214', date: '2025-06-07', gain: '+€180M' },
-                    { orig: 'GBP (£)', rep: 'EUR (€)', rate: '1.1782', date: '2025-06-07', gain: '+€42M' },
-                    { orig: 'JPY (¥)', rep: 'EUR (€)', rate: '0.0059', date: '2025-06-07', gain: '-€12M' }
-                  ].map((c, i) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-3 font-bold text-slate-900">{c.orig}</td>
-                      <td className="py-2.5 px-3 text-slate-600">{c.rep}</td>
-                      <td className="py-2.5 px-3 font-mono text-right font-black text-slate-900">{c.rate}</td>
-                      <td className="py-2.5 px-3 text-slate-500 font-mono">{c.date}</td>
-                      <td className="py-2.5 px-3 font-mono text-right font-bold text-emerald-600">{c.gain}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="py-12 text-center text-slate-500 text-xs space-y-2">
+              <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-bold">not extracted</p>
+              <p className="text-slate-400">FX rates and translation gains are not invented.</p>
             </div>
           </div>
         )}
@@ -1253,15 +1206,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
                 <p className="text-slate-400">Please upload historical records to generate future predictive models.</p>
               </div>
             ) : (
-              <>
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap gap-4 text-xs font-bold">
-                  <button className="px-4 py-2 bg-blue-900 text-white rounded-xl shadow-2xs">Base Case</button>
-                </div>
-                <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl text-xs space-y-1">
-                  <span className="font-bold text-blue-950 block">AI Forecast Summary</span>
-                  <p className="text-slate-700">Projected next-period Revenue: <strong>{displayRevenue}</strong> with stabilized margins based on latest verified provenance artifacts.</p>
-                </div>
-              </>
+              <div className="py-12 text-center text-slate-500 text-xs space-y-2">
+                <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-bold">Forecasts are not extracted.</p>
+                <p className="text-slate-400">Current-period facts are not projected into a next-period figure.</p>
+              </div>
             )}
           </div>
         )}
@@ -1277,21 +1226,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
                 <p className="text-slate-400">Run document analysis to initialize bank statement matching logs.</p>
               </div>
             ) : (
-              <div className="space-y-3 text-xs">
-                {[
-                  { name: 'Trial Balance → Financial Statements', diff: `${currSymbol}0.00`, status: 'Balanced' },
-                  { name: 'Bank Account Statements → General Ledger Cash', diff: `${currSymbol}0.00`, status: 'Balanced' },
-                ].map((r, i) => (
-                  <div key={i} className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
-                    <div>
-                      <span className="font-bold text-slate-900 block">{r.name}</span>
-                      <span className="text-[10px] text-slate-400">Variance: {r.diff}</span>
-                    </div>
-                    <span className="px-3 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
-                      ✓ {r.status}
-                    </span>
-                  </div>
-                ))}
+              <div className="py-12 text-center text-slate-500 text-xs space-y-2">
+                <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-bold">not extracted</p>
+                <p className="text-slate-400">Bank-to-GL reconciliation is not marked balanced unless extracted from source.</p>
               </div>
             )}
           </div>
@@ -1299,17 +1237,27 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
 
         {/* ---------------- SUB-TAB 15: SOURCE MAPPING ---------------- */}
         {subTab === 'source_mapping' && (() => {
-          const dynamicSourceMappings = hasFacts ? [
-            { metric: 'Revenue', val: displayRevenue, doc: documents[0]?.originalName || 'financial_statement.pdf', page: '—', sheet: 'Income Statement', cell: '—', conf: '99.8%', consensus: '3/3 Unanimous' },
-            { metric: 'Net Income', val: displayNetIncome, doc: documents[0]?.originalName || 'financial_statement.pdf', page: '—', sheet: 'Income Statement', cell: '—', conf: '99.7%', consensus: '3/3 Unanimous' },
-            { metric: 'Total Assets', val: summary?.assets && summary.assets !== '—' ? `${currSymbol}${summary.assets}` : '—', doc: documents[0]?.originalName || 'financial_statement.pdf', page: '—', sheet: 'Balance Sheet', cell: '—', conf: '99.9%', consensus: '3/3 Unanimous' },
-          ].filter(item => item.val !== '—') : [];
+          const dynamicSourceMappings = facts.filter(f => f.id && f.sourceText).map((f) => {
+            const badge = VerificationStateMachine.getDashboardPresentation(f);
+            const doc = documents.find(d => d.id === f.documentId);
+            return {
+              fact: f,
+              metric: f.labelNormalized || f.labelOriginal,
+              val: f.valueOriginal || String(f.valueFunctional),
+              doc: doc?.originalName || doc?.filename || '—',
+              page: f.pageNumber ? String(f.pageNumber) : '—',
+              sheet: f.tableName || '—',
+              cell: f.provenance?.cellRange || '—',
+              conf: badge.displayState,
+              consensus: '—'
+            };
+          });
 
           return (
             <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-4">
               <div className="border-b border-slate-100 pb-3">
                 <h2 className="text-base font-black text-slate-900">Source Mapping & Provenance Registry</h2>
-                <p className="text-xs text-slate-500">Trace every financial figure to its underlying document, sheet, cell, and Hermes AI node consensus.</p>
+                <p className="text-xs text-slate-500">Trace every financial figure to its document, page, and verbatim snippet. Consensus scores are not invented.</p>
               </div>
 
               {!hasFacts || dynamicSourceMappings.length === 0 ? (
@@ -1321,7 +1269,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({
               ) : (
                 <div className="space-y-3 text-xs">
                   {dynamicSourceMappings.map((item, idx) => (
-                    <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 hover:border-blue-300 transition cursor-pointer" onClick={() => openTrace(item.metric, item.val)}>
+                    <div key={item.fact.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 hover:border-blue-300 transition cursor-pointer" onClick={() => openTrace(item.fact)}>
                       <div className="flex justify-between items-center">
                         <span className="font-black text-slate-900 text-sm">{item.metric}</span>
                         <span className="font-mono font-black text-blue-900 text-base">{item.val}</span>

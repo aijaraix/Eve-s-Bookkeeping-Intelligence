@@ -83,9 +83,9 @@ export class FactRegistry {
       currency: fact.functionalCurrency || fact.currencyOriginal || "USD",
       unit_scale: fact.unitScale || 'Units',
       reporting_period: fact.reportingPeriod || fact.periodEnd || "FY 2026",
-      extraction_method: fact.extractionMethod || "SWARM_CONSENSUS",
-      confidence: fact.confidence || 0.95,
-      validation_status: fact.status === 'APPROVED' || fact.status === 'approved' ? 'VALIDATED' : fact.status === 'DISCREPANCY' ? 'DISPUTED' : 'EXTRACTED',
+      extraction_method: fact.extractionMethod || "UNSPECIFIED",
+      confidence: typeof fact.confidence === "number" ? fact.confidence : 0,
+      validation_status: fact.status === 'APPROVED' || fact.status === 'approved' ? 'VALIDATED' : fact.status === 'DISCREPANCY' ? 'DISPUTED' : fact.status === 'pending_review' || fact.status === 'PROPOSED' ? 'DETECTED' : 'EXTRACTED',
       validator_notes: fact.verificationNotes,
       created_at: new Date().toISOString()
     };

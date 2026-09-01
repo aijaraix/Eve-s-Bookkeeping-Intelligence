@@ -109,17 +109,33 @@ export class ReportingEngine {
       }
     }
 
-    // Determine eligibility status
-    let eligibilityStatus: ReportingEligibilityStatus = "REPORT_READY";
+    // Fail closed: never default to REPORT_READY
+    let eligibilityStatus: ReportingEligibilityStatus = "INSUFFICIENT_EVIDENCE";
+
+    const statusUpper = String(fact.status || "").toUpperCase();
+    const verUpper = String(fact.verificationStatus || "").toUpperCase();
 
     if (fact.status === "REJECTED" || fact.verificationStatus === "REJECTED" || evidenceRef.reviewStatus === "REJECTED") {
       eligibilityStatus = "REJECTED";
-    } else if (fact.status === "UNVERIFIED" || fact.verificationStatus === "UNVERIFIED" || context?.reviewItem?.status === "REVIEW_REQUIRED" || evidenceRef.reviewStatus === "REVIEW_REQUIRED") {
+    } else if (
+      statusUpper === "UNVERIFIED" ||
+      statusUpper === "PENDING_REVIEW" ||
+      statusUpper === "PROPOSED" ||
+      verUpper === "UNVERIFIED" ||
+      verUpper === "PROPOSED" ||
+      verUpper === "REVIEW_REQUIRED" ||
+      context?.reviewItem?.status === "REVIEW_REQUIRED" ||
+      evidenceRef.reviewStatus === "REVIEW_REQUIRED"
+    ) {
       eligibilityStatus = "REVIEW_REQUIRED";
-    } else if (!evidenceRef.evidenceValid || warnings.some((w) => w.includes("Missing physical source page") || w.includes("does not exist in source document"))) {
+    } else if (!evidenceRef.evidenceValid || !fact.sourceText || pageNum == null || pageNum <= 0 || warnings.some((w) => w.includes("Missing physical source page") || w.includes("does not exist in source document"))) {
       eligibilityStatus = "INSUFFICIENT_EVIDENCE";
-    } else if (warnings.length > 0 || confidence.overallAggregateConfidence < 0.80) {
-      eligibilityStatus = "REPORT_WITH_WARNING";
+    } else if (statusUpper === "APPROVED" || statusUpper === "VALIDATED" || statusUpper === "VERIFIED" || verUpper === "APPROVED" || verUpper === "VALIDATED" || verUpper === "VERIFIED") {
+      if (warnings.length > 0 || confidence.overallAggregateConfidence < 0.80) {
+        eligibilityStatus = "REPORT_WITH_WARNING";
+      } else {
+        eligibilityStatus = "REPORT_READY";
+      }
     }
 
     return {
@@ -196,6 +212,11 @@ export class ReportingEngine {
       return { fact, gate };
     });
 
+    const reportReadyFacts = gatedFacts.filter(({ gate }) => gate.eligibilityStatus === "REPORT_READY");
+    if (reportReadyFacts.length === 0) {
+      throw new Error("REFUSED: No REPORT_READY facts in db.facts. Empty or unconfirmed extraction cannot generate a financial report.");
+    }
+
     // Check for rejected or unverified facts
     gatedFacts.forEach(({ fact, gate }) => {
       if (gate.eligibilityStatus === "REJECTED") {
@@ -230,12 +251,13 @@ export class ReportingEngine {
 
     // Filter to valid non-rejected facts for current period
     const currentPeriodGated = gatedFacts.filter(({ fact, gate }) => {
-      if (gate.eligibilityStatus === "REJECTED") return false;
+      if (gate.eligibilityStatus !== "REPORT_READY") return false;
+      if (!fact.reportingPeriod && !fact.fiscalYear) return true;
       const periodMatches =
         fact.reportingPeriod === params.reportingPeriod ||
         fact.fiscalYear === params.reportingPeriod ||
-        (params.reportingPeriod.includes(fact.fiscalYear || "") && fact.fiscalYear);
-      return periodMatches;
+        (params.reportingPeriod && fact.fiscalYear && params.reportingPeriod.includes(fact.fiscalYear));
+      return Boolean(periodMatches) || !params.reportingPeriod;
     });
 
     // Separate facts for comparative period if specified
