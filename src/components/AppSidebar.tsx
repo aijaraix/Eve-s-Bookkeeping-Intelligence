@@ -51,7 +51,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   userSession
 }) => {
   const [isFinancialsOpen, setIsFinancialsOpen] = useState(true);
-  const { companies, documents, queueJobs } = usePractice();
+  const { companies, documents, queueJobs, projects } = usePractice();
   const processed = documents.filter((d) => /complete|parsed|done/i.test(d.status || '')).length;
   const processing = queueJobs.filter((j) => j.status === 'PROCESSING' || j.status === 'QUEUED').length;
 
@@ -133,7 +133,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               </div>
               {!isCollapsed && (
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-blue-900/60 text-blue-300 border border-blue-700/50">
-                  3
+                  {projects.length}
                 </span>
               )}
             </button>
