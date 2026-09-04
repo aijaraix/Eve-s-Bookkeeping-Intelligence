@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import multer from "multer";
 import crypto from "crypto";
 import fs from "fs";
@@ -4936,8 +4935,12 @@ async function startServer() {
   const apiOnly = process.env.API_ONLY === "true";
 
   if (!apiOnly && process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

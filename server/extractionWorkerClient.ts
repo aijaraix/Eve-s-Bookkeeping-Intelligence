@@ -24,7 +24,7 @@ export class ExtractionWorkerClient {
 
   constructor() {
     this.workerUrl = (process.env.EXTRACTION_WORKER_URL || "https://eves-worker.zeabur.app").trim().replace(/\/$/, "");
-    this.workerSecret = (process.env.EXTRACTION_WORKER_SECRET || "Ex7otaSIe38VuUpkGJjT9024CKyBQ165").trim();
+    this.workerSecret = (process.env.EXTRACTION_WORKER_SECRET || "").trim();
   }
 
   public isRemoteWorkerConfigured(): boolean {
