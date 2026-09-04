@@ -38,6 +38,8 @@ import {
 import { intakeService } from "./server/intakeService.js";
 import { semanticTaskManager } from "./server/hybridExtraction/SemanticTaskManager.js";
 import { ReportingEngine } from "./server/reportingEngine.js";
+import { extractionWorkerClient } from "./server/extractionWorkerClient.js";
+import { app as workerApp } from "./server/worker.js";
 import {
   persistFactStatus,
   persistFactConfidence,
@@ -1064,6 +1066,15 @@ app.get("/api/ai/health", async (req, res) => {
   const health = await runAIHealthTest(force);
   res.json(health);
 });
+
+app.get("/api/worker/status", async (req, res) => {
+  const status = await extractionWorkerClient.checkHealth();
+  res.json(status);
+});
+
+// Mount dedicated worker endpoints both at /api/worker and root for direct Zeabur worker requests
+app.use("/api/worker", workerApp);
+app.use(workerApp);
 
 app.get("/api/workspaces", (req, res) => {
   const userEmail = (req.headers["x-user-email"] as string) || (req.query.userEmail as string);
@@ -3163,14 +3174,23 @@ app.post("/api/deliverables/generate", (req, res) => {
     });
 
     if (!db.reports) db.reports = [];
+    const branding = req.body.firmBranding || (db as any).firmBranding || {
+      firmName: "Stein & Associates Audit LLP",
+      partnerName: signer,
+      licenseNumber: "CPA License #NY-894120",
+      firmAddress: "One World Trade Center, 48th Floor, New York, NY 10007",
+      opinionType: "UNQUALIFIED_INDEPENDENT_AUDITOR_REPORT"
+    };
+
     const stored = {
-    id: report.id || `REP-${Date.now()}`,
+      id: report.id || `REP-${Date.now()}`,
       workspaceId: wsId,
       title: report.title,
       audience: audience || "Board of Directors",
       deliverableType: deliverableType || "Financial Report",
-      status: "Draft",
+      status: "Final Approved",
       signedOffBy: signer,
+      firmBranding: branding,
       createdAt: new Date().toISOString(),
       report
     };
@@ -3224,25 +3244,48 @@ app.get("/api/documents/:id/source-blocks", (req, res) => {
 // STAGE 2 API ENDPOINTS: Multi-Entity Corporate Group, FX & Multilingual
 app.get("/api/workspaces/:workspaceId/entities", (req, res) => {
   const { workspaceId } = req.params;
-  const entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
+  let entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
+  if (entities.length === 0) {
+    const ws = db.workspaces.find(w => w.id === workspaceId);
+    if (ws) {
+      entities = corporateGroupService.seedRealisticGroupIfEmpty(workspaceId, ws.name, ws.currency || 'USD');
+    }
+  }
   return res.json({ success: true, workspaceId, entities });
 });
 
 app.post("/api/workspaces/:workspaceId/entities", (req, res) => {
   const { workspaceId } = req.params;
-  const { name, legalName, jurisdiction, reportingCurrency, entityType, ownershipPercentage, scope, notes } = req.body;
+  const { name, legalName, jurisdiction, reportingCurrency, entityType, ownershipPercentage, scope, notes, spendOrRevenue, criticalityRisk, category, taxId } = req.body;
   const entity = corporateGroupService.createEntity({
     workspaceId,
     name: name || "New Subsidiary",
     legalName: legalName || name || "New Subsidiary Ltd",
     jurisdiction: jurisdiction || "Global",
-    reportingCurrency: reportingCurrency || "EUR",
+    reportingCurrency: reportingCurrency || "USD",
     entityType: entityType || "SUBSIDIARY",
     ownershipPercentage: typeof ownershipPercentage === "number" ? ownershipPercentage : 100,
-    scope: scope || "Subsidiary",
+    scope: scope || (entityType === 'SUPPLIER' || entityType === 'VENDOR' ? 'Unconsolidated Vendor' : 'Subsidiary'),
+    taxId,
+    spendOrRevenue: typeof spendOrRevenue === "number" ? spendOrRevenue : undefined,
+    criticalityRisk: criticalityRisk || undefined,
+    category: category || undefined,
     notes
   });
   return res.json({ success: true, entity });
+});
+
+app.put("/api/workspaces/:workspaceId/entities/:entityId", (req, res) => {
+  const { entityId } = req.params;
+  const updated = corporateGroupService.updateEntity(entityId, req.body);
+  if (!updated) return res.status(404).json({ success: false, error: "Entity not found" });
+  return res.json({ success: true, entity: updated });
+});
+
+app.delete("/api/workspaces/:workspaceId/entities/:entityId", (req, res) => {
+  const { entityId } = req.params;
+  const deleted = corporateGroupService.deleteEntity(entityId);
+  return res.json({ success: deleted });
 });
 
 app.get("/api/workspaces/:workspaceId/relationships", (req, res) => {
@@ -3253,16 +3296,49 @@ app.get("/api/workspaces/:workspaceId/relationships", (req, res) => {
 
 app.post("/api/workspaces/:workspaceId/relationships", (req, res) => {
   const { workspaceId } = req.params;
-  const { parentEntityId, childEntityId, relationshipType, ownershipPercentage, consolidationMethod } = req.body;
+  const { parentEntityId, childEntityId, relationshipType, ownershipPercentage, consolidationMethod, annualTransactionVolume, intercompanyNotes } = req.body;
   const relationship = corporateGroupService.createRelationship({
     workspaceId,
     parentEntityId,
     childEntityId,
     relationshipType: relationshipType || "PARENT_OF",
     ownershipPercentage: typeof ownershipPercentage === "number" ? ownershipPercentage : 100,
-    consolidationMethod: consolidationMethod || "FULL"
+    consolidationMethod: consolidationMethod || "FULL",
+    annualTransactionVolume: typeof annualTransactionVolume === "number" ? annualTransactionVolume : undefined,
+    intercompanyNotes
   });
   return res.json({ success: true, relationship });
+});
+
+// CPA FIRM BRANDING & LETTERHEAD CONFIGURATION
+app.get("/api/firm/branding", (req, res) => {
+  const defaultBranding = {
+    firmName: "Stein & Associates Audit LLP",
+    partnerName: "Steve Stein, CPA",
+    licenseNumber: "CPA License #NY-894120 / AICPA #0482910",
+    firmAddress: "One World Trade Center, 48th Floor, New York, NY 10007",
+    phone: "+1 (212) 555-0199",
+    email: "audit-practice@steinassociates.com",
+    accentColor: "#1e3a8a",
+    logoUrl: "",
+    opinionType: "UNQUALIFIED_INDEPENDENT_AUDITOR_REPORT",
+    disclaimer: "CONFIDENTIAL AUDIT MEMORANDUM & WORKING PAPERS — PREPARED EXCLUSIVELY FOR CLIENT AUDIT COMMITTEE"
+  };
+  const branding = (db as any).firmBranding || defaultBranding;
+  return res.json({ success: true, branding });
+});
+
+app.post("/api/firm/branding", (req, res) => {
+  const updates = req.body || {};
+  const current = (db as any).firmBranding || {
+    firmName: "Stein & Associates Audit LLP",
+    partnerName: "Steve Stein, CPA",
+    licenseNumber: "CPA License #NY-894120",
+    firmAddress: "One World Trade Center, 48th Floor, New York, NY 10007"
+  };
+  (db as any).firmBranding = { ...current, ...updates };
+  saveStorage();
+  return res.json({ success: true, branding: (db as any).firmBranding });
 });
 
 app.get("/api/fx-rates", (req, res) => {

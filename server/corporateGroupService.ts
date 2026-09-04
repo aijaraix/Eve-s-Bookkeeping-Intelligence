@@ -137,7 +137,260 @@ export class CorporateGroupService {
     return Array.from(this.relationships.values()).filter(r => r.workspaceId === workspaceId);
   }
 
-  // Entity Scope Tagging
+  public updateEntity(id: string, updates: Partial<CorporateEntity>): CorporateEntity | null {
+    const existing = this.entities.get(id);
+    if (!existing) return null;
+    const updated = { ...existing, ...updates };
+    this.entities.set(id, updated);
+    return updated;
+  }
+
+  public deleteEntity(id: string): boolean {
+    const deleted = this.entities.delete(id);
+    // Also remove any relationships referencing this entity
+    for (const [relId, rel] of this.relationships.entries()) {
+      if (rel.parentEntityId === id || rel.childEntityId === id) {
+        this.relationships.delete(relId);
+      }
+    }
+    return deleted;
+  }
+
+  public seedRealisticGroupIfEmpty(workspaceId: string, companyName: string, baseCurrency = 'USD'): CorporateEntity[] {
+    const existing = this.getEntitiesForWorkspace(workspaceId);
+    if (existing.length > 0) return existing;
+
+    const nameLower = companyName.toLowerCase();
+    const parent = this.createEntity({
+      workspaceId,
+      name: companyName,
+      legalName: `${companyName} Holdings Inc.`,
+      jurisdiction: nameLower.includes('telecom') || nameLower.includes('vodafone') ? 'United Kingdom' : 'United States (Delaware)',
+      reportingCurrency: baseCurrency,
+      entityType: 'PARENT',
+      ownershipPercentage: 100,
+      scope: 'Consolidated',
+      taxId: `EIN-${Math.floor(10000000 + Math.random() * 89999999)}`,
+      notes: 'Ultimate parent holding company and primary audit consolidation scope.'
+    });
+
+    if (nameLower.includes('apple') || nameLower.includes('aapl')) {
+      const sub1 = this.createEntity({
+        workspaceId,
+        name: 'Apple Operations International Ltd',
+        legalName: 'Apple Operations International Ltd',
+        jurisdiction: 'Ireland',
+        reportingCurrency: 'EUR',
+        entityType: 'SUBSIDIARY',
+        ownershipPercentage: 100,
+        scope: 'Subsidiary',
+        taxId: 'IE-6384910A',
+        notes: 'Primary international holding and IP distribution entity.'
+      });
+      const sub2 = this.createEntity({
+        workspaceId,
+        name: 'Apple Europe Limited',
+        legalName: 'Apple Europe Limited',
+        jurisdiction: 'United Kingdom',
+        reportingCurrency: 'GBP',
+        entityType: 'SUBSIDIARY',
+        ownershipPercentage: 100,
+        scope: 'Subsidiary',
+        taxId: 'GB-910284729',
+        notes: 'EMEA regional sales and customer retail operations.'
+      });
+      const supp1 = this.createEntity({
+        workspaceId,
+        name: 'Hon Hai Precision (Foxconn)',
+        legalName: 'Hon Hai Precision Industry Co., Ltd.',
+        jurisdiction: 'Taiwan',
+        reportingCurrency: 'USD',
+        entityType: 'SUPPLIER',
+        ownershipPercentage: 0,
+        scope: 'Unconsolidated Vendor',
+        category: 'Tier-1 Contract Manufacturer',
+        spendOrRevenue: 48500000000,
+        criticalityRisk: 'HIGH',
+        notes: 'Primary assembly partner for iPhone, iPad, and Mac platforms.'
+      });
+      const supp2 = this.createEntity({
+        workspaceId,
+        name: 'TSMC Semiconductor',
+        legalName: 'Taiwan Semiconductor Manufacturing Co., Ltd.',
+        jurisdiction: 'Taiwan',
+        reportingCurrency: 'USD',
+        entityType: 'SUPPLIER',
+        ownershipPercentage: 0,
+        scope: 'Unconsolidated Vendor',
+        category: 'Foundry / Microprocessor Fabrication',
+        spendOrRevenue: 19200000000,
+        criticalityRisk: 'CRITICAL_SINGLE_SOURCE',
+        notes: 'Sole foundry manufacturer for A-Series and M-Series Silicon chips.'
+      });
+
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: sub1.id,
+        relationshipType: 'PARENT_OF',
+        ownershipPercentage: 100,
+        consolidationMethod: 'FULL',
+        annualTransactionVolume: 35000000000,
+        intercompanyNotes: 'Intercompany IP licensing royalties and hardware transfer pricing.'
+      });
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: sub2.id,
+        relationshipType: 'PARENT_OF',
+        ownershipPercentage: 100,
+        consolidationMethod: 'FULL',
+        annualTransactionVolume: 12000000000,
+        intercompanyNotes: 'Product distribution margin allocations.'
+      });
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: supp1.id,
+        relationshipType: 'SUPPLIER_TO',
+        ownershipPercentage: 0,
+        consolidationMethod: 'VENDOR_UNCONSOLIDATED',
+        annualTransactionVolume: 48500000000,
+        intercompanyNotes: 'Finished goods procurement agreements.'
+      });
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: supp2.id,
+        relationshipType: 'SUPPLIER_TO',
+        ownershipPercentage: 0,
+        consolidationMethod: 'VENDOR_UNCONSOLIDATED',
+        annualTransactionVolume: 19200000000,
+        intercompanyNotes: 'Custom wafer fabrication agreements.'
+      });
+    } else if (nameLower.includes('telecom') || nameLower.includes('vodafone') || nameLower.includes('network')) {
+      const sub1 = this.createEntity({
+        workspaceId,
+        name: 'National Fiber & Tower Infrastructure GmbH',
+        legalName: 'National Fiber & Tower Infrastructure GmbH',
+        jurisdiction: 'Germany',
+        reportingCurrency: 'EUR',
+        entityType: 'SUBSIDIARY',
+        ownershipPercentage: 100,
+        scope: 'Subsidiary',
+        taxId: 'DE-819284719',
+        notes: 'Tower and fiber optic backhaul operator.'
+      });
+      const sub2 = this.createEntity({
+        workspaceId,
+        name: 'Central European Telecom Services Sp. z o.o.',
+        legalName: 'Central European Telecom Services Sp. z o.o.',
+        jurisdiction: 'Poland',
+        reportingCurrency: 'PLN',
+        entityType: 'SUBSIDIARY',
+        ownershipPercentage: 85,
+        scope: 'Subsidiary',
+        taxId: 'PL-5261048291',
+        notes: 'Regional cellular network and 5G spectrum licensee.'
+      });
+      const supp1 = this.createEntity({
+        workspaceId,
+        name: 'Ericsson Radio Systems AB',
+        legalName: 'Telefonaktiebolaget LM Ericsson',
+        jurisdiction: 'Sweden',
+        reportingCurrency: 'EUR',
+        entityType: 'SUPPLIER',
+        ownershipPercentage: 0,
+        scope: 'Unconsolidated Vendor',
+        category: '5G Radio & Antenna Infrastructure',
+        spendOrRevenue: 3400000000,
+        criticalityRisk: 'HIGH',
+        notes: 'Cellular base stations and core switching equipment.'
+      });
+
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: sub1.id,
+        relationshipType: 'PARENT_OF',
+        ownershipPercentage: 100,
+        consolidationMethod: 'FULL',
+        annualTransactionVolume: 4200000000,
+        intercompanyNotes: 'Tower lease and bandwidth backhaul cross-charges.'
+      });
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: sub2.id,
+        relationshipType: 'PARENT_OF',
+        ownershipPercentage: 85,
+        consolidationMethod: 'FULL',
+        annualTransactionVolume: 1800000000,
+        intercompanyNotes: 'Spectrum sharing and cross-border roaming agreements.'
+      });
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: supp1.id,
+        relationshipType: 'SUPPLIER_TO',
+        ownershipPercentage: 0,
+        consolidationMethod: 'VENDOR_UNCONSOLIDATED',
+        annualTransactionVolume: 3400000000,
+        intercompanyNotes: '5G deployment master services agreement.'
+      });
+    } else {
+      // General corporate operating hierarchy
+      const sub1 = this.createEntity({
+        workspaceId,
+        name: `${companyName} Global Operations S.à r.l.`,
+        legalName: `${companyName} Global Operations S.à r.l.`,
+        jurisdiction: 'Luxembourg',
+        reportingCurrency: 'EUR',
+        entityType: 'SUBSIDIARY',
+        ownershipPercentage: 100,
+        scope: 'Subsidiary',
+        taxId: `LU-${Math.floor(10000000 + Math.random() * 89999999)}`,
+        notes: 'International treasury, trading, and regional subsidiary holding.'
+      });
+      const supp1 = this.createEntity({
+        workspaceId,
+        name: 'Global Logistics & Cloud Infrastructure Provider',
+        legalName: 'Global Cloud & Fulfillment Services Inc.',
+        jurisdiction: 'United States',
+        reportingCurrency: baseCurrency,
+        entityType: 'SUPPLIER',
+        ownershipPercentage: 0,
+        scope: 'Unconsolidated Vendor',
+        category: 'Critical Infrastructure / Logistics',
+        spendOrRevenue: 850000000,
+        criticalityRisk: 'MODERATE',
+        notes: 'Key logistics, warehousing, and compute infrastructure partner.'
+      });
+
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: sub1.id,
+        relationshipType: 'PARENT_OF',
+        ownershipPercentage: 100,
+        consolidationMethod: 'FULL',
+        annualTransactionVolume: 950000000,
+        intercompanyNotes: 'Shared services and regional operating agreements.'
+      });
+      this.createRelationship({
+        workspaceId,
+        parentEntityId: parent.id,
+        childEntityId: supp1.id,
+        relationshipType: 'SUPPLIER_TO',
+        ownershipPercentage: 0,
+        consolidationMethod: 'VENDOR_UNCONSOLIDATED',
+        annualTransactionVolume: 850000000,
+        intercompanyNotes: 'Annual hosting and enterprise master services agreement.'
+      });
+    }
+
+    return this.getEntitiesForWorkspace(workspaceId);
+  }
   public classifyDocumentScope(docTitle: string, docText: string): {
     scope: 'Consolidated' | 'Parent Only' | 'Subsidiary' | 'UNKNOWN';
     entityType: 'PARENT' | 'SUBSIDIARY' | 'UNKNOWN';

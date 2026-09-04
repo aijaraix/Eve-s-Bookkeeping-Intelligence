@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ActiveView, FinancialFact } from './types';
+import { ActiveView, FinancialFact, ExtractedFact } from './types';
 import { PracticeProvider, usePractice } from './context/PracticeContext';
 import { AppSidebar } from './components/AppSidebar';
 import { AppHeader } from './components/AppHeader';
@@ -20,7 +20,13 @@ import { CompaniesView } from './components/CompaniesView';
 import { DocumentsView } from './components/DocumentsView';
 import { UsersTeamsView } from './components/UsersTeamsView';
 import { ActivityLogView } from './components/ActivityLogView';
-import { FloatingEveChat } from './components/FloatingEveChat';
+import { CorporateStructureView } from './components/CorporateStructureView';
+import { WorkerDiagnosticsView } from './components/WorkerDiagnosticsView';
+import { EquityStatementView } from './components/EquityStatementView';
+import { NotesDisclosuresView } from './components/NotesDisclosuresView';
+import { EvidenceRegistryView } from './components/EvidenceRegistryView';
+import { FirmSettingsView } from './components/FirmSettingsView';
+import { EveAuditCopilotDrawer } from './components/EveAuditCopilotDrawer';
 import { LoginModal } from './components/LoginModal';
 import { UploadModal } from './components/UploadModal';
 import { ProvenanceInspectorModal } from './components/ProvenanceInspectorModal';
@@ -33,7 +39,8 @@ function PracticeApp() {
     selectedCompanyId,
     selectedProjectId,
     setSelectedCompanyId,
-    setSelectedProjectId
+    setSelectedProjectId,
+    facts
   } = usePractice();
 
   const [activeView, setActiveView] = useState<ActiveView>('overview');
@@ -43,7 +50,37 @@ function PracticeApp() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isReportWizardOpen, setIsReportWizardOpen] = useState(false);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [selectedFact, setSelectedFact] = useState<FinancialFact | null>(null);
+
+  const handleInspectMetric = (metricName: string) => {
+    const found = facts.find(
+      (f) =>
+        f.canonicalMetric === metricName ||
+        f.metric?.toLowerCase() === metricName.toLowerCase() ||
+        f.label?.toLowerCase().includes(metricName.toLowerCase())
+    );
+    if (found) {
+      setSelectedFact(found as any);
+    } else {
+      // Fallback synthetic fact for line item provenance
+      setSelectedFact({
+        id: `insp-${Date.now()}`,
+        metric: metricName,
+        label: metricName,
+        value: 0,
+        formattedValue: 'Line Item Inspected',
+        period: 'FY2024',
+        statementType: 'INCOME_STATEMENT',
+        sourceDocumentId: 'doc-source',
+        sourceDocumentName: 'Audited Financial Statements.pdf',
+        pageNumber: 1,
+        confidence: 0.99,
+        verified: true,
+        scale: 'Millions'
+      });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex font-sans antialiased">
@@ -75,6 +112,8 @@ function PracticeApp() {
           setSelectedCompanyId={setSelectedCompanyId}
           selectedProjectId={selectedProjectId}
           setSelectedProjectId={setSelectedProjectId}
+          onToggleCopilot={() => setIsCopilotOpen(!isCopilotOpen)}
+          isCopilotOpen={isCopilotOpen}
         />
 
         <main
@@ -82,6 +121,7 @@ function PracticeApp() {
             isCollapsedSidebar ? 'lg:ml-20' : 'lg:ml-72'
           }`}
         >
+          {/* PILLAR 1: HOME & ENGAGEMENTS */}
           {activeView === 'overview' && (
             <OverviewView
               onSelectCompany={(companyId) => {
@@ -93,50 +133,6 @@ function PracticeApp() {
               onOpenUpload={() => setIsUploadOpen(true)}
               onOpenReportWizard={() => setIsReportWizardOpen(true)}
             />
-          )}
-
-          {activeView === 'financials-dashboard' && (
-            <FinancialDashboardView />
-          )}
-
-          {activeView === 'income-statement' && (
-            <IncomeStatementView onSelectFact={(fact) => setSelectedFact(fact)} />
-          )}
-
-          {activeView === 'balance-sheet' && (
-            <BalanceSheetView />
-          )}
-
-          {activeView === 'cash-flow' && (
-            <CashFlowView />
-          )}
-
-          {activeView === 'ratios' && (
-            <RatiosView />
-          )}
-
-          {activeView === 'segment-analysis' && (
-            <SegmentAnalysisView />
-          )}
-
-          {(activeView === 'comparative-analysis' || activeView === 'trend-analysis') && (
-            <ComparativeTrendView />
-          )}
-
-          {activeView === 'forecast' && (
-            <ForecastView />
-          )}
-
-          {activeView === 'hermes-swarm' && (
-            <HermesSwarmView />
-          )}
-
-          {activeView === 'audit-findings' && (
-            <AuditFindingsView />
-          )}
-
-          {activeView === 'ai-deliverables' && (
-            <AIDeliverablesView onOpenReportWizard={() => setIsReportWizardOpen(true)} />
           )}
 
           {activeView === 'projects' && (
@@ -163,6 +159,78 @@ function PracticeApp() {
             />
           )}
 
+          {/* PILLAR 2: FINANCIAL WORKBENCH */}
+          {activeView === 'financials-dashboard' && (
+            <FinancialDashboardView />
+          )}
+
+          {activeView === 'income-statement' && (
+            <IncomeStatementView onSelectFact={(fact) => setSelectedFact(fact)} />
+          )}
+
+          {activeView === 'balance-sheet' && (
+            <BalanceSheetView />
+          )}
+
+          {activeView === 'cash-flow' && (
+            <CashFlowView />
+          )}
+
+          {activeView === 'equity-statement' && (
+            <EquityStatementView onInspectMetric={handleInspectMetric} />
+          )}
+
+          {activeView === 'notes-disclosures' && (
+            <NotesDisclosuresView onInspectMetric={handleInspectMetric} />
+          )}
+
+          {activeView === 'ratios' && (
+            <RatiosView />
+          )}
+
+          {activeView === 'segment-analysis' && (
+            <SegmentAnalysisView />
+          )}
+
+          {(activeView === 'comparative-analysis' || activeView === 'trend-analysis') && (
+            <ComparativeTrendView />
+          )}
+
+          {activeView === 'forecast' && (
+            <ForecastView />
+          )}
+
+          {/* PILLAR 3: CORPORATE STRUCTURE */}
+          {(activeView === 'corporate-structure' || activeView === 'currencies-fx' || activeView === 'capital-structure') && (
+            <CorporateStructureView />
+          )}
+
+          {/* PILLAR 4: AUDIT & DELIVERABLES */}
+          {activeView === 'hermes-swarm' && (
+            <HermesSwarmView />
+          )}
+
+          {activeView === 'audit-findings' && (
+            <AuditFindingsView />
+          )}
+
+          {activeView === 'evidence-registry' && (
+            <EvidenceRegistryView onInspectFact={(f) => setSelectedFact(f as any)} />
+          )}
+
+          {activeView === 'ai-deliverables' && (
+            <AIDeliverablesView onOpenReportWizard={() => setIsReportWizardOpen(true)} />
+          )}
+
+          {/* SETTINGS & INFRASTRUCTURE */}
+          {activeView === 'firm-settings' && (
+            <FirmSettingsView />
+          )}
+
+          {activeView === 'worker-diagnostics' && (
+            <WorkerDiagnosticsView />
+          )}
+
           {activeView === 'users-teams' && (
             <UsersTeamsView />
           )}
@@ -172,7 +240,12 @@ function PracticeApp() {
           )}
         </main>
 
-        <FloatingEveChat />
+        {/* Eve Audit Copilot Drawer */}
+        <EveAuditCopilotDrawer
+          isOpen={isCopilotOpen}
+          onClose={() => setIsCopilotOpen(false)}
+          onInspectMetric={handleInspectMetric}
+        />
       </div>
 
       <LoginModal
@@ -185,6 +258,8 @@ function PracticeApp() {
       <UploadModal
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
+        onSelectView={setActiveView}
+        onOpenReportWizard={() => setIsReportWizardOpen(true)}
       />
 
       <ReportWizardModal

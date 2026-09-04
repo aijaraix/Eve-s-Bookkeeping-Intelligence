@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { executeSwarmPipeline } from "./swarm/SwarmOrchestrator.js";
 import { hybridExtractionOrchestrator } from "./hybridExtraction/HybridExtractionOrchestrator.js";
+import { executeWorkerExtraction, WorkerJob } from "./worker.js";
 import { LLM_CONFIG, getGeminiDiagnosticStatus } from "./llmGateway.js";
 import { intakeService } from "./intakeService.js";
 import { assertRealDocumentHash } from "./failClosedGuards.js";
@@ -763,136 +764,187 @@ export class BackgroundIngestionQueue {
       const allAuditLogs: AuditTrailRecord[] = [];
       let totalExecutionMs = 0;
 
-      // Use Configured Page Concurrency (default: 3)
-      const PAGE_CONCURRENCY = LLM_CONFIG.PAGE_CONCURRENCY;
+      // Fast-Path: If physical file is available on disk, leverage deterministic worker extraction
+      if (queuedJob.filePath && fs.existsSync(queuedJob.filePath)) {
+        try {
+          const t0 = Date.now();
+          console.log(`[Hermes Queue ${queuedJob.id}] Executing deterministic worker extraction on ${queuedJob.filePath}...`);
+          const workerJob: WorkerJob = {
+            jobId: queuedJob.id,
+            workspaceId: queuedJob.workspaceId,
+            documentId: queuedJob.documentId,
+            documentTitle: queuedJob.documentTitle,
+            filePath: queuedJob.filePath,
+            fileSize: fs.statSync(queuedJob.filePath).size,
+            functionalCurrency: queuedJob.functionalCurrency || "USD",
+            status: "PROCESSING",
+            currentStage: "Running deterministic worker extraction...",
+            progress: 50,
+            counters: {
+              physicalPages: queuedJob.pagesTotal || 1,
+              tablesParsed: 0,
+              statementsIdentified: 0,
+              statementsProcessed: 0,
+              factsNormalized: 0,
+              evidenceConfirmed: 0,
+              accountingGatesPassed: 0
+            },
+            results: {},
+            createdAt: queuedJob.createdAt
+          };
 
-      // Filter remaining unprocessed units
-      const uncompletedUnits = queuedJob.processingUnits.filter(u =>
-        u.status === "QUEUED" || u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING"
-      );
+          await executeWorkerExtraction(workerJob);
 
-      for (let i = 0; i < queuedJob.processingUnits.length; i += PAGE_CONCURRENCY) {
-        if ((queuedJob.status as string) === "STALLED") {
-          console.warn(`[Hermes Queue ${queuedJob.id}] Job was marked STALLED during batch execution. Aborting loop.`);
-          this.isProcessingQueue = false;
-          return;
+          if (workerJob.results.facts && workerJob.results.facts.length > 0) {
+            allUnitFacts.push(...workerJob.results.facts);
+            if (workerJob.results.discrepancies) allDiscrepancies.push(...workerJob.results.discrepancies);
+            queuedJob.unitsCompleted = queuedJob.unitsTotal;
+            queuedJob.pagesCompleted = queuedJob.pagesTotal;
+            queuedJob.tasksCompleted = queuedJob.tasksTotal;
+            queuedJob.processingUnits.forEach(u => {
+              u.status = "COMPLETED";
+              u.completed_at = new Date().toISOString();
+            });
+            totalExecutionMs += (Date.now() - t0);
+            console.log(`[Hermes Queue ${queuedJob.id}] Worker extraction extracted ${workerJob.results.facts.length} facts in ${Date.now() - t0}ms`);
+          }
+        } catch (workerErr: any) {
+          console.warn(`[Hermes Queue ${queuedJob.id}] Worker extraction fallback: ${workerErr.message}`);
         }
+      }
 
-        const batch = queuedJob.processingUnits.slice(i, i + PAGE_CONCURRENCY);
+      if (allUnitFacts.length === 0) {
+        // Use Configured Page Concurrency (default: 3)
+        const PAGE_CONCURRENCY = LLM_CONFIG.PAGE_CONCURRENCY;
 
-        await Promise.all(
-          batch.map(async (unit, batchIdx) => {
-            if ((queuedJob.status as string) === "STALLED") return;
-            const unitGlobalIdx = i + batchIdx;
-            if (
-              unit.status === "COMPLETED" ||
-              unit.status === "COMPLETED_NO_FINANCIAL_FACTS" ||
-              unit.status === "COMPLETED_WITH_WARNINGS" ||
-              unit.status === "NO_TEXT" ||
-              unit.status === "FAILED_TERMINAL"
-            ) {
-              return;
-            }
+        // Filter remaining unprocessed units
+        const uncompletedUnits = queuedJob.processingUnits.filter(u =>
+          u.status === "QUEUED" || u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING"
+        );
 
-            if (!unit.textData || !unit.textData.trim()) {
-              unit.status = "NO_TEXT";
-              unit.completed_at = new Date().toISOString();
-              return;
-            }
+        for (let i = 0; i < queuedJob.processingUnits.length; i += PAGE_CONCURRENCY) {
+          if ((queuedJob.status as string) === "STALLED") {
+            console.warn(`[Hermes Queue ${queuedJob.id}] Job was marked STALLED during batch execution. Aborting loop.`);
+            this.isProcessingQueue = false;
+            return;
+          }
 
-            // Fast-Path Classification for non-numeric/narrative pages
-            const hasDigits = /\d/.test(unit.textData);
-            const hasMonetarySymbol = /(?:€|\$|£|CHF|JPY|zł|USD|EUR|GBP|million|billion|thousand|k|m|b|revenue|profit|asset|liability|equity|income|expense|cash|sales|tax)/i.test(unit.textData);
+          const batch = queuedJob.processingUnits.slice(i, i + PAGE_CONCURRENCY);
 
-            if (!hasDigits && !hasMonetarySymbol) {
-              unit.status = "COMPLETED_NO_FINANCIAL_FACTS";
-              unit.completed_at = new Date().toISOString();
-              return;
-            }
-
-            unit.status = "PROCESSING";
-            unit.started_at = new Date().toISOString();
-            unit.attempt_count += 1;
-
-            const pageStr = unit.actual_page_start === unit.actual_page_end
-              ? `Page ${unit.actual_page_start}`
-              : `Pages ${unit.actual_page_start}-${unit.actual_page_end}`;
-
-            // Heartbeat timer while processing
-            const unitHeartbeatTimer = setInterval(() => {
-              const nowStr = new Date().toISOString();
-              queuedJob.heartbeatAt = nowStr;
-              queuedJob.workerHeartbeatAt = nowStr;
-              queuedJob.updatedAt = nowStr;
-            }, 3000);
-
-            try {
-              // Active computation timeout (default: 300,000ms = 5 mins)
-              const unitTimeoutPromise = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Active computation timeout after ${LLM_CONFIG.UNIT_MAX_ACTIVE_TIME_MS}ms on ${pageStr}`)), LLM_CONFIG.UNIT_MAX_ACTIVE_TIME_MS)
-              );
-
-              const res = await Promise.race([
-                executeSwarmPipeline(
-                  workspaceId,
-                  documentId,
-                  `${documentTitle} [Unit ${unitGlobalIdx + 1}: p.${unit.actual_page_start}-${unit.actual_page_end}]`,
-                  unit.textData,
-                  functionalCurrency
-                ),
-                unitTimeoutPromise
-              ]);
-
-              // Idempotency: Tag facts with unit provenance & attempt ID
-              const taggedFacts = res.facts.map(f => ({
-                ...f,
-                sourceUnitId: unit.unit_id,
-                documentId,
-                pageNumber: unit.actual_page_start,
-                extractionAttemptId: String(unit.attempt_count)
-              }));
-
-              unit.status = "COMPLETED";
-              unit.completed_at = new Date().toISOString();
-              queuedJob.unitsCompleted += 1;
-
-              allUnitFacts.push(...taggedFacts);
-              allDiscrepancies.push(...res.discrepancies);
-              allAgentLogs.push(...res.agentLogs);
-              allAuditLogs.push(...res.auditLogs);
-              totalExecutionMs += res.totalExecutionTimeMs;
-            } catch (unitErr: any) {
-              if (unit.attempt_count >= 3) {
-                unit.status = "FAILED_TERMINAL";
-              } else {
-                unit.status = "FAILED";
+          await Promise.all(
+            batch.map(async (unit, batchIdx) => {
+              if ((queuedJob.status as string) === "STALLED") return;
+              const unitGlobalIdx = i + batchIdx;
+              if (
+                unit.status === "COMPLETED" ||
+                unit.status === "COMPLETED_NO_FINANCIAL_FACTS" ||
+                unit.status === "COMPLETED_WITH_WARNINGS" ||
+                unit.status === "NO_TEXT" ||
+                unit.status === "FAILED_TERMINAL"
+              ) {
+                return;
               }
-              unit.last_error = unitErr?.message || "Unit extraction failed";
-              console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed (${unitErr?.message}), advancing queue...`);
-            } finally {
-              clearInterval(unitHeartbeatTimer);
-            }
-          })
-        );
 
-        // Calculate progress monotonically from terminal unit states
-        const terminalUnits = queuedJob.processingUnits.filter(u =>
-          u.status === 'COMPLETED' || u.status === 'COMPLETED_NO_FINANCIAL_FACTS' || u.status === 'COMPLETED_WITH_WARNINGS' || u.status === 'NO_TEXT' || u.status === 'FAILED_TERMINAL'
-        ).length;
+              if (!unit.textData || !unit.textData.trim()) {
+                unit.status = "NO_TEXT";
+                unit.completed_at = new Date().toISOString();
+                return;
+              }
 
-        queuedJob.heartbeatAt = new Date().toISOString();
-        queuedJob.pagesCompleted = terminalUnits;
-        queuedJob.tasksCompleted = terminalUnits;
-        queuedJob.lastProgressAt = new Date().toISOString();
-        queuedJob.progress = Math.min(75, Math.round((terminalUnits / Math.max(1, queuedJob.pagesTotal)) * 75));
+              // Fast-Path Classification for non-numeric/narrative pages
+              const hasDigits = /\d/.test(unit.textData);
+              const hasMonetarySymbol = /(?:€|\$|£|CHF|JPY|zł|USD|EUR|GBP|million|billion|thousand|k|m|b|revenue|profit|asset|liability|equity|income|expense|cash|sales|tax)/i.test(unit.textData);
 
-        this.advanceJobStage(
-          queuedJob,
-          "PHYSICAL_EXTRACTION_IN_PROGRESS",
-          "IN_PROGRESS",
-          `Extracted physical pages ${queuedJob.pagesCompleted}/${queuedJob.pagesTotal}...`
-        );
-        this.saveQueueToDiskAsync();
+              if (!hasDigits && !hasMonetarySymbol) {
+                unit.status = "COMPLETED_NO_FINANCIAL_FACTS";
+                unit.completed_at = new Date().toISOString();
+                return;
+              }
+
+              unit.status = "PROCESSING";
+              unit.started_at = new Date().toISOString();
+              unit.attempt_count += 1;
+
+              const pageStr = unit.actual_page_start === unit.actual_page_end
+                ? `Page ${unit.actual_page_start}`
+                : `Pages ${unit.actual_page_start}-${unit.actual_page_end}`;
+
+              // Heartbeat timer while processing
+              const unitHeartbeatTimer = setInterval(() => {
+                const nowStr = new Date().toISOString();
+                queuedJob.heartbeatAt = nowStr;
+                queuedJob.workerHeartbeatAt = nowStr;
+                queuedJob.updatedAt = nowStr;
+              }, 3000);
+
+              try {
+                // Active computation timeout (default: 300,000ms = 5 mins)
+                const unitTimeoutPromise = new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`Active computation timeout after ${LLM_CONFIG.UNIT_MAX_ACTIVE_TIME_MS}ms on ${pageStr}`)), LLM_CONFIG.UNIT_MAX_ACTIVE_TIME_MS)
+                );
+
+                const res = await Promise.race([
+                  executeSwarmPipeline(
+                    workspaceId,
+                    documentId,
+                    `${documentTitle} [Unit ${unitGlobalIdx + 1}: p.${unit.actual_page_start}-${unit.actual_page_end}]`,
+                    unit.textData,
+                    functionalCurrency
+                  ),
+                  unitTimeoutPromise
+                ]);
+
+                // Idempotency: Tag facts with unit provenance & attempt ID
+                const taggedFacts = res.facts.map(f => ({
+                  ...f,
+                  sourceUnitId: unit.unit_id,
+                  documentId,
+                  pageNumber: unit.actual_page_start,
+                  extractionAttemptId: String(unit.attempt_count)
+                }));
+
+                unit.status = "COMPLETED";
+                unit.completed_at = new Date().toISOString();
+                queuedJob.unitsCompleted += 1;
+
+                allUnitFacts.push(...taggedFacts);
+                allDiscrepancies.push(...res.discrepancies);
+                allAgentLogs.push(...res.agentLogs);
+                allAuditLogs.push(...res.auditLogs);
+                totalExecutionMs += res.totalExecutionTimeMs;
+              } catch (unitErr: any) {
+                if (unit.attempt_count >= 3) {
+                  unit.status = "FAILED_TERMINAL";
+                } else {
+                  unit.status = "FAILED";
+                }
+                unit.last_error = unitErr?.message || "Unit extraction failed";
+                console.error(`[Hermes Queue ${queuedJob.id}] Unit ${unit.unit_id} failed (${unitErr?.message}), advancing queue...`);
+              } finally {
+                clearInterval(unitHeartbeatTimer);
+              }
+            })
+          );
+
+          // Calculate progress monotonically from terminal unit states
+          const terminalUnits = queuedJob.processingUnits.filter(u =>
+            u.status === 'COMPLETED' || u.status === 'COMPLETED_NO_FINANCIAL_FACTS' || u.status === 'COMPLETED_WITH_WARNINGS' || u.status === 'NO_TEXT' || u.status === 'FAILED_TERMINAL'
+          ).length;
+
+          queuedJob.heartbeatAt = new Date().toISOString();
+          queuedJob.pagesCompleted = terminalUnits;
+          queuedJob.tasksCompleted = terminalUnits;
+          queuedJob.lastProgressAt = new Date().toISOString();
+          queuedJob.progress = Math.min(75, Math.round((terminalUnits / Math.max(1, queuedJob.pagesTotal)) * 75));
+
+          this.advanceJobStage(
+            queuedJob,
+            "PHYSICAL_EXTRACTION_IN_PROGRESS",
+            "IN_PROGRESS",
+            `Extracted physical pages ${queuedJob.pagesCompleted}/${queuedJob.pagesTotal}...`
+          );
+          this.saveQueueToDiskAsync();
+        }
       }
 
       // Mark physical extraction stage complete

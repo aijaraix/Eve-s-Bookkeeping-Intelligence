@@ -71,7 +71,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({ onOpenUpload, onIn
                   <td className="py-3.5 px-6 text-center">{doc.status}</td>
                   <td className="py-3.5 px-6 text-right">
                     <button
-                      onClick={() => onInspectDocument?.(financialFacts.find((f) => f.provenance.documentId === doc.id))}
+                      onClick={() => onInspectDocument?.(financialFacts.find((f) => f.provenance?.documentId === doc.id))}
                       className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 cursor-pointer"
                     >
                       <Eye className="w-4 h-4" />

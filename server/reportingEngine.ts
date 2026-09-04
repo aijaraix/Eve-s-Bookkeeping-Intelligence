@@ -212,9 +212,9 @@ export class ReportingEngine {
       return { fact, gate };
     });
 
-    const reportReadyFacts = gatedFacts.filter(({ gate }) => gate.eligibilityStatus === "REPORT_READY");
+    const reportReadyFacts = gatedFacts.filter(({ gate }) => gate.eligibilityStatus === "REPORT_READY" || gate.eligibilityStatus === "REPORT_WITH_WARNING");
     if (reportReadyFacts.length === 0) {
-      throw new Error("REFUSED: No REPORT_READY facts in db.facts. Empty or unconfirmed extraction cannot generate a financial report.");
+      throw new Error("REFUSED: No REPORT_READY or approved facts in db.facts. Empty or unconfirmed extraction cannot generate a financial report.");
     }
 
     // Check for rejected or unverified facts

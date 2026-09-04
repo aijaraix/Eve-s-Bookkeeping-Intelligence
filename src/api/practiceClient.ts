@@ -200,6 +200,84 @@ export async function sendEveChat(message: string, workspaceId?: string, email?:
   }
 }
 
+export async function fetchEntities(workspaceId: string, email?: string): Promise<any[]> {
+  if (!workspaceId) return [];
+  try {
+    const res = await apiGet<{ success: boolean; entities: any[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/entities`, email);
+    return res.entities || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createEntity(workspaceId: string, entity: any, email?: string): Promise<any> {
+  return apiPost(`/api/workspaces/${encodeURIComponent(workspaceId)}/entities`, entity, email);
+}
+
+export async function updateEntity(workspaceId: string, entityId: string, entity: any, email?: string): Promise<any> {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/entities/${encodeURIComponent(entityId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...userHeaders(email) },
+    body: JSON.stringify(entity)
+  });
+  return res.json();
+}
+
+export async function deleteEntity(workspaceId: string, entityId: string, email?: string): Promise<boolean> {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/entities/${encodeURIComponent(entityId)}`, {
+    method: 'DELETE',
+    headers: userHeaders(email)
+  });
+  const json = await res.json().catch(() => ({}));
+  return Boolean(json.success);
+}
+
+export async function fetchRelationships(workspaceId: string, email?: string): Promise<any[]> {
+  if (!workspaceId) return [];
+  try {
+    const res = await apiGet<{ success: boolean; relationships: any[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/relationships`, email);
+    return res.relationships || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createRelationship(workspaceId: string, rel: any, email?: string): Promise<any> {
+  return apiPost(`/api/workspaces/${encodeURIComponent(workspaceId)}/relationships`, rel, email);
+}
+
+export async function fetchFxRates(email?: string): Promise<any[]> {
+  try {
+    const res = await apiGet<{ success: boolean; fxRates: any[] }>('/api/fx-rates', email);
+    return res.fxRates || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchFirmBranding(email?: string): Promise<any> {
+  try {
+    const res = await apiGet<{ success: boolean; branding: any }>('/api/firm/branding', email);
+    return res.branding;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveFirmBranding(branding: any, email?: string): Promise<any> {
+  return apiPost('/api/firm/branding', branding, email);
+}
+
+export async function fetchLeadSchedules(workspaceId: string, email?: string): Promise<any[]> {
+  if (!workspaceId) return [];
+  try {
+    const res = await apiGet<{ success: boolean; leadSchedules: any[] }>(`/api/deliverables/lead-schedules?workspaceId=${encodeURIComponent(workspaceId)}`, email);
+    return res.leadSchedules || [];
+  } catch {
+    return [];
+  }
+}
+
 export function dash(value?: string | number | null): string {
   if (value == null) return DASH;
   const s = String(value).trim();

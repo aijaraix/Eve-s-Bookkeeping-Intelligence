@@ -105,8 +105,20 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   <span className="font-bold text-slate-900">{proj.assignedLead}</span>
                 </div>
               </div>
-              <div className="pt-2 flex items-center justify-between text-xs">
-                <span className="text-[10px] text-slate-400">Started: {proj.startDate}</span>
+              <div className="pt-2 flex items-center justify-between text-xs border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectCompany?.(proj.companyId);
+                    onSelectProject?.(proj.id);
+                    onOpenUpload?.();
+                  }}
+                  className="text-[11px] font-bold text-slate-600 hover:text-blue-600 flex items-center gap-1 cursor-pointer bg-slate-100 hover:bg-blue-50 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  <Plus className="w-3 h-3 text-blue-600" />
+                  <span>Upload Files</span>
+                </button>
                 <span className="text-blue-600 font-bold flex items-center gap-1">
                   Open Workspace <ExternalLink className="w-3 h-3" />
                 </span>

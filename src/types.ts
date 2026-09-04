@@ -53,14 +53,23 @@ export type ActiveView =
   | 'income-statement'
   | 'balance-sheet'
   | 'cash-flow'
+  | 'equity-statement'
+  | 'notes-disclosures'
   | 'ratios'
   | 'segment-analysis'
   | 'comparative-analysis'
   | 'trend-analysis'
   | 'forecast'
+  | 'corporate-structure'
+  | 'currencies-fx'
+  | 'capital-structure'
   | 'hermes-swarm'
   | 'audit-findings'
+  | 'working-papers'
+  | 'evidence-registry'
   | 'ai-deliverables'
+  | 'firm-settings'
+  | 'worker-diagnostics'
   | 'users-teams'
   | 'activity-log';
 
@@ -88,17 +97,21 @@ export interface FinancialFact {
   label: string;
   value: number;
   formattedValue: string;
-  rawString: string;
-  currency: string;
+  rawString?: string;
+  currency?: string;
   period: string;
-  periodType: 'ANNUAL' | 'QUARTERLY' | 'TRAILING';
-  statementType: 'INCOME_STATEMENT' | 'BALANCE_SHEET' | 'CASH_FLOW' | 'NOTE_DISCLOSURE' | 'SEGMENT';
+  periodType?: 'ANNUAL' | 'QUARTERLY' | 'TRAILING';
+  statementType?: 'INCOME_STATEMENT' | 'BALANCE_SHEET' | 'CASH_FLOW' | 'NOTE_DISCLOSURE' | 'SEGMENT' | string;
   pageNumber: number;
   tableHeader?: string;
   scaleSource?: string;
+  scale?: string;
   confidence?: number;
-  status: 'VERIFIED' | 'REVIEW_REQUIRED' | 'RECONCILED' | 'CONFLICT';
-  provenance: {
+  status?: 'VERIFIED' | 'REVIEW_REQUIRED' | 'RECONCILED' | 'CONFLICT' | string;
+  verified?: boolean;
+  sourceDocumentId?: string;
+  sourceDocumentName?: string;
+  provenance?: {
     documentId: string;
     documentTitle: string;
     section: string;
@@ -329,6 +342,12 @@ export interface ExtractedFact {
   labelOriginal: string;
   raw_label?: string;
   labelNormalized: string;
+  metric?: string;
+  label?: string;
+  formattedValue?: string;
+  period?: string;
+  sourceDocumentName?: string;
+  evidenceStatus?: string;
   rowLabel?: string;
   source_row?: string;
   columnLabel?: string;
@@ -662,11 +681,14 @@ export interface CorporateEntity {
   legalName: string;
   jurisdiction: string;
   reportingCurrency: string;
-  entityType: 'PARENT' | 'SUBSIDIARY' | 'JOINT_VENTURE' | 'AFFILIATE' | 'OPERATING_UNIT';
+  entityType: 'PARENT' | 'SUBSIDIARY' | 'JOINT_VENTURE' | 'AFFILIATE' | 'OPERATING_UNIT' | 'SUPPLIER' | 'VENDOR';
   ownershipPercentage: number;
-  scope: 'Consolidated' | 'Parent Only' | 'Subsidiary';
+  scope: 'Consolidated' | 'Parent Only' | 'Subsidiary' | 'Unconsolidated Vendor';
   taxId?: string;
   notes?: string;
+  spendOrRevenue?: number;
+  criticalityRisk?: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL_SINGLE_SOURCE';
+  category?: string;
   createdAt: string;
 }
 
@@ -675,10 +697,26 @@ export interface EntityRelationship {
   workspaceId: string;
   parentEntityId: string;
   childEntityId: string;
-  relationshipType: 'PARENT_OF' | 'SUBSIDIARY_OF' | 'OWNS' | 'JOINT_VENTURE';
+  relationshipType: 'PARENT_OF' | 'SUBSIDIARY_OF' | 'OWNS' | 'JOINT_VENTURE' | 'SUPPLIER_TO';
   ownershipPercentage: number;
   effectiveDate?: string;
-  consolidationMethod: 'FULL' | 'EQUITY' | 'PROPORTIONAL' | 'NONE';
+  consolidationMethod: 'FULL' | 'EQUITY' | 'PROPORTIONAL' | 'VENDOR_UNCONSOLIDATED' | 'NONE';
+  annualTransactionVolume?: number;
+  intercompanyNotes?: string;
+}
+
+export interface FirmBranding {
+  firmName: string;
+  partnerName: string;
+  licenseNumber: string;
+  firmAddress: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  logoUrl?: string;
+  accentColor?: string;
+  opinionType?: string;
+  disclaimer?: string;
 }
 
 export interface FxRateRecord {
