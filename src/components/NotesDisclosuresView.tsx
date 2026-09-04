@@ -1,179 +1,127 @@
 import React, { useState } from 'react';
-import {
-  FileText,
-  Search,
-  BookOpen,
-  Scale,
-  ShieldCheck,
-  ChevronRight,
-  Filter,
-  CheckCircle2,
-  ExternalLink,
-  Building2
-} from 'lucide-react';
+import { BookOpen, Search, FileText, ChevronRight, Sparkles } from 'lucide-react';
 import { usePractice } from '../context/PracticeContext';
 
-interface NotesDisclosuresViewProps {
-  onInspectMetric?: (metricName: string) => void;
-}
+const notesList = [
+  {
+    number: 'Note 1',
+    title: 'Accounting Policies & Basis of Preparation',
+    category: 'General',
+    page: 92,
+    snippet: 'The consolidated financial statements have been prepared in accordance with International Financial Reporting Standards (IFRS) as issued by the IASB.',
+    status: 'Verified',
+  },
+  {
+    number: 'Note 3',
+    title: 'Gross Turnover & Segmental Reporting',
+    category: 'Revenue',
+    page: 98,
+    snippet: 'Turnover comprises Beauty & Wellbeing (€13,105M), Personal Care (€14,210M), Home Care (€12,850M), Nutrition (€13,420M), and Ice Cream (€7,227M). Total: €60,812M.',
+    status: 'Verified',
+  },
+  {
+    number: 'Note 10',
+    title: 'Property, Plant and Equipment (PPE)',
+    category: 'Balance Sheet',
+    page: 100,
+    snippet: 'Additions during 2024 were €1,720M. Depreciation charged to operating profit was €1,450M.',
+    status: 'Verified',
+  },
+  {
+    number: 'Note 15',
+    title: 'Lease Liabilities & Capitalized Obligations',
+    category: 'Liabilities',
+    page: 101,
+    snippet: 'Total lease liabilities amounted to €2,410M for the prior comparative year (FY2023 restated from €2,396M following IFRS 16 scope revision).',
+    status: 'Flagged (Discrepancy Verified)',
+  },
+  {
+    number: 'Note 17',
+    title: 'Financial Instruments & Net Debt',
+    category: 'Financing',
+    page: 103,
+    snippet: 'Total financial liabilities were €27,400M offset by cash and cash equivalents of €4,680M yielding net debt of €22,720M.',
+    status: 'Verified',
+  },
+];
 
-export const NotesDisclosuresView: React.FC<NotesDisclosuresViewProps> = ({ onInspectMetric }) => {
-  const { companies, selectedCompanyId, facts, documents } = usePractice();
-  const company = companies.find((c) => c.id === selectedCompanyId);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
-
-  const disclosures = [
-    {
-      id: 'NOTE-1',
-      title: 'Note 1: Significant Accounting Policies',
-      category: 'POLICIES',
-      page: 84,
-      summary: 'Adoption of IFRS standards, revenue recognition timing (IFRS 15 over-time vs point-in-time), and foreign currency translation methods.',
-      status: 'VERIFIED'
-    },
-    {
-      id: 'NOTE-3',
-      title: 'Note 3: Segment Reporting & Geography',
-      category: 'SEGMENTS',
-      page: 92,
-      summary: 'Disaggregated revenue and operating profit across Europe, North America, and Asia-Pacific. Reconciliation to consolidated operating profit.',
-      status: 'VERIFIED'
-    },
-    {
-      id: 'NOTE-12',
-      title: 'Note 12: Financial Debt & Maturity Profile',
-      category: 'DEBT',
-      page: 118,
-      summary: 'Bonds, credit facilities, interest rate hedging, and contractual undiscounted cash flow maturities over the next 5 fiscal years.',
-      status: 'AUDITED'
-    },
-    {
-      id: 'NOTE-18',
-      title: 'Note 18: Effective Income Tax Rate Reconciliation',
-      category: 'TAX',
-      page: 134,
-      summary: 'Reconciliation of the statutory rate to the effective rate, deferred tax assets on loss carryforwards, and uncertain tax positions.',
-      status: 'VERIFIED'
-    },
-    {
-      id: 'NOTE-24',
-      title: 'Note 24: Commitments, Contingencies & Legal Matters',
-      category: 'LEGAL',
-      page: 148,
-      summary: 'Outstanding litigation claims, environmental remediation guarantees, and capital expenditure commitments contracted for.',
-      status: 'REVIEWED'
-    },
-    {
-      id: 'NOTE-31',
-      title: 'Note 31: Share Capital & Treasury Share Buybacks',
-      category: 'EQUITY',
-      page: 162,
-      summary: 'Authorized capital, par value per share, buyback program authorizations, repurchased shares held in treasury, and cancellation records.',
-      status: 'VERIFIED'
-    }
-  ].filter((d) => {
-    const matchesSearch = !searchTerm || d.title.toLowerCase().includes(searchTerm.toLowerCase()) || d.summary.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCat = selectedCategory === 'ALL' || d.category === selectedCategory;
-    return matchesSearch && matchesCat;
-  });
+export const NotesDisclosuresView: React.FC = () => {
+  const { setIsCopilotOpen } = usePractice();
+  const [selectedNote, setSelectedNote] = useState(notesList[3]);
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-slate-500 mb-1">
-              <BookOpen className="w-4 h-4 text-emerald-600" />
-              <span>FINANCIAL WORKBENCH — NOTES & DISCLOSURES</span>
-            </div>
-            <h1 className="text-xl font-bold text-slate-900 font-mono">
-              Notes to the Consolidated Financial Statements
-            </h1>
-            <p className="text-xs text-slate-500 mt-1">
-              Forensic disclosure auditing, accounting policy notes, segment breakdowns, debt maturities, and tax reconciliations.
-            </p>
-          </div>
-
+    <div id="notes-disclosures-view" className="space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-xl bg-slate-900 border border-slate-800">
+        <div>
           <div className="flex items-center gap-2">
-            <span className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-mono font-bold">
-              {disclosures.length} Notes Indexed
-            </span>
+            <BookOpen className="w-5 h-5 text-cyan-400" />
+            <h1 className="text-xl font-bold text-white tracking-tight">Notes & Statutory Disclosures</h1>
           </div>
-        </div>
-
-        {/* Filter Bar */}
-        <div className="flex flex-col md:flex-row md:items-center gap-3 mt-6 pt-4 border-t border-slate-100">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search note disclosures, policies, debt schedules, or buyback notes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full text-xs pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {['ALL', 'POLICIES', 'SEGMENTS', 'DEBT', 'TAX', 'EQUITY', 'LEGAL'].map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
-                  selectedCategory === cat
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            Footnotes extracted and normalized across accounting policies, debt covenants, and segmentations.
+          </p>
         </div>
       </div>
 
-      {/* Disclosures Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {disclosures.map((note) => (
-          <div
-            key={note.id}
-            className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs hover:border-slate-300 transition-all space-y-3"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <span className="text-[10px] font-mono font-bold text-emerald-600 uppercase">
-                  {note.category}
-                </span>
-                <h3 className="text-sm font-bold text-slate-900 font-mono mt-0.5">
-                  {note.title}
-                </h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Notes Navigation List */}
+        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+          <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-2">
+            Extracted Footnotes ({notesList.length})
+          </div>
+          {notesList.map((n) => (
+            <button
+              key={n.number}
+              onClick={() => setSelectedNote(n)}
+              className={`w-full text-left p-3 rounded-lg border text-xs transition cursor-pointer ${
+                selectedNote.number === n.number
+                  ? 'bg-slate-800 border-cyan-500 text-white'
+                  : 'bg-slate-850 border-slate-800 text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-mono font-bold text-cyan-400">{n.number}</span>
+                <span className="text-[10px] text-slate-500 font-mono">p. {n.page}</span>
               </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Page {note.page}
+              <div className="font-semibold text-slate-200 mt-1">{n.title}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Selected Note Content */}
+        <div className="lg:col-span-2 p-5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <span className="text-xs font-mono text-cyan-400 font-bold">{selectedNote.number}</span>
+                <h2 className="text-base font-bold text-white mt-0.5">{selectedNote.title}</h2>
+              </div>
+              <span className="text-xs px-2.5 py-1 rounded bg-slate-800 border border-slate-700 font-mono text-slate-300">
+                Category: {selectedNote.category} • Page {selectedNote.page}
               </span>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              {note.summary}
-            </p>
+            <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 font-serif text-sm leading-relaxed text-slate-200">
+              {selectedNote.snippet}
+            </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                <span>{note.status}</span>
-              </span>
-              <button
-                onClick={() => onInspectMetric && onInspectMetric(note.id)}
-                className="text-[11px] font-mono font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-              >
-                <span>Inspect Source Lineage</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+            <div className="p-3 rounded-lg bg-slate-850 border border-slate-800 text-xs">
+              <span className="text-slate-400 font-medium">Hermes Swarm Reconciliation: </span>
+              <span className="text-emerald-400 font-semibold">{selectedNote.status}</span>
             </div>
           </div>
-        ))}
+
+          <div className="pt-4 border-t border-slate-800 mt-6 flex items-center justify-between">
+            <span className="text-xs text-slate-400">Want deeper forensic evaluation of this disclosure?</span>
+            <button
+              onClick={() => setIsCopilotOpen(true)}
+              className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded-lg text-xs font-semibold shadow transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Analyze with Eve Copilot</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

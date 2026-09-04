@@ -1,6 +1,6 @@
 {
-  "name": "AI CPA - Financial Ingestion & Audit Studio",
-  "description": "Enterprise-grade financial statement extraction, forensic reconciliation, and CPA-grade audit intelligence studio.",
+  "name": "Eve Audit & Financial Intelligence",
+  "description": "Institutional-grade financial statement extraction, multi-agent Hermes verification swarm, forensic accounting audit, and copilot deliverables platform.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
