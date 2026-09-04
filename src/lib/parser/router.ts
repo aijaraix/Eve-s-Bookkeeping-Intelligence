@@ -20,7 +20,7 @@ export class FileRouter {
 
   public async inspectFile(file: FileInput): Promise<FileInspectionResult> {
     const buffer = file.buffer || Buffer.from('');
-    const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
     
     // 1. Calculate SHA-256 Hash
     const hash = crypto.createHash('sha256').update(buffer).digest('hex');

@@ -79,7 +79,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     const matched = DEMO_USERS.find(u => u.email.toLowerCase() === emailInput.toLowerCase()) || {
       id: 'custom-user',
       email: emailInput,
-      name: emailInput.split('@')[0].toUpperCase() + ' (CPA)',
+      name: (emailInput || '').split('@')[0].toUpperCase() + ' (CPA)',
       role: 'CPA Lead Partner' as const,
       organization: 'Audit Intelligence Workspace'
     };

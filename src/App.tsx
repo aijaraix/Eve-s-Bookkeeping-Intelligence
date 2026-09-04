@@ -159,7 +159,7 @@ function PracticeApp() {
           {activeView === 'documents' && (
             <DocumentsView
               onOpenUpload={() => setIsUploadOpen(true)}
-              onInspectDocument={(fact) => setSelectedFact(fact)}
+              onInspectDocument={(fact) => setSelectedFact(fact ?? null)}
             />
           )}
 

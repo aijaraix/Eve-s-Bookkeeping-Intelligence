@@ -137,7 +137,7 @@ Return a JSON object with a key "extractedFacts" containing an array of items:
 
   if (extractedFacts.length === 0) {
     findings.push("Applying deterministic high-precision financial text parser fallback...");
-    const textLines = documentText.split("\n");
+    const textLines = (documentText || "").split("\n");
     const patterns = [
       { normalized: "Revenue", regex: /(?:Total Net Sales|Total Revenue|Net Revenue|Revenue|Turnover|Przychody ze sprzedaży|Przychody|Umsatzerlöse)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },
       { normalized: "Operating Profit", regex: /(?:Operating Income|Operating Profit|Zysk operacyjny|Betriebsergebnis)[^$\d]*([$€£zł]\s*[\d,]+(?:\.\d+)?\s*(?:B|billion|M|million)?|\$[\d,]+|\d+[\d,.]*)/i },

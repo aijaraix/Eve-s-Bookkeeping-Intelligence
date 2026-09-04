@@ -228,7 +228,7 @@ export class CanonicalFactResolver {
 
     const rawStr = typeof factOrRawStr === "string" 
       ? factOrRawStr.trim() 
-      : String(factOrRawStr.valueOriginal || factOrRawStr.rawValue || factOrRawStr.valueFunctional || "").trim();
+      : String(factOrRawStr?.valueOriginal || factOrRawStr?.rawValue || factOrRawStr?.valueFunctional || "").trim();
 
     if (!rawStr) return null;
 

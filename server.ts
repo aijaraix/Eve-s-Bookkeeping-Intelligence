@@ -1705,7 +1705,7 @@ export function extractDeterministicFacts(
   const extractedFacts: any[] = [];
   const foundKeys = new Set<string>();
 
-  const globalText = canonicalDoc.markdown || (Array.isArray(canonicalDoc.sections) ? canonicalDoc.sections.map((s: any) => s.text || '').join('\n') : '') || '';
+  const globalText = (canonicalDoc?.markdown || (Array.isArray(canonicalDoc?.sections) ? canonicalDoc.sections.map((s: any) => s?.text || '').join('\n') : '') || '');
   const globalScale = detectScaleHint(globalText) || 1;
 
   let effectiveCurrency = currency;
@@ -1875,7 +1875,7 @@ export function extractDeterministicFacts(
   }
 
   // 2. Scan Text Sections with Strict Narrative Context
-  const lines = globalText.split('\n');
+  const lines = (globalText || '').split('\n');
   for (const metricDef of CANONICAL_METRIC_CONFIGS) {
     if (foundKeys.has(metricDef.key)) continue;
 
@@ -2033,9 +2033,9 @@ export function executeSelfHealingFinancialAudit(
 ): any[] {
   const factsMap = new Map<string, any>();
 
-  const globalText = canonicalDoc.markdown || (Array.isArray(canonicalDoc.sections) ? canonicalDoc.sections.map((s: any) => s.text || '').join('\n') : '') || '';
+  const globalText = (canonicalDoc?.markdown || (Array.isArray(canonicalDoc?.sections) ? canonicalDoc.sections.map((s: any) => s?.text || '').join('\n') : '') || '');
   const globalScale = detectScaleHint(globalText) || 1;
-  const lines = globalText.split('\n');
+  const lines = (globalText || '').split('\n');
 
   let effectiveCurrency = currency;
   if (/presented in (yen|jpy|japanese yen)/i.test(globalText) || /expressed in (yen|jpy)/i.test(globalText) || /in millions of yen/i.test(globalText) || /yen in millions/i.test(globalText) || /¥/.test(globalText)) {

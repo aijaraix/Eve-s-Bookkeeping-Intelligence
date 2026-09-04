@@ -447,7 +447,7 @@ export class AccountingValidationEngine {
         const materiality = this.calculateMaterialityThreshold(maxVal);
 
         const hasConflict = variance > materiality;
-        const metricName = key.split("_")[0];
+        const metricName = (key || "").split("_")[0];
 
         results.push({
           metric: metricName,
@@ -799,7 +799,7 @@ export class AccountingValidationEngine {
           reportedUnit: ratioRes.unit,
           unitScale: ratioRes.unit,
           reportingPeriod: summary.reportingPeriod,
-          fiscalYear: summary.reportingPeriod.split("-")[0],
+          fiscalYear: (summary.reportingPeriod || "").split("-")[0],
           consolidationScope: summary.consolidationScope,
           entityName: summary.entityName,
           pageNumber: 1,

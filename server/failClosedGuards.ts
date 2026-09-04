@@ -44,7 +44,7 @@ export function amountAppearsInSourceBlock(rawValue: string | number | undefined
   const amountDigits = raw.replace(/[^0-9.]/g, "");
   if (!amountDigits || amountDigits.length < 2) return false;
 
-  const [intPart, decPart] = amountDigits.split(".");
+  const [intPart, decPart] = (amountDigits || "").split(".");
   if (!intPart) return false;
 
   const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, "[,\\s]?");

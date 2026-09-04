@@ -43,7 +43,7 @@ export async function runBackfillAgent(
   if (missingFields.length > 0) {
     findings.push(`Autonomous Backfill Agent triggered for ${missingFields.length} missing fields: ${missingFields.map(m => m.label).join(", ")}`);
 
-    const lines = documentText.split("\n");
+    const lines = (documentText || "").split("\n");
     for (const field of missingFields) {
       if (presentLabels.has(field.label.toLowerCase())) continue;
 

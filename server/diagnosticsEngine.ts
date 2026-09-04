@@ -299,8 +299,8 @@ export class DiagnosticsEngine {
           conflicts.push({
             conflict_id: `CFL-${key}`,
             workspace_id: workspaceId,
-            canonical_metric: key.split('_')[0],
-            reporting_period: key.split('_')[1] || "FY 2025",
+            canonical_metric: (key || '').split('_')[0],
+            reporting_period: (key || '').split('_')[1] || "FY 2025",
             candidates: group.map((f, i) => ({
               fact_id: f.id,
               value: f.valueOriginal || String(f.valueFunctional),

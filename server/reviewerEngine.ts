@@ -358,8 +358,8 @@ export class ReviewerEngine {
     const categoryBreakdown = categories.map((cat) => {
       const matchCount = facts.filter(f => {
         const blob = `${f.canonicalMetric || ''} ${f.labelNormalized || ''} ${f.statementType || ''} ${cat}`.toLowerCase();
-        const key = cat.toLowerCase().split(/[&,(]/)[0].trim();
-        return key.length > 3 && blob.includes(key.split(' ')[0]);
+        const key = (cat || '').toLowerCase().split(/[&,(]/)[0].trim();
+        return key.length > 3 && blob.includes((key || '').split(' ')[0]);
       }).length;
       const verified = facts.filter(f => String(f.status || '').toLowerCase() === 'approved' || String(f.verificationStatus || '').toLowerCase() === 'verified').length;
       return {

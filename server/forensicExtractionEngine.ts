@@ -409,7 +409,7 @@ export class ForensicEntityResolver {
       .replace(/[_.-]+/g, " ")
       .trim();
 
-    const formattedName = stripped
+    const formattedName = (stripped || "")
       .split(" ")
       .filter(w => w.length > 2 && !/^(and|the|for|cum|zum|mit|und)$/i.test(w))
       .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -547,7 +547,7 @@ export class ForensicEntityResolver {
       .replace(/[_.-]+/g, " ")
       .trim();
 
-    const formattedName = stripped
+    const formattedName = (stripped || "")
       .split(" ")
       .filter(w => w.length > 2 && !/^(and|the|for|cum|zum|mit|und)$/i.test(w))
       .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())

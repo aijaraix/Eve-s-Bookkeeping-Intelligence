@@ -250,12 +250,12 @@ import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel
 
 export class AnyDocParser implements DocumentParser {
   public canHandle(file: FileInput): boolean {
-    const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
     return ['pdf', 'doc', 'docx', 'docm', 'ppt', 'pptx', 'pptm', 'odt', 'odp', 'rtf', 'epub'].includes(ext);
   }
 
   public async inspect(file: FileInput): Promise<FileInspectionResult> {
-    const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
     return {
       mimeType: file.mimeType,
       detectedType: ext,
@@ -276,7 +276,7 @@ export class AnyDocParser implements DocumentParser {
   public async parse(file: FileInput, inspection?: FileInspectionResult, options?: { maxPages?: number }): Promise<CanonicalDocumentModel> {
     const docId = `DOC-${Math.floor(1000 + Math.random() * 9000)}`;
     const buffer = file.buffer || Buffer.from('');
-    const ext = (file.filename || '').split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
 
     let rawText = '';
     let pdfNumPages = 1;
@@ -312,7 +312,7 @@ export class AnyDocParser implements DocumentParser {
       if (words.length > 20) rawText = words.join(' ');
     }
 
-    const isPdfDoc = ext === 'pdf' || inspection.detectedType === 'pdf';
+    const isPdfDoc = ext === 'pdf' || inspection?.detectedType === 'pdf';
     if (!isPdfDoc && (!rawText || rawText.trim().length < 20)) {
       rawText = rawText || "";
     }
@@ -476,9 +476,9 @@ export class AnyDocParser implements DocumentParser {
     else detectedCurrency = 'USD';
 
     let entityName = 'Corporate Entity';
-    const baseName = (file.originalName || file.filename).split('.')[0].replace(/[-_]/g, ' ').replace(/(annual|financial|statement|report|audit|10k|2025|2026|fy2025|fy2026)/gi, '').trim();
+    const baseName = (file?.originalName || file?.filename || '').split('.')[0].replace(/[-_]/g, ' ').replace(/(annual|financial|statement|report|audit|10k|2025|2026|fy2025|fy2026)/gi, '').trim();
     if (baseName.length >= 3) {
-      entityName = baseName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      entityName = (baseName || '').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     }
 
     return {
@@ -506,7 +506,7 @@ export class AnyDocParser implements DocumentParser {
         currency: detectedCurrency,
         entityName,
         period: detectPeriodFromText(rawText) || undefined,
-        totalWords: rawText.split(/\s+/).length
+        totalWords: (rawText || '').split(/\s+/).length
       },
       sections,
       tables,

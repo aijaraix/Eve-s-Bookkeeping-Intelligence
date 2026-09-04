@@ -2,12 +2,12 @@ import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel
 
 export class OCRParser implements DocumentParser {
   public canHandle(file: FileInput): boolean {
-    const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
     return ['png', 'jpg', 'jpeg', 'webp', 'tiff', 'bmp'].includes(ext);
   }
 
   public async inspect(file: FileInput): Promise<FileInspectionResult> {
-    const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
     return {
       mimeType: file.mimeType,
       detectedType: ext,

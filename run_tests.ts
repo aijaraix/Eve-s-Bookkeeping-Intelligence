@@ -20,6 +20,7 @@ import { runPhaseH63AdversarialTests } from "./server/tests/phaseH63Adversarial.
 import { runPhaseH94AdversarialTests } from "./server/tests/phaseH94Adversarial.test.js";
 import { runPhaseH941CapacityRecoveryTests } from "./server/tests/phaseH941CapacityRecovery.test.js";
 import { runFailClosedTests } from "./server/tests/phaseFailClosed.test.js";
+import { runPhaseH95NullSafetyTests } from "./server/tests/phaseH95NullSafety.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -97,8 +98,7 @@ assert(
 const storagePath = process.env.STORAGE_FILE || path.join(process.cwd(), "ai_cpa_storage.json");
 console.log(`${colors.bold}[SUITE 1: PERSISTENCE INTEGRITY & MOCK PURGE]${colors.reset}`);
 try {
-  const rawStorage = fs.readFileSync(storagePath, "utf-8");
-  const storage = JSON.parse(rawStorage);
+  const storage = fs.existsSync(storagePath) ? JSON.parse(fs.readFileSync(storagePath, "utf-8")) : { workspaces: [], facts: [] };
 
   assert(
     "Purged Seeded Companies",
@@ -633,6 +633,15 @@ assert(
   failClosedRes.failures.length === 0,
   `Fail-closed suite failed (${failClosedRes.failures.length} failures): ${failClosedRes.failures.join("; ")}`,
   `All ${failClosedRes.passed}/${failClosedRes.total} fail-closed regressions passed.`
+);
+
+console.log(`\n${colors.bold}[SUITE H.9.5: NULL-SAFETY & MALFORMED INPUT INTEGRITY]${colors.reset}`);
+const h95Res = await runPhaseH95NullSafetyTests();
+assert(
+  "Phase H.9.5 Null Safety Suite (7/7 Passed)",
+  h95Res.failures.length === 0 && h95Res.passed === 7,
+  `Phase H.9.5 Suite failed (${h95Res.failures.length} failures): ${h95Res.failures.join("; ")}`,
+  "All 7/7 Phase H.9.5 Null-Safety & Malformed Input tests passed cleanly."
 );
 
 

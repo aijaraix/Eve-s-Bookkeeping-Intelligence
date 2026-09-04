@@ -179,7 +179,7 @@ export class DocumentIntelligenceAgent {
       const txnDateRe = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/;
       const amtRe = /-?\$?\d{1,3}(?:,\d{3})*\.\d{2}/;
       const parsedTxns: BankTransaction[] = [];
-      rawText.split('\n').forEach((line, idx) => {
+      (rawText || '').split('\n').forEach((line, idx) => {
         const dm = line.match(txnDateRe);
         const am = line.match(amtRe);
         if (!dm || !am) return;
@@ -397,7 +397,7 @@ export class DocumentIntelligenceAgent {
       }
 
       // 2. Line-by-Line Regex Search over markdown & text
-      const textLines = (doc.markdown + '\n' + rawText).split('\n');
+      const textLines = ((doc?.markdown || '') + '\n' + (rawText || '')).split('\n');
       textLines.forEach((line, idx) => {
         const lineTrim = line.trim();
         if (!lineTrim || lineTrim.length < 5) return;

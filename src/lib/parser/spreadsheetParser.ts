@@ -3,12 +3,12 @@ import { DocumentParser, FileInput, FileInspectionResult, CanonicalDocumentModel
 
 export class SpreadsheetParser implements DocumentParser {
   public canHandle(file: FileInput): boolean {
-    const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
     return ['xls', 'xlsx', 'xlsm', 'xlsb', 'csv', 'ods'].includes(ext);
   }
 
   public async inspect(file: FileInput): Promise<FileInspectionResult> {
-    const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+    const ext = (file?.filename || file?.originalName || '').split('.').pop()?.toLowerCase() || '';
     return {
       mimeType: file.mimeType,
       detectedType: ext,
@@ -116,7 +116,7 @@ export class SpreadsheetParser implements DocumentParser {
         pages: sheetNames.length,
         language: detectLanguageFromText(markdown).language,
         currency: '',
-        entityName: file.filename.split('.')[0].replace(/[-_]/g, ' ').trim() || '',
+        entityName: (file?.filename || file?.originalName || '').split('.')[0].replace(/[-_]/g, ' ').trim() || '',
         period: detectPeriodFromText(markdown) || undefined,
         totalWords: allCells.length * 3
       },

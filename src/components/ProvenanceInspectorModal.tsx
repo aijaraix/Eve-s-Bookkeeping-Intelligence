@@ -48,7 +48,7 @@ export const ProvenanceInspectorModal: React.FC<ProvenanceInspectorModalProps> =
               <span className="text-slate-500 block text-[11px]">Confidence & Status</span>
               <span className="font-mono text-teal-700 font-bold flex items-center gap-1">
                 <CheckCircle2 className="w-4 h-4 text-teal-600 inline" />
-                {(fact.confidence * 100).toFixed(1)}% — {fact.status}
+                {((fact.confidence ?? 0) * 100).toFixed(1)}% — {fact.status}
               </span>
             </div>
           </div>

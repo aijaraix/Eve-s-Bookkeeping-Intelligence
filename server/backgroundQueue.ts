@@ -406,7 +406,7 @@ export class BackgroundIngestionQueue {
         filePath?.endsWith(".xlsx") || filePath?.endsWith(".xls") ? "SPREADSHEET_RANGE" :
         filePath?.endsWith(".csv") ? "CSV_BATCH" : "DOCX_SECTION";
 
-      const paragraphs = cleanText.split(/\n\s*\n/).filter(p => p.trim().length > 10);
+      const paragraphs = (cleanText || "").split(/\n\s*\n/).filter(p => p.trim().length > 10);
       const maxCharsPerUnit = 4000;
       let currentUnitText = "";
       let unitIdx = 1;

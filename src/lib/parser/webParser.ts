@@ -29,7 +29,7 @@ export class WebParser implements DocumentParser {
     let hostName = 'Corporate Entity';
     try {
       const u = new URL(targetUrl);
-      const host = u.hostname.replace(/^www\./, '').split('.')[0];
+      const host = (u.hostname || '').replace(/^www\./, '').split('.')[0];
       if (host) hostName = host.charAt(0).toUpperCase() + host.slice(1);
     } catch {}
 

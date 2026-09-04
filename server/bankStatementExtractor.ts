@@ -95,7 +95,7 @@ function extractFromTables(doc: CanonicalDocumentModel): Array<{ date: string; d
 
 function extractFromTextLines(doc: CanonicalDocumentModel): Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> {
   const rows: Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> = [];
-  const lines = `${doc.markdown || ""}\n${(doc.sections || []).map((s) => s.text).join("\n")}`.split(/\n/);
+  const lines = `${doc?.markdown || ""}\n${(doc?.sections || []).map((s) => s?.text || "").join("\n")}`.split(/\n/);
 
   lines.forEach((line, idx) => {
     const dateMatch = line.match(DATE_RE);
