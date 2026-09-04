@@ -1,148 +1,259 @@
-import React from 'react';
-import { usePractice } from '../context/PracticeContext';
-import { 
-  ShieldCheck, 
-  Sparkles, 
-  UploadCloud, 
-  FileText, 
-  ChevronDown, 
-  Cpu, 
-  CheckCircle2, 
-  AlertTriangle 
+import React, { useState } from 'react';
+import {
+  Menu,
+  Search,
+  Plus,
+  ChevronDown,
+  Calendar,
+  Bell,
+  HelpCircle,
+  ArrowLeft,
+  Share2,
+  Download,
+  Sparkles,
+  Briefcase,
+  Building2,
+  Users,
+  ShieldCheck,
+  Bot,
+  Layers,
+  Globe2,
+  Coins
 } from 'lucide-react';
+import { UserSession, ActiveView } from '../types';
+import { usePractice } from '../context/PracticeContext';
+import { EMPTY_DISPLAY } from '../api/practiceClient';
 
-export const AppHeader: React.FC = () => {
-  const {
-    selectedCompany,
-    setSelectedCompany,
-    companies,
-    selectedPeriod,
-    setSelectedPeriod,
-    isCopilotOpen,
-    setIsCopilotOpen,
-    setIsUploadOpen,
-    setIsReportWizardOpen,
-    findings,
-    isSwarmRunning,
-  } = usePractice();
+interface AppHeaderProps {
+  activeView: ActiveView;
+  setActiveView: (view: ActiveView) => void;
+  onToggleMobileSidebar: () => void;
+  onOpenLogin: () => void;
+  onOpenUpload: () => void;
+  onOpenReportWizard: () => void;
+  userSession: UserSession;
+  activeProjectTab: string;
+  setActiveProjectTab: (tab: string) => void;
+  isCollapsedSidebar: boolean;
+  selectedCompanyId: string;
+  setSelectedCompanyId: (id: string) => void;
+  selectedProjectId: string;
+  setSelectedProjectId: (id: string) => void;
+  onToggleCopilot?: () => void;
+  isCopilotOpen?: boolean;
+}
 
-  const unresolvedCount = findings.filter((f) => !f.resolved).length;
+export const AppHeader: React.FC<AppHeaderProps> = ({
+  activeView,
+  setActiveView,
+  onToggleMobileSidebar,
+  onOpenLogin,
+  onOpenUpload,
+  onOpenReportWizard,
+  userSession,
+  activeProjectTab,
+  setActiveProjectTab,
+  isCollapsedSidebar,
+  selectedCompanyId,
+  setSelectedCompanyId,
+  selectedProjectId,
+  setSelectedProjectId,
+  onToggleCopilot,
+  isCopilotOpen
+}) => {
+  const [selectedCurrency, setSelectedCurrency] = useState('EUR (€)');
+  const [selectedPeriod, setSelectedPeriod] = useState('FY2024');
+  const [selectedScope, setSelectedScope] = useState('Consolidated Group');
+
+  const { companies, projects, documents, isAnalyzing, activeJob, queueJobs } = usePractice();
+
+  const currentCompany = companies.find((c) => c.id === selectedCompanyId);
+  const companyProjects = projects.filter((p) => p.companyId === selectedCompanyId);
+  const currentProject = projects.find((p) => p.id === selectedProjectId) || companyProjects[0];
+
+  const isGlobalView = ['overview', 'projects', 'companies', 'users-teams', 'activity-log', 'firm-settings', 'worker-diagnostics'].includes(activeView);
+  const activeProcessingCount = queueJobs.filter((j) => j.status === 'PROCESSING' || j.status === 'QUEUED').length;
 
   return (
-    <header id="app-header" className="h-16 bg-slate-900/90 border-b border-slate-800 backdrop-blur sticky top-0 z-30 px-4 flex items-center justify-between">
-      {/* Brand & Client Selection */}
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <ShieldCheck className="w-5 h-5 text-white" />
-          </div>
+    <header
+      className={`bg-white border-b border-slate-200 sticky top-0 z-30 transition-all font-mono ${
+        isCollapsedSidebar ? 'lg:ml-20' : 'lg:ml-72'
+      }`}
+    >
+      {/* Top Bar Row */}
+      <div className="px-6 py-3 flex items-center justify-between border-b border-slate-100 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          {/* Mobile Hamburger Menu Toggle */}
+          <button
+            onClick={onToggleMobileSidebar}
+            className="lg:hidden p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+            title="Toggle Navigation Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-base tracking-tight text-white font-mono">EVE</span>
-              <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
-                AUDIT V2.4
+              <h1 className="text-base font-extrabold text-slate-900 tracking-tight">
+                Eve's Bookkeeping Intelligence
+              </h1>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                • CPA Practice Studio
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Institutional Forensic Platform</p>
+            <p className="text-xs text-slate-500 hidden sm:block">
+              Dedicated VPS Worker • Mathematical Reconciliation • Lineage Evidence Registry
+            </p>
           </div>
         </div>
 
-        {/* Entity Selector */}
-        <div className="hidden md:flex items-center gap-2 border-l border-slate-800 pl-6">
-          <label htmlFor="company-select" className="text-xs text-slate-400 font-medium">
-            Entity:
-          </label>
-          <div className="relative">
+        {/* Global Context Controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Client Engagement Selector */}
+          <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800">
+            <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <select
-              id="company-select"
-              value={selectedCompany.id}
+              value={selectedCompanyId}
               onChange={(e) => {
-                const comp = companies.find((c) => c.id === e.target.value);
-                if (comp) setSelectedCompany(comp);
+                const newCompanyId = e.target.value;
+                setSelectedCompanyId(newCompanyId);
+                const firstProj = projects.find((p) => p.companyId === newCompanyId);
+                if (firstProj) setSelectedProjectId(firstProj.id);
+                else setSelectedProjectId(newCompanyId);
               }}
-              aria-label="Select reporting entity"
-              className="appearance-none bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-md pl-3 pr-8 py-1.5 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-cyan-500 cursor-pointer"
+              className="bg-transparent focus:outline-hidden cursor-pointer"
             >
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.reportingStandard})
+              <option value="">{companies.length ? 'Select Client' : 'No Clients'}</option>
+              {companies.map((comp) => (
+                <option key={comp.id} value={comp.id}>
+                  {comp.name}
                 </option>
               ))}
             </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2 pointer-events-none" />
           </div>
 
-          {/* Period Selector */}
-          <div className="relative ml-2">
+          {/* Reporting Period Selector */}
+          <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1.5 rounded-xl border border-slate-200 text-xs font-mono text-slate-700">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <select
-              id="period-select"
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value)}
-              aria-label="Select fiscal period"
-              className="appearance-none bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-md pl-3 pr-8 py-1.5 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-cyan-500 cursor-pointer"
+              className="bg-transparent focus:outline-hidden cursor-pointer text-xs"
             >
-              <option value="FY2024">FY2024 (Audited)</option>
-              <option value="FY2023">FY2023 (Restated)</option>
-              <option value="FY2022">FY2022 (Historical)</option>
+              <option value="FY2024">FY2024</option>
+              <option value="FY2023">FY2023</option>
+              <option value="Q3 2024">Q3 2024</option>
+              <option value="ALL">All Periods</option>
             </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2 pointer-events-none" />
           </div>
+
+          {/* Consolidation Scope Selector */}
+          <div className="hidden md:flex items-center gap-1.5 bg-slate-100 px-2 py-1.5 rounded-xl border border-slate-200 text-xs font-mono text-slate-700">
+            <Layers className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <select
+              value={selectedScope}
+              onChange={(e) => setSelectedScope(e.target.value)}
+              className="bg-transparent focus:outline-hidden cursor-pointer text-xs"
+            >
+              <option value="Consolidated Group">Consolidated Group</option>
+              <option value="Parent Company Only">Parent Company Only</option>
+              <option value="Subsidiaries Scope">Subsidiaries Scope</option>
+            </select>
+          </div>
+
+          {/* Presentation Currency Selector */}
+          <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1.5 rounded-xl border border-slate-200 text-xs font-mono text-slate-700">
+            <Coins className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <select
+              value={selectedCurrency}
+              onChange={(e) => setSelectedCurrency(e.target.value)}
+              className="bg-transparent focus:outline-hidden cursor-pointer text-xs"
+            >
+              <option value="EUR (€)">EUR (€)</option>
+              <option value="USD ($)">USD ($)</option>
+              <option value="GBP (£)">GBP (£)</option>
+              <option value="CHF (CHF)">CHF (CHF)</option>
+              <option value="SGD (S$)">SGD (S$)</option>
+            </select>
+          </div>
+
+          {/* Active Intake Processing Pill */}
+          {(isAnalyzing || activeProcessingCount > 0) && (
+            <button
+              onClick={onOpenUpload}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all cursor-pointer shadow-xs animate-pulse"
+              title="Click to view live extraction ingestion monitor"
+            >
+              <div className="w-2 h-2 rounded-full bg-blue-600 animate-ping" />
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <span className="hidden lg:inline">Worker Processing</span>
+            </button>
+          )}
+
+          {/* Eve Audit Copilot Drawer Toggle Button */}
+          {onToggleCopilot && (
+            <button
+              onClick={onToggleCopilot}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                isCopilotOpen
+                  ? 'bg-emerald-600 text-white border-emerald-700'
+                  : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-800'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Audit Copilot</span>
+            </button>
+          )}
+
+          {/* Primary Upload Intake Button */}
+          <button
+            onClick={onOpenUpload}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Intake</span>
+          </button>
+
+          {/* User Profile Pill */}
+          <button
+            onClick={onOpenLogin}
+            className="flex items-center gap-2 px-2 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors cursor-pointer"
+          >
+            <div className="w-6 h-6 rounded-full bg-blue-900 text-blue-200 font-bold text-[10px] font-mono flex items-center justify-center">
+              {userSession.name ? userSession.name.slice(0, 2).toUpperCase() : 'CP'}
+            </div>
+          </button>
         </div>
       </div>
 
-      {/* Right Controls */}
-      <div className="flex items-center gap-3">
-        {/* Hermes Swarm Status Pill */}
-        <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-xs">
-          <Cpu className={`w-3.5 h-3.5 ${isSwarmRunning ? 'text-amber-400 animate-spin' : 'text-emerald-400'}`} />
-          <span className="text-slate-300 font-medium">Hermes Swarm:</span>
-          <span className="text-emerald-400 font-semibold">{isSwarmRunning ? 'Verifying...' : '6/6 Passed'}</span>
-          <span className="text-slate-500">•</span>
-          <span className="text-slate-400">{selectedCompany.verificationScore}% integrity</span>
-        </div>
-
-        {/* Unresolved findings badge */}
-        {unresolvedCount > 0 && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>{unresolvedCount} Finding{unresolvedCount > 1 ? 's' : ''}</span>
+      {/* Sub-Header Context Row */}
+      {!isGlobalView && (
+        <div className="px-6 py-3 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveView('overview')}
+              className="text-xs font-bold text-slate-600 hover:text-blue-600 flex items-center gap-1.5 transition-colors cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              <span>Master Overview</span>
+            </button>
+            <span className="text-slate-300">/</span>
+            <span className="text-xs font-bold text-slate-900 font-mono">
+              {currentCompany ? currentCompany.name : 'Active Engagement'}
+            </span>
           </div>
-        )}
 
-        {/* Upload Button */}
-        <button
-          id="header-upload-btn"
-          onClick={() => setIsUploadOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md border border-slate-700 text-xs font-medium transition cursor-pointer"
-        >
-          <UploadCloud className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="hidden sm:inline">Intake Document</span>
-        </button>
-
-        {/* Deliverables Button */}
-        <button
-          id="header-deliverables-btn"
-          onClick={() => setIsReportWizardOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md border border-slate-700 text-xs font-medium transition cursor-pointer"
-        >
-          <FileText className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="hidden sm:inline">Audit Memo</span>
-        </button>
-
-        {/* Eve Copilot Drawer Toggle */}
-        <button
-          id="header-copilot-btn"
-          onClick={() => setIsCopilotOpen(!isCopilotOpen)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition shadow-md cursor-pointer ${
-            isCopilotOpen
-              ? 'bg-cyan-500 text-slate-950 shadow-cyan-500/20'
-              : 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-cyan-600/30'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Eve Copilot</span>
-        </button>
-      </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenReportWizard}
+              className="px-3 py-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Generate Audit Package</span>
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   );
 };
