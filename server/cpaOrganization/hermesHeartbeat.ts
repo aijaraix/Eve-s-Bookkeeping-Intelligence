@@ -281,6 +281,22 @@ export class HermesHeartbeat {
     } catch {
       // Gateway offline
     }
+
+    // Check Extraction Worker
+    try {
+      const workerUrl = process.env.EXTRACTION_WORKER_URL || 'http://service-6a9b137139c2940e7ee0c9c7:8080';
+      const t0 = Date.now();
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 2000);
+      const res = await fetch(`${workerUrl}/health`, { signal: ctrl.signal }).catch(() => null);
+      clearTimeout(timeoutId);
+      if (res && res.ok) {
+        this.state.servicesHealth.extractionWorker.verified = true;
+        this.state.servicesHealth.extractionWorker.latencyMs = Date.now() - t0;
+      }
+    } catch {
+      // Degraded or worker offline
+    }
   }
 
   private evaluateStateMachine() {

@@ -2761,17 +2761,17 @@ app.post("/api/documents/upload", (req, res) => {
             sha256: storedFile.sha256,
             filePath: storedFile.filePath,
             status: "Processing",
-            category: classification.category,
-            language: canonicalDoc.metadata?.language || "UNKNOWN",
-            currency: classification.reportingCurrency || (ws ? ws.currency : "EUR"),
-            entityName: classification.entityName || (ws ? ws.name : "Pending Entity"),
-            period: classification.reportingPeriod || undefined,
-            confidence: canonicalDoc.confidence || 0.98,
+            category: classification?.category || "FINANCIAL_REPORT",
+            language: canonicalDoc?.metadata?.language || "UNKNOWN",
+            currency: classification?.reportingCurrency || (ws ? ws.currency : "USD"),
+            entityName: classification?.entityName || (ws ? ws.name : "Pending Entity"),
+            period: classification?.reportingPeriod || undefined,
+            confidence: canonicalDoc?.confidence || 0.98,
             extractedFactsCount: 0,
             reviewStatus: "unresolved",
             createdAt: new Date().toISOString(),
-            summary: spokenInstruction ? `Instruction: ${spokenInstruction}. Registered for Single-Pipeline Ingestion.` : `Parsed physical inventory via AnyDoc (${canonicalDoc.parser.engine}) & queued for background page extraction.`,
-            pageCount: canonicalDoc.metadata?.pages || 1,
+            summary: spokenInstruction ? `Instruction: ${spokenInstruction}. Registered for Single-Pipeline Ingestion.` : `Parsed physical inventory via AnyDoc (${canonicalDoc?.parser?.engine || 'anydoc'}) & queued for background page extraction.`,
+            pageCount: canonicalDoc?.metadata?.pages || 1,
             ingestionVersion: "v2.0-immutable",
             isDuplicate: storedFile.isDuplicate || inspection.isDuplicate || false,
             engineMode: process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE'
@@ -3285,6 +3285,20 @@ app.get("/api/reports", (req, res) => {
   const { workspaceId } = req.query;
   const list = (db.reports || []).filter((r: any) => !workspaceId || r.workspaceId === workspaceId);
   res.json({ success: true, reports: list });
+});
+
+app.get("/api/reports/download/:filename", (req, res) => {
+  const { filename } = req.params;
+  const safeFilename = path.basename(filename);
+  const filePath = path.join(process.cwd(), "reports", safeFilename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Report file not found" });
+  }
+
+  res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+  res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+  fs.createReadStream(filePath).pipe(res);
 });
 
 app.get("/api/documents/:id/page-manifests", (req, res) => {

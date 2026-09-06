@@ -19,7 +19,10 @@ import {
   FileCheck,
   Sparkles,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  FileText,
+  Printer,
+  Download
 } from 'lucide-react';
 import { usePractice } from '../context/PracticeContext';
 import {

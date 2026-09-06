@@ -1,7 +1,7 @@
 {
-  "lastHeartbeatAt": "2026-09-06T02:00:59.680Z",
-  "nextHeartbeatAt": "2026-09-06T02:01:29.680Z",
-  "heartbeatSequence": 2,
+  "lastHeartbeatAt": "2026-09-06T03:23:39.590Z",
+  "nextHeartbeatAt": "2026-09-06T03:24:09.590Z",
+  "heartbeatSequence": 163,
   "academyState": "IDLE",
   "currentCaseId": null,
   "currentStage": null,
@@ -17,9 +17,9 @@
       0,
       0
     ],
-    "ramFreeMb": 3281,
+    "ramFreeMb": 3342,
     "ramTotalMb": 4096,
-    "ramUsageMb": 146,
+    "ramUsageMb": 89,
     "diskFreeGb": 755,
     "diskTotalGb": 756,
     "hardwareProfile": "EVE-NODE: 4 vCPU, 16 GB RAM (CPU-only, no GPU)"
@@ -28,7 +28,7 @@
   "failureCount": 0,
   "cooldownUntil": null,
   "lastDecision": {
-    "timestamp": "2026-09-06T02:00:59.697Z",
+    "timestamp": "2026-09-06T03:23:39.603Z",
     "action": "START_NEW_CASE",
     "reason": "System capacity optimal (4 vCPU, 16 GB RAM healthy). Ready to execute next Academy benchmark."
   },

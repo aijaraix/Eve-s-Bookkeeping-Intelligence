@@ -591,7 +591,7 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
       normalizedLabel: "Cost of Sales",
       factType: "cost_of_sales",
       statementType: "INCOME_STATEMENT",
-      regex: /^(?:total\s+cost\s+of\s+sales|cost\s+of\s+sales|cost\s+of\s+goods\s+sold|cost\s+of\s+revenues|cogs|koszt\s+w[łl]asny\s+sprzeda[żz]y|materialaufwand)$/i
+      regex: /^(?:total\s+cost\s+of\s+revenue|total\s+cost\s+of\s+sales|cost\s+of\s+sales|cost\s+of\s+goods\s+sold|cost\s+of\s+revenues?|cogs|koszt\s+w[łl]asny\s+sprzeda[żz]y|materialaufwand)$/i
     },
     {
       metric: "gross_profit",
@@ -633,21 +633,21 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
       normalizedLabel: "Total Equity",
       factType: "total_equity",
       statementType: "BALANCE_SHEET",
-      regex: /^(?:total\s+shareholders\s+equity|total\s+shareholders'\s+equity|total\s+stockholders\s+equity|total\s+stockholders'\s+equity|total\s+equity|kapita[łl]\s+w[łl]asny|eigenkapital)$/i
+      regex: /^(?:total\s+shareholders[\x27\u2019\u2018\u0027\u201b\u2032]?\s*equity|total\s+stockholders[\x27\u2019\u2018\u0027\u201b\u2032]?\s*equity|total\s+equity|stockholders[\x27\u2019]?\s*equity|kapita[łl]\s+w[łl]asny|eigenkapital)$/i
     },
     {
       metric: "cash",
       normalizedLabel: "Cash and Cash Equivalents",
       factType: "cash",
       statementType: "BALANCE_SHEET",
-      regex: /^(?:cash\s+and\s+cash\s+equivalents|cash\s+and\s+equivalents|cash|kassenbestand|[śs]rodki\s+pieni[ęe][żz]ne)$/i
+      regex: /^(?:cash\s+and\s+cash\s+equivalents|cash\s+and\s+equivalents|total\s+cash,\s*cash\s*equivalents,\s*and\s*short-term\s*investments|cash|kassenbestand|[śs]rodki\s+pieni[ęe][żz]ne)$/i
     },
     {
       metric: "operating_cash_flow",
       normalizedLabel: "Operating Cash Flow",
       factType: "operating_cash_flow",
       statementType: "CASH_FLOW",
-      regex: /^(?:net\s+cash\s+provided\s+by\s+operating\s+activities|cash\s+flow\s+from\s+operating\s+activities|operating\s+cash\s+flow|przep[łl]ywy\s+z\s+dzia[łl]alno[śs]ci\s+operacyjnej)$/i
+      regex: /^(?:net\s+cash\s+from\s+operations|net\s+cash\s+provided\s+by\s+operating\s+activities|cash\s+flow\s+from\s+operating\s+activities|operating\s+cash\s+flow|przep[łl]ywy\s+z\s+dzia[łl]alno[śs]ci\s+operacyjnej)$/i
     }
   ];
 

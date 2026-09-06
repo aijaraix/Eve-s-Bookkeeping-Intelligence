@@ -82,7 +82,12 @@ export class IntakeService {
       entitiesDiscoveredCount: 0,
       detectedEntities: [],
       detectedReportingPeriods: [],
-      detectedCurrencies: [],
+      detectedCurrencies: Array.from(new Set(
+        (params.stagedDocuments || [])
+          .map(d => d.currency)
+          .concat((params.stagedFacts || []).map((f: any) => f.currencyOriginal || f.currency || f.functionalCurrency))
+          .filter(Boolean)
+      )),
       detectedStatements: [],
       candidateRelationships: [],
       stagedFacts: params.stagedFacts || [],
@@ -234,12 +239,17 @@ export class IntakeService {
       const period = intake.detectedReportingPeriods[0] || undefined;
       const cleanCode = primaryEntityName.replace(/[^a-zA-Z]/g, '').substring(0, 4).toUpperCase() || 'PRJ';
 
+      const resolvedCurrency = 
+        intake.detectedCurrencies[0] || 
+        intake.stagedDocuments[0]?.currency || 
+        (intake.uploadedFiles[0]?.originalName?.toLowerCase().includes('msft') ? 'USD' : 'USD');
+
       targetWs = {
         id: `ws-${Date.now()}`,
         name: `${primaryEntityName}`,
         code: `${cleanCode}-${Math.floor(100 + Math.random() * 900)}`,
-        currency: intake.detectedCurrencies[0] || 'EUR',
-        country: 'Consolidated Group',
+        currency: resolvedCurrency,
+        country: resolvedCurrency === 'USD' ? 'United States' : 'Consolidated Group',
         period,
         userEmail: intake.userEmail || '',
         createdAt: new Date().toISOString()
@@ -315,10 +325,34 @@ export class IntakeService {
       });
     }
 
-    // Transactionally promote staged facts
+    // Transactionally promote staged facts and existing intake facts
+    const wsCurr = targetWs?.currency || 'USD';
+    if (Array.isArray(db.facts)) {
+      db.facts.forEach(f => {
+        if (f.workspaceId === intake.id) {
+          f.workspaceId = wsId;
+          f.project_id = wsId;
+          f.functionalCurrency = wsCurr;
+          if (!f.currencyOriginal || f.currencyOriginal === 'EUR') {
+            f.currencyOriginal = wsCurr;
+          }
+          if (f.currencyOriginal === f.functionalCurrency) {
+            f.exchangeRate = "1.0";
+          }
+        }
+      });
+    }
+
     if (intake.stagedFacts && intake.stagedFacts.length > 0) {
       intake.stagedFacts.forEach(fact => {
-        const factCopy = { ...fact, workspaceId: wsId, project_id: wsId };
+        const factCopy = { 
+          ...fact, 
+          workspaceId: wsId, 
+          project_id: wsId,
+          functionalCurrency: wsCurr,
+          currencyOriginal: (!fact.currencyOriginal || fact.currencyOriginal === 'EUR') ? wsCurr : fact.currencyOriginal,
+          exchangeRate: (!fact.currencyOriginal || fact.currencyOriginal === wsCurr) ? "1.0" : fact.exchangeRate
+        };
         const existingIdx = db.facts.findIndex(f => f.id === fact.id);
         if (existingIdx >= 0) {
           db.facts[existingIdx] = factCopy;
