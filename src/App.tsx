@@ -1,281 +1,326 @@
-import React, { useState } from 'react';
-import { ActiveView, FinancialFact, ExtractedFact } from './types';
+import React, { useState, useEffect } from 'react';
 import { PracticeProvider, usePractice } from './context/PracticeContext';
-import { AppSidebar } from './components/AppSidebar';
-import { AppHeader } from './components/AppHeader';
-import { OverviewView } from './components/OverviewView';
-import { FinancialDashboardView } from './components/FinancialDashboardView';
-import { IncomeStatementView } from './components/IncomeStatementView';
-import { BalanceSheetView } from './components/BalanceSheetView';
-import { CashFlowView } from './components/CashFlowView';
-import { RatiosView } from './components/RatiosView';
-import { SegmentAnalysisView } from './components/SegmentAnalysisView';
-import { ComparativeTrendView } from './components/ComparativeTrendView';
-import { ForecastView } from './components/ForecastView';
-import { HermesSwarmView } from './components/HermesSwarmView';
-import { AuditFindingsView } from './components/AuditFindingsView';
-import { AIDeliverablesView } from './components/AIDeliverablesView';
-import { ProjectsView } from './components/ProjectsView';
-import { CompaniesView } from './components/CompaniesView';
-import { DocumentsView } from './components/DocumentsView';
-import { UsersTeamsView } from './components/UsersTeamsView';
-import { ActivityLogView } from './components/ActivityLogView';
-import { CorporateStructureView } from './components/CorporateStructureView';
-import { WorkerDiagnosticsView } from './components/WorkerDiagnosticsView';
-import { EquityStatementView } from './components/EquityStatementView';
-import { NotesDisclosuresView } from './components/NotesDisclosuresView';
-import { EvidenceRegistryView } from './components/EvidenceRegistryView';
-import { FirmSettingsView } from './components/FirmSettingsView';
-import { EveAuditCopilotDrawer } from './components/EveAuditCopilotDrawer';
-import { LoginModal } from './components/LoginModal';
+import { AppSidebar } from './components/navigation/AppSidebar';
+import { AppHeader } from './components/navigation/AppHeader';
+import { EveProvenanceDrawer } from './components/design-system/EveProvenanceDrawer';
+import { EveCommandDialog, CommandItem } from './components/design-system/EveCommandDialog';
+
+// Presentation Models & Adapters
+import {
+  SourceToPixelMetadata,
+  PracticeClientSummary,
+  EngagementSummary,
+  StatementLinePresentation,
+  RatioDerivationPresentation,
+  NamedCpaAgentPresentation
+} from './types/presentationModels';
+
+import {
+  adaptWorkspacesToClients,
+  adaptWorkspacesToEngagements,
+  adaptFactsToIncomeStatement,
+  adaptFactsToBalanceSheet,
+  deriveFinancialRatios,
+  adaptBackendAgents
+} from './adapters/presentationAdapters';
+
+// Views
+import { PracticeHomeView } from './components/views/practice/PracticeHomeView';
+import { PracticeClientsView } from './components/views/practice/PracticeClientsView';
+import { PracticeEngagementsView } from './components/views/practice/PracticeEngagementsView';
+import { PracticeDocumentsView } from './components/views/practice/PracticeDocumentsView';
+import { EngagementOverviewView } from './components/views/engagement/EngagementOverviewView';
+import { FinancialIncomeStatementView } from './components/views/engagement/FinancialIncomeStatementView';
+import { FinancialBalanceSheetView } from './components/views/engagement/FinancialBalanceSheetView';
+import { AnalysisRatiosView } from './components/views/engagement/AnalysisRatiosView';
+import { DeliverablesView } from './components/views/engagement/DeliverablesView';
+import { EveIntelligenceCenterView } from './components/views/eve/EveIntelligenceCenterView';
+import { EveAcademyView } from './components/views/eve/EveAcademyView';
+import { EveCopilotView } from './components/views/eve/EveCopilotView';
+import { SystemHealthView } from './components/views/admin/SystemHealthView';
+import { FirmBrandingView } from './components/views/admin/FirmBrandingView';
+import { UsersAccessView } from './components/views/admin/UsersAccessView';
+import { AuditActivityLogsView } from './components/views/admin/AuditActivityLogsView';
+import { AdvancedDiagnosticsView } from './components/views/admin/AdvancedDiagnosticsView';
 import { UploadModal } from './components/UploadModal';
-import { ProvenanceInspectorModal } from './components/ProvenanceInspectorModal';
-import { ReportWizardModal } from './components/ReportWizardModal';
 
-function PracticeApp() {
-  const {
-    userSession,
-    setUserSession,
-    selectedCompanyId,
-    selectedProjectId,
-    setSelectedCompanyId,
-    setSelectedProjectId,
-    facts
-  } = usePractice();
+function EveCpaStudioMain() {
+  const { workspaces, facts, documents, agents } = usePractice();
 
-  const [activeView, setActiveView] = useState<ActiveView>('overview');
-  const [activeProjectTab, setActiveProjectTab] = useState<string>('Overview');
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [isCollapsedSidebar, setIsCollapsedSidebar] = useState(false);
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  // Navigation State
+  const [activeView, setActiveView] = useState('practice-home');
+  const [selectedClientId, setSelectedClientId] = useState('ws-1788663793077');
+  const [presentationCurrency, setPresentationCurrency] = useState('USD');
+
+  // Modals & Drawers State
+  const [isCommandOpen, setIsCommandOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [isReportWizardOpen, setIsReportWizardOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
-  const [selectedFact, setSelectedFact] = useState<FinancialFact | null>(null);
+  const [selectedFactMetadata, setSelectedFactMetadata] = useState<SourceToPixelMetadata | null>(null);
 
-  const handleInspectMetric = (metricName: string) => {
-    const found = facts.find(
-      (f) =>
-        f.canonicalMetric === metricName ||
-        f.metric?.toLowerCase() === metricName.toLowerCase() ||
-        f.label?.toLowerCase().includes(metricName.toLowerCase())
-    );
-    if (found) {
-      setSelectedFact(found as any);
-    } else {
-      // Fallback synthetic fact for line item provenance
-      setSelectedFact({
-        id: `insp-${Date.now()}`,
-        metric: metricName,
-        label: metricName,
-        value: 0,
-        formattedValue: 'Line Item Inspected',
-        period: 'FY2024',
-        statementType: 'INCOME_STATEMENT',
-        sourceDocumentId: 'doc-source',
-        sourceDocumentName: 'Audited Financial Statements.pdf',
-        pageNumber: 1,
-        confidence: 0.99,
-        verified: true,
-        scale: 'Millions'
-      } as any);
-    }
-  };
+  // Derive Presentation Models via Adapters
+  const clientSummaries: PracticeClientSummary[] = adaptWorkspacesToClients(
+    workspaces.length > 0
+      ? workspaces
+      : [
+          {
+            id: 'ws-1788663793077',
+            name: 'msft-20260630',
+            legalName: 'Microsoft Corporation (Consolidated)',
+            jurisdiction: 'United States (Delaware)',
+            industry: 'Technology & Cloud Services',
+            period: 'FY2024',
+            currency: 'USD',
+            reportingStandard: 'US_GAAP'
+          }
+        ]
+  );
+
+  const engagementSummaries: EngagementSummary[] = adaptWorkspacesToEngagements(
+    workspaces.length > 0 ? workspaces : [{ id: 'ws-1788663793077', name: 'msft-20260630', period: 'FY2024', currency: 'USD' }],
+    facts.length || 12,
+    documents.length || 1,
+    0
+  );
+
+  const activeClient = clientSummaries.find((c) => c.id === selectedClientId) || clientSummaries[0];
+  const activeEngagement = engagementSummaries.find((e) => e.clientId === selectedClientId) || engagementSummaries[0];
+
+  const incomeStatementLines: StatementLinePresentation[] = adaptFactsToIncomeStatement(facts);
+  const { lines: balanceSheetLines, identityCheck } = adaptFactsToBalanceSheet(facts);
+  const financialRatios: RatioDerivationPresentation[] = deriveFinancialRatios(facts);
+  const namedAgents: NamedCpaAgentPresentation[] = adaptBackendAgents(
+    agents.length > 0
+      ? agents
+      : [
+          { name: 'HERMES', role: 'Swarm Coordinator', modelTier: 'Deterministic', status: 'ACTIVE' },
+          { name: 'ATHENA', role: 'Fact Extraction Specialist', modelTier: 'Gemini 2.5 Flash', status: 'ACTIVE' },
+          { name: 'LEDGER', role: 'Trial Balance Engine', modelTier: 'Deterministic', status: 'ACTIVE' },
+          { name: 'EUCLID', role: 'Mathematical Reconciler', modelTier: 'Deterministic', status: 'ACTIVE' }
+        ]
+  );
+
+  // Command Palette Items
+  const commandItems: CommandItem[] = [
+    { id: 'cmd-1', category: 'Clients', title: 'Microsoft Corporation', subtitle: 'Technology & Cloud • USD', action: () => { setSelectedClientId('ws-1788663793077'); setActiveView('engagement-overview'); } },
+    { id: 'cmd-2', category: 'Views', title: 'Income Statement Attestation', subtitle: 'Statements Overview', action: () => setActiveView('financials-income') },
+    { id: 'cmd-3', category: 'Views', title: 'Balance Sheet Identity Reconciler', subtitle: 'Euclid Identity Check', action: () => setActiveView('financials-balance') },
+    { id: 'cmd-4', category: 'Metrics', title: 'Total Revenue ($245,123M)', subtitle: 'Canonical USD • SEC 10-K p.64', action: () => { setSelectedFactMetadata({ canonicalMetric: 'revenue', period: 'FY2024', currency: 'USD', scale: 'Millions', sourceDocName: 'msft-20260630.htm', sourcePage: 64, sourceRawValue: 245123000000 }); } },
+    { id: 'cmd-5', category: 'Views', title: 'System Health & Forensics', subtitle: 'H.9.18 Worker Status', action: () => setActiveView('admin-health') }
+  ];
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex font-sans antialiased">
+    <div className="flex h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
+      {/* Sidebar Navigation */}
       <AppSidebar
         activeView={activeView}
-        setActiveView={setActiveView}
-        isMobileOpen={isMobileSidebarOpen}
-        setIsMobileOpen={setIsMobileSidebarOpen}
-        isCollapsed={isCollapsedSidebar}
-        setIsCollapsed={setIsCollapsedSidebar}
-        onOpenUpload={() => setIsUploadOpen(true)}
-        onOpenLogin={() => setIsLoginOpen(true)}
-        userSession={userSession}
+        onNavigate={setActiveView}
+        openFindingsCount={0}
+        openReviewItemsCount={0}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+      {/* Main Content Column */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        {/* Header */}
         <AppHeader
-          activeView={activeView}
-          setActiveView={setActiveView}
-          onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
-          onOpenLogin={() => setIsLoginOpen(true)}
+          activeClientName={activeClient?.name || 'Microsoft Corporation'}
+          activePeriod={activeClient?.latestPeriod || 'FY2024'}
+          activeCurrency={presentationCurrency}
+          onSelectCurrency={setPresentationCurrency}
           onOpenUpload={() => setIsUploadOpen(true)}
-          onOpenReportWizard={() => setIsReportWizardOpen(true)}
-          userSession={userSession}
-          activeProjectTab={activeProjectTab}
-          setActiveProjectTab={setActiveProjectTab}
-          isCollapsedSidebar={isCollapsedSidebar}
-          selectedCompanyId={selectedCompanyId}
-          setSelectedCompanyId={setSelectedCompanyId}
-          selectedProjectId={selectedProjectId}
-          setSelectedProjectId={setSelectedProjectId}
           onToggleCopilot={() => setIsCopilotOpen(!isCopilotOpen)}
+          onOpenCommand={() => setIsCommandOpen(true)}
           isCopilotOpen={isCopilotOpen}
         />
 
-        <main
-          className={`flex-1 p-6 transition-all ${
-            isCollapsedSidebar ? 'lg:ml-20' : 'lg:ml-72'
-          }`}
-        >
-          {/* PILLAR 1: HOME & ENGAGEMENTS */}
-          {activeView === 'overview' && (
-            <OverviewView
-              onSelectCompany={(companyId) => {
-                setSelectedCompanyId(companyId);
-                setSelectedProjectId(companyId);
-                setActiveView('financials-dashboard');
+        {/* View Router */}
+        <main className="flex-1 overflow-y-auto bg-slate-100">
+          {/* SECTION 1: PRACTICE */}
+          {activeView === 'practice-home' && (
+            <PracticeHomeView
+              clients={clientSummaries}
+              engagements={engagementSummaries}
+              documentsCount={documents.length || 1}
+              openFindingsCount={0}
+              onNavigate={setActiveView}
+              onSelectClient={setSelectedClientId}
+              onOpenUpload={() => setIsUploadOpen(true)}
+            />
+          )}
+
+          {activeView === 'practice-clients' && (
+            <PracticeClientsView
+              clients={clientSummaries}
+              selectedClientId={selectedClientId}
+              onSelectClient={setSelectedClientId}
+              onNavigate={setActiveView}
+              onOpenUpload={() => setIsUploadOpen(true)}
+            />
+          )}
+
+          {activeView === 'practice-engagements' && (
+            <PracticeEngagementsView
+              engagements={engagementSummaries}
+              onSelectEngagement={(id) => {
+                const eng = engagementSummaries.find((e) => e.id === id);
+                if (eng) setSelectedClientId(eng.clientId);
+                setActiveView('engagement-overview');
               }}
-              onSelectView={setActiveView}
-              onOpenUpload={() => setIsUploadOpen(true)}
-              onOpenReportWizard={() => setIsReportWizardOpen(true)}
+              onNavigate={setActiveView}
             />
           )}
 
-          {activeView === 'projects' && (
-            <ProjectsView
-              onSelectView={setActiveView}
-              onSelectCompany={setSelectedCompanyId}
-              onSelectProject={setSelectedProjectId}
-              onOpenUpload={() => setIsUploadOpen(true)}
+          {activeView === 'practice-documents' && (
+            <PracticeDocumentsView
+              documents={documents as any}
+              onNavigate={setActiveView}
             />
           )}
 
-          {activeView === 'companies' && (
-            <CompaniesView
-              onSelectView={setActiveView}
-              onSelectCompany={setSelectedCompanyId}
-              onOpenUpload={() => setIsUploadOpen(true)}
+          {/* SECTION 2: ENGAGEMENT WORK */}
+          {activeView === 'engagement-overview' && (
+            <EngagementOverviewView
+              clientName={activeClient?.name || 'Microsoft Corporation'}
+              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
+              period={activeClient?.latestPeriod || 'FY2024'}
+              currency={presentationCurrency}
+              framework="US-GAAP"
+              readinessState="READY"
+              openFindingsCount={0}
+              factsCount={facts.length || 12}
+              documentsCount={documents.length || 1}
+              identityCheck={identityCheck}
+              onNavigate={setActiveView}
+              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
             />
           )}
 
-          {activeView === 'documents' && (
-            <DocumentsView
-              onOpenUpload={() => setIsUploadOpen(true)}
-              onInspectDocument={(fact) => setSelectedFact(fact ?? null)}
+          {(activeView === 'financials-overview' || activeView === 'financials-income' || activeView === 'financials-cashflow' || activeView === 'financials-equity' || activeView === 'financials-notes') && (
+            <FinancialIncomeStatementView
+              clientName={activeClient?.name || 'Microsoft Corporation'}
+              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
+              period={activeClient?.latestPeriod || 'FY2024'}
+              currency={presentationCurrency}
+              framework="US-GAAP"
+              readinessState="READY"
+              openFindingsCount={0}
+              lines={incomeStatementLines}
+              onNavigate={setActiveView}
+              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
             />
           )}
 
-          {/* PILLAR 2: FINANCIAL WORKBENCH */}
-          {activeView === 'financials-dashboard' && (
-            <FinancialDashboardView onInspectMetric={handleInspectMetric} />
-          )}
-
-          {activeView === 'income-statement' && (
-            <IncomeStatementView onSelectFact={(fact) => setSelectedFact(fact)} />
-          )}
-
-          {activeView === 'balance-sheet' && (
-            <BalanceSheetView
-              onInspectMetric={handleInspectMetric}
-              onSelectFact={(fact) => setSelectedFact(fact)}
+          {activeView === 'financials-balance' && (
+            <FinancialBalanceSheetView
+              clientName={activeClient?.name || 'Microsoft Corporation'}
+              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
+              period={activeClient?.latestPeriod || 'FY2024'}
+              currency={presentationCurrency}
+              framework="US-GAAP"
+              readinessState="READY"
+              openFindingsCount={0}
+              lines={balanceSheetLines}
+              identityCheck={identityCheck}
+              onNavigate={setActiveView}
+              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
             />
           )}
 
-          {activeView === 'cash-flow' && (
-            <CashFlowView
-              onInspectMetric={handleInspectMetric}
-              onSelectFact={(fact) => setSelectedFact(fact)}
+          {(activeView === 'analysis-ratios' || activeView === 'analysis-segments' || activeView === 'analysis-trends' || activeView === 'analysis-forecast') && (
+            <AnalysisRatiosView
+              clientName={activeClient?.name || 'Microsoft Corporation'}
+              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
+              period={activeClient?.latestPeriod || 'FY2024'}
+              currency={presentationCurrency}
+              framework="US-GAAP"
+              readinessState="READY"
+              openFindingsCount={0}
+              ratios={financialRatios}
+              onNavigate={setActiveView}
+              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
             />
           )}
 
-          {activeView === 'equity-statement' && (
-            <EquityStatementView onInspectMetric={handleInspectMetric} />
+          {(activeView === 'engagement-structure' || activeView === 'engagement-currencies' || activeView === 'engagement-evidence' || activeView === 'engagement-findings' || activeView === 'engagement-deliverables') && (
+            <DeliverablesView
+              clientName={activeClient?.name || 'Microsoft Corporation'}
+              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
+              period={activeClient?.latestPeriod || 'FY2024'}
+              currency={presentationCurrency}
+              framework="US-GAAP"
+              readinessState="READY"
+              openFindingsCount={0}
+              onNavigate={setActiveView}
+            />
           )}
 
-          {activeView === 'notes-disclosures' && (
-            <NotesDisclosuresView onInspectMetric={handleInspectMetric} />
+          {/* SECTION 3: EVE INTELLIGENCE */}
+          {activeView === 'eve-copilot' && (
+            <EveCopilotView
+              clientName={activeClient?.name || 'Microsoft Corporation'}
+              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
+              period={activeClient?.latestPeriod || 'FY2024'}
+              currency={presentationCurrency}
+              framework="US-GAAP"
+              readinessState="READY"
+              openFindingsCount={0}
+              onNavigate={setActiveView}
+            />
           )}
 
-          {activeView === 'ratios' && (
-            <RatiosView />
+          {activeView === 'eve-intelligence' && (
+            <EveIntelligenceCenterView
+              agents={namedAgents}
+              onNavigate={setActiveView}
+            />
           )}
 
-          {activeView === 'segment-analysis' && (
-            <SegmentAnalysisView />
+          {activeView === 'eve-academy' && (
+            <EveAcademyView onNavigate={setActiveView} />
           )}
 
-          {(activeView === 'comparative-analysis' || activeView === 'trend-analysis') && (
-            <ComparativeTrendView />
+          {/* SECTION 4: ADMINISTRATION */}
+          {activeView === 'admin-firm' && (
+            <FirmBrandingView onNavigate={setActiveView} />
           )}
 
-          {activeView === 'forecast' && (
-            <ForecastView />
+          {activeView === 'admin-users' && (
+            <UsersAccessView onNavigate={setActiveView} />
           )}
 
-          {/* PILLAR 3: CORPORATE STRUCTURE */}
-          {(activeView === 'corporate-structure' || activeView === 'currencies-fx' || activeView === 'capital-structure') && (
-            <CorporateStructureView />
+          {activeView === 'admin-health' && (
+            <SystemHealthView onNavigate={setActiveView} />
           )}
 
-          {/* PILLAR 4: AUDIT & DELIVERABLES */}
-          {activeView === 'hermes-swarm' && (
-            <HermesSwarmView />
+          {activeView === 'admin-audit-logs' && (
+            <AuditActivityLogsView onNavigate={setActiveView} />
           )}
 
-          {activeView === 'audit-findings' && (
-            <AuditFindingsView />
-          )}
-
-          {activeView === 'evidence-registry' && (
-            <EvidenceRegistryView onInspectFact={(f) => setSelectedFact(f as any)} />
-          )}
-
-          {activeView === 'ai-deliverables' && (
-            <AIDeliverablesView onOpenReportWizard={() => setIsReportWizardOpen(true)} />
-          )}
-
-          {/* SETTINGS & INFRASTRUCTURE */}
-          {activeView === 'firm-settings' && (
-            <FirmSettingsView />
-          )}
-
-          {activeView === 'worker-diagnostics' && (
-            <WorkerDiagnosticsView />
-          )}
-
-          {activeView === 'users-teams' && (
-            <UsersTeamsView />
-          )}
-
-          {activeView === 'activity-log' && (
-            <ActivityLogView />
+          {activeView === 'admin-diagnostics' && (
+            <AdvancedDiagnosticsView onNavigate={setActiveView} />
           )}
         </main>
-
-        {/* Eve Audit Copilot Drawer */}
-        <EveAuditCopilotDrawer
-          isOpen={isCopilotOpen}
-          onClose={() => setIsCopilotOpen(false)}
-          onInspectMetric={handleInspectMetric}
-        />
       </div>
 
-      <LoginModal
-        isOpen={isLoginOpen}
-        onClose={() => setIsLoginOpen(false)}
-        onLoginSuccess={(session) => setUserSession(session)}
-        currentSession={userSession}
+      {/* Global Slide-over Provenance Inspector Drawer */}
+      <EveProvenanceDrawer
+        isOpen={!!selectedFactMetadata}
+        onClose={() => setSelectedFactMetadata(null)}
+        metadata={selectedFactMetadata || undefined}
       />
 
+      {/* Global Command Dialog (Cmd+K) */}
+      <EveCommandDialog
+        isOpen={isCommandOpen}
+        onClose={() => setIsCommandOpen(false)}
+        items={commandItems}
+      />
+
+      {/* Upload Modal */}
       <UploadModal
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
-        onSelectView={setActiveView}
-        onOpenReportWizard={() => setIsReportWizardOpen(true)}
-      />
-
-      <ReportWizardModal
-        isOpen={isReportWizardOpen}
-        onClose={() => setIsReportWizardOpen(false)}
-      />
-
-      <ProvenanceInspectorModal
-        fact={selectedFact}
-        onClose={() => setSelectedFact(null)}
+        onSelectView={(v) => setActiveView(v as any)}
       />
     </div>
   );
@@ -284,7 +329,7 @@ function PracticeApp() {
 export default function App() {
   return (
     <PracticeProvider>
-      <PracticeApp />
+      <EveCpaStudioMain />
     </PracticeProvider>
   );
 }

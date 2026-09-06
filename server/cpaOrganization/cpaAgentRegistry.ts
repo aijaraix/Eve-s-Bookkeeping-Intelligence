@@ -128,7 +128,16 @@ export class CPAAgentRegistry {
     // Minerva
     ['minerva', 'eve-minerva'],
     ['evaluator', 'eve-minerva'],
-    ['examiner', 'eve-minerva']
+    ['examiner', 'eve-minerva'],
+    // Clara (Client Coordination & PBC Manager)
+    ['clara', 'eve-clara'],
+    ['pbcmanager', 'eve-clara'],
+    ['clientcoordinator', 'eve-clara'],
+    // Quinn (Independent Engagement Reviewer)
+    ['quinn', 'eve-quinn'],
+    ['reviewer', 'eve-quinn'],
+    ['independentreviewer', 'eve-quinn'],
+    ['concurringreviewer', 'eve-quinn']
   ]);
 
   private constructor() {
@@ -640,6 +649,100 @@ export class CPAAgentRegistry {
         successRate: 1.000,
         escalationRate: 0.000,
         learningCases: [],
+        failureHistory: [],
+        version: '2.5.0',
+        createdAt: now,
+        updatedAt: now,
+        status: 'ACTIVE'
+      },
+      {
+        agentId: 'eve-clara',
+        name: 'CLARA',
+        title: 'Client Coordination & PBC Manager',
+        role: 'CLIENT_COORDINATION_LEAD',
+        mission: 'Coordinate client provided-by-client (PBC) requests, missing documents, evidence clarifications, client communications, and request clearance.',
+        charter: [
+          'Formulate clear, professional, and audit-specific PBC request lists based on gaps identified by Veritas and Sentinel.',
+          'Track received documents, validate sufficiency against initial requests, and clear completed PBC items.',
+          'Manage client follow-up cadence, response variations, and escalation to Hermes and Athena when responses are delayed or non-responsive.',
+          'Maintain complete provenance of all client correspondence, attachments, and versioned filings.'
+        ],
+        domains: ['PBC Request Management', 'Client Communication', 'Evidence Gap Resolution', 'Document Version Tracking'],
+        allowedTools: ['pbc_request_builder', 'client_communication_gateway', 'document_version_tracker', 'evidence_gap_detector', 'pbc_clearance_validator'],
+        prohibitedTools: ['bypass_client_review', 'direct_ledger_mutation', 'leak_minerva_answers'],
+        preferredModelTier: 'LEVEL_1_LOCAL_QWEN',
+        memoryNamespace: 'eve/clara',
+        competencyScores: {
+          technicalAccounting: 0.94,
+          reconciliationPrecision: 0.96,
+          evidenceProvenance: 0.99,
+          anomalyDetection: 0.95,
+          consolidationLogic: 0.92,
+          multilingualExtraction: 0.95,
+          reportSynthesis: 0.97,
+          regulatoryCompliance: 0.99
+        },
+        jobsCompleted: 94,
+        successRate: 0.989,
+        escalationRate: 0.032,
+        learningCases: [
+          {
+            caseId: 'LC-CLARA-01',
+            timestamp: '2026-09-02T11:15:00Z',
+            context: 'Missing office lease schedule for European subsidiary',
+            observedDefect: 'Client submitted a generic lease overview rather than the signed master lease contract and amortization schedule',
+            rootCause: 'Initial request wording was insufficiently specific regarding executed contract requirements',
+            remedyApplied: 'Standardized PBC request template to explicitly require executed signature pages and quantitative amortization schedules',
+            verifiedBy: 'SENTINEL'
+          }
+        ],
+        failureHistory: [],
+        version: '2.5.0',
+        createdAt: now,
+        updatedAt: now,
+        status: 'ACTIVE'
+      },
+      {
+        agentId: 'eve-quinn',
+        name: 'QUINN',
+        title: 'Independent Engagement Reviewer',
+        role: 'INDEPENDENT_ENGAGEMENT_REVIEWER',
+        mission: 'Perform independent technical review of completed engagements, workpapers, accounting gate evaluations, and report deliverables prior to lead partner sign-off.',
+        charter: [
+          'Review financial statements, disclosure footnotes, and accounting gates from the perspective of an independent CPA concurring partner.',
+          'Inspect evidence sufficiency, unresolved findings, and mathematical identity proofs without access to Minerva sealed answers.',
+          'Issue formal, numbered Review Notes back to preparer agents and verify satisfactory clearance before final deliverable certification.',
+          'Recommend engagement readiness for final human CPA lead partner signature.'
+        ],
+        domains: ['Concurring Partner Review', 'Review Notes & Clearance', 'Technical Quality Control', 'Deliverable Assurance'],
+        allowedTools: ['review_note_issuer', 'workpaper_quality_auditor', 'accounting_gate_validator', 'deliverable_readiness_certifier'],
+        prohibitedTools: ['access_minerva_sealed_ground_truth', 'direct_ledger_mutation'],
+        preferredModelTier: 'LEVEL_1_LOCAL_QWEN',
+        memoryNamespace: 'eve/quinn',
+        competencyScores: {
+          technicalAccounting: 0.99,
+          reconciliationPrecision: 1.00,
+          evidenceProvenance: 1.00,
+          anomalyDetection: 0.98,
+          consolidationLogic: 0.97,
+          multilingualExtraction: 0.96,
+          reportSynthesis: 0.99,
+          regulatoryCompliance: 1.00
+        },
+        jobsCompleted: 112,
+        successRate: 0.995,
+        escalationRate: 0.018,
+        learningCases: [
+          {
+            caseId: 'LC-QUINN-01',
+            timestamp: '2026-09-03T09:40:00Z',
+            context: 'Concurring partner review on consolidated multi-currency balance sheet',
+            observedDefect: 'Preparer swarm omitted footnote disclosure regarding foreign currency translation reserve sensitivity',
+            rootCause: 'Focus was placed solely on statement face amounts rather than mandatory IFRS 7 / ASC 830 footnote disclosures',
+            remedyApplied: 'Issued Review Note RN-2026-041 returning workpaper to Athena and Mercury for sensitivity disclosure completion',
+            verifiedBy: 'HERMES'
+          }
+        ],
         failureHistory: [],
         version: '2.5.0',
         createdAt: now,

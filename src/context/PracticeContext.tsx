@@ -53,6 +53,7 @@ export interface PracticeContextType {
 
   // Companies & Workspaces
   companies: CompanyEntity[];
+  workspaces: CompanyEntity[];
   selectedCompanyId: string;
   setSelectedCompanyId: (id: string) => void;
   selectedCompany: CompanyEntity;
@@ -81,6 +82,7 @@ export interface PracticeContextType {
   // Hermes Swarm
   swarmStatus: any;
   swarmAgents: SwarmAgentStatus[];
+  agents: SwarmAgentStatus[];
   isSwarmRunning: boolean;
   runSwarmPass: () => Promise<void>;
 
@@ -394,6 +396,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
         userSession,
         setUserSession,
         companies,
+        workspaces: companies,
         selectedCompanyId,
         setSelectedCompanyId,
         selectedCompany,
@@ -414,6 +417,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
         auditLogs,
         swarmStatus,
         swarmAgents,
+        agents: swarmAgents,
         isSwarmRunning,
         runSwarmPass,
         queueJobs,

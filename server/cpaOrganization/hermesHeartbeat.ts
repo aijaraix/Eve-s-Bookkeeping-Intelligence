@@ -22,6 +22,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { observatoryEventLedger } from './observatoryEventLedger.js';
 
 export interface PersistentHeartbeatState {
   lastHeartbeatAt: string;
@@ -249,6 +250,30 @@ export class HermesHeartbeat {
 
     // 4. Durably persist state
     this.persistState();
+
+    // 5. Record real heartbeat in Observatory Event Ledger
+    try {
+      observatoryEventLedger.recordEvent({
+        timestamp: this.state.lastHeartbeatAt,
+        eventType: 'HEARTBEAT',
+        sourceType: 'AGENT',
+        sourceId: 'eve-hermes',
+        targetType: 'SERVICE',
+        targetId: 'ORGANISM_CORTEX',
+        summary: `Hermes Heartbeat #${this.state.heartbeatSequence}: State ${this.state.academyState}. Priority Queue ${this.state.customerQueueState.pendingJobs} jobs. RAM ${this.state.resourceSnapshot.ramFreeMb}MB free.`,
+        structuredMetadata: {
+          heartbeatSequence: this.state.heartbeatSequence,
+          academyState: this.state.academyState,
+          customerJobsPending: this.state.customerQueueState.pendingJobs,
+          lastDecision: this.state.lastDecision,
+          resourceSnapshot: this.state.resourceSnapshot
+        },
+        status: 'SUCCESS',
+        severity: 'INFO'
+      });
+    } catch {
+      // Non-blocking
+    }
   }
 
   private async checkInfrastructureHealth() {
@@ -528,6 +553,10 @@ export class HermesHeartbeat {
       ],
       preemptionTimeline: this.preemptionEvents.slice(-6)
     };
+  }
+
+  public getState(): PersistentHeartbeatState {
+    return { ...this.state };
   }
 
   public async getStatus(): Promise<any> {

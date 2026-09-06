@@ -1,7 +1,7 @@
 {
-  "lastHeartbeatAt": "2026-09-06T03:23:39.590Z",
-  "nextHeartbeatAt": "2026-09-06T03:24:09.590Z",
-  "heartbeatSequence": 163,
+  "lastHeartbeatAt": "2026-09-06T05:05:17.107Z",
+  "nextHeartbeatAt": "2026-09-06T05:05:47.107Z",
+  "heartbeatSequence": 370,
   "academyState": "IDLE",
   "currentCaseId": null,
   "currentStage": null,
@@ -17,9 +17,9 @@
       0,
       0
     ],
-    "ramFreeMb": 3342,
+    "ramFreeMb": 3343,
     "ramTotalMb": 4096,
-    "ramUsageMb": 89,
+    "ramUsageMb": 82,
     "diskFreeGb": 755,
     "diskTotalGb": 756,
     "hardwareProfile": "EVE-NODE: 4 vCPU, 16 GB RAM (CPU-only, no GPU)"
@@ -28,7 +28,7 @@
   "failureCount": 0,
   "cooldownUntil": null,
   "lastDecision": {
-    "timestamp": "2026-09-06T03:23:39.603Z",
+    "timestamp": "2026-09-06T05:05:17.197Z",
     "action": "START_NEW_CASE",
     "reason": "System capacity optimal (4 vCPU, 16 GB RAM healthy). Ready to execute next Academy benchmark."
   },
@@ -52,7 +52,7 @@
     "extractionWorker": {
       "url": "http://eve-s-bookkeeping-intelligence.zeabur.internal:8080",
       "verified": true,
-      "latencyMs": 5
+      "latencyMs": 73
     }
   }
 }
