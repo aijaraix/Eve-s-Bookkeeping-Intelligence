@@ -21,6 +21,8 @@ export const ObservatoryTimeline: React.FC<ObservatoryTimelineProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const filteredEvents = events.filter(e => {
+    if (filterType === 'FULL_PRACTICE' && e.executionMode !== 'FULL_PRACTICE' && e.eventReality !== 'REAL_OPERATION' && !e.summary.includes('[FULL_PRACTICE]')) return false;
+    if (filterType === 'FAST_REGRESSION' && e.executionMode !== 'FAST_REGRESSION' && e.eventReality !== 'FAST_REGRESSION' && !e.summary.includes('[FAST_REGRESSION]')) return false;
     if (filterType === 'HEARTBEATS' && e.eventType !== 'HEARTBEAT') return false;
     if (filterType === 'AGENTS' && !['AGENT_ACTIVATED', 'AGENT_COMPLETED', 'AGENT_HANDOFF', 'TASK_COMPLETED'].includes(e.eventType)) return false;
     if (filterType === 'PBC' && !['PBC_REQUEST_CREATED', 'PBC_RESPONSE_RECEIVED', 'PBC_CLEARED'].includes(e.eventType)) return false;
@@ -35,6 +37,7 @@ export const ObservatoryTimeline: React.FC<ObservatoryTimelineProps> = ({
         e.summary.toLowerCase().includes(q) ||
         e.eventType.toLowerCase().includes(q) ||
         e.sourceId.toLowerCase().includes(q) ||
+        (e.executionMode && e.executionMode.toLowerCase().includes(q)) ||
         (e.targetId && e.targetId.toLowerCase().includes(q)) ||
         (e.engagementId && e.engagementId.toLowerCase().includes(q))
       );
@@ -78,6 +81,8 @@ export const ObservatoryTimeline: React.FC<ObservatoryTimelineProps> = ({
         <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px] font-mono">
           {[
             { id: 'ALL', label: 'All' },
+            { id: 'FULL_PRACTICE', label: 'Full Practice' },
+            { id: 'FAST_REGRESSION', label: 'Fast Regression' },
             { id: 'HEARTBEATS', label: 'Heartbeats' },
             { id: 'AGENTS', label: 'Agents' },
             { id: 'PBC', label: 'PBC Client' },
@@ -149,6 +154,16 @@ export const ObservatoryTimeline: React.FC<ObservatoryTimelineProps> = ({
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border uppercase tracking-wider ${badgeColor}`}>
                       {evt.eventType.replace(/_/g, ' ')}
                     </span>
+                    {(evt.executionMode === 'FULL_PRACTICE' || evt.eventReality === 'REAL_OPERATION' || evt.summary.includes('[FULL_PRACTICE]')) && (
+                      <span className="px-1.5 py-0.2 rounded text-[8px] font-bold border uppercase tracking-wider bg-emerald-950/60 text-emerald-300 border-emerald-600/50">
+                        Full Practice
+                      </span>
+                    )}
+                    {(evt.executionMode === 'FAST_REGRESSION' || evt.eventReality === 'FAST_REGRESSION' || evt.summary.includes('[FAST_REGRESSION]')) && (
+                      <span className="px-1.5 py-0.2 rounded text-[8px] font-bold border uppercase tracking-wider bg-sky-950/60 text-sky-300 border-sky-600/50">
+                        Regression
+                      </span>
+                    )}
                   </div>
                   <span className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">
                     {evt.sourceId.replace('eve-', '')}

@@ -95,6 +95,15 @@ export interface SyntheticClientPersona {
   email: string;
   responsiveness: 'COOPERATIVE' | 'PARTIAL' | 'DELAYED' | 'CONFUSED';
   privateInstructions: string; // Sealed from solver team
+  clientName?: string;
+  primaryContact?: string;
+  contactEmail?: string;
+  industry?: string;
+  accountingFramework?: string;
+  tone?: string;
+  accountingSophistication?: string;
+  recordsQuality?: string;
+  privateScenarioInstructions?: string;
 }
 
 export interface EngagementMateriality {
@@ -137,6 +146,7 @@ export interface EngagementTwin {
     version: string;
     supersededVersion?: string;
     sha256: string;
+    sizeBytes?: number;
     uploadedAt: string;
   }>;
   changeImpactHistory: Array<{
@@ -327,6 +337,78 @@ export class SyntheticEngagementEngine {
     };
 
     this.twins.set(engagementId, twin);
+  }
+
+  public createPracticeTwin(params: {
+    engagementId: string;
+    clientName: string;
+    persona: SyntheticClientPersona;
+    materiality?: Partial<EngagementMateriality>;
+  }): EngagementTwin {
+    const now = new Date().toISOString();
+    const newTwin: EngagementTwin = {
+      twinId: `twin-${params.engagementId}`,
+      engagementId: params.engagementId,
+      clientName: params.clientName,
+      persona: params.persona,
+      currentStage: 'ONBOARDING',
+      stageHistory: [{ stage: 'ONBOARDING', timestamp: now }],
+      pbcRequests: [],
+      reviewNotes: [],
+      materiality: {
+        overallMateriality: params.materiality?.overallMateriality || 2000000,
+        performanceMateriality: params.materiality?.performanceMateriality || 1500000,
+        clearlyTrivialThreshold: params.materiality?.clearlyTrivialThreshold || 100000,
+        accountSpecificMateriality: params.materiality?.accountSpecificMateriality || {},
+        currency: params.materiality?.currency || 'USD'
+      },
+      documentVersions: [],
+      changeImpactHistory: [],
+      capabilityRequests: []
+    };
+    this.twins.set(params.engagementId, newTwin);
+    return newTwin;
+  }
+
+  public recordMinervaScore(engagementId: string, score: NonNullable<EngagementTwin['minervaScore']>) {
+    const twin = this.getEngagementTwin(engagementId);
+    if (twin) {
+      twin.minervaScore = score;
+    }
+  }
+
+  public addDocumentVersion(engagementId: string, doc: {
+    documentId: string;
+    title: string;
+    version: string;
+    supersededVersion?: string;
+    sha256: string;
+    sizeBytes?: number;
+    uploadedAt?: string;
+  }) {
+    const twin = this.getEngagementTwin(engagementId);
+    if (twin) {
+      twin.documentVersions.push({
+        ...doc,
+        uploadedAt: doc.uploadedAt || new Date().toISOString()
+      });
+    }
+  }
+
+  public addChangeImpact(engagementId: string, impact: {
+    trigger: string;
+    affectedFactsCount: number;
+    affectedRatiosCount: number;
+    affectedChartsCount: number;
+    affectedReportsCount: number;
+  }) {
+    const twin = this.getEngagementTwin(engagementId);
+    if (twin) {
+      twin.changeImpactHistory.push({
+        timestamp: new Date().toISOString(),
+        ...impact
+      });
+    }
   }
 
   public getEngagementTwin(engagementId: string): EngagementTwin | undefined {

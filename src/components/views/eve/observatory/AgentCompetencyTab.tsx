@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, ShieldCheck, CheckCircle2, Award, Zap, Layers, AlertCircle, ArrowRight } from 'lucide-react';
+import { Bot, ShieldCheck, CheckCircle2, Award, Zap, Layers, AlertCircle, ArrowRight, Activity, TrendingUp } from 'lucide-react';
 import { ObservatoryAgent } from './ObservatoryTypes';
 
 export interface AgentCompetencyTabProps {
@@ -20,13 +20,13 @@ export const AgentCompetencyTab: React.FC<AgentCompetencyTabProps> = ({
       {/* Header Banner */}
       <div className="p-5 bg-slate-900/80 rounded-2xl border border-slate-800 shadow-xl space-y-2">
         <span className="text-[10px] font-mono uppercase text-indigo-400 font-bold tracking-wider block">
-          CPA Swarm Competency & Charters
+          CPA Swarm Competency Architecture
         </span>
         <h3 className="text-base font-bold text-white">
-          Individual Specialization, Zero-Tolerance Policies & Capability Profiles
+          Empirical Measured Performance vs. Baseline Charter Priors
         </h3>
         <p className="text-xs text-slate-400 leading-relaxed">
-          Each of the 15 autonomous agents operates under an immutable charter, strict tool whitelists, and continuous dimensional scoring across synthetic academy iterations.
+          Zero-tolerance truth protocol: Baseline charter dimensions establish theoretical specializations, while measured runtime statistics track actual Academy cycle execution and verified operational precision.
         </p>
       </div>
 
@@ -114,13 +114,54 @@ export const AgentCompetencyTab: React.FC<AgentCompetencyTabProps> = ({
               </div>
             </div>
 
-            {/* Competency Dimensions */}
-            {selectedAgent.competencyScores && (
-              <div className="p-5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3 font-mono text-xs">
-                <h4 className="font-bold text-white uppercase text-xs tracking-wider flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-cyan-400" />
-                  Measured Competency Dimensions (0.0 - 1.0)
+            {/* SECTION 1: MEASURED EMPIRICAL OPERATIONAL METRICS */}
+            <div className="p-5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-4 font-mono text-xs">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h4 className="font-bold text-emerald-400 uppercase text-xs tracking-wider flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  MEASURED: Empirical Operational Metrics
                 </h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
+                  REAL RUNTIME STATS
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Jobs Executed</span>
+                  <span className="text-lg font-bold text-white">{selectedAgent.jobsCompleted || 0}</span>
+                </div>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Success Rate</span>
+                  <span className="text-lg font-bold text-emerald-400">
+                    {Math.round((selectedAgent.successRate || 1.0) * 100)}%
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Escalation Rate</span>
+                  <span className="text-lg font-bold text-indigo-300">
+                    {Math.round((selectedAgent.escalationRate || 0.0) * 100)}%
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Learning Cases</span>
+                  <span className="text-lg font-bold text-cyan-300">{selectedAgent.learningCases?.length || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 2: BASELINE CHARTER PRIORS */}
+            {selectedAgent.competencyScores && (
+              <div className="p-5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-4 font-mono text-xs">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <h4 className="font-bold text-cyan-400 uppercase text-xs tracking-wider flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-cyan-400" />
+                    BASELINE: Charter Specialization Priors (0.0 - 1.0)
+                  </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                    IMMUTABLE SPEC
+                  </span>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {Object.entries(selectedAgent.competencyScores).map(([dim, val]) => {

@@ -1,0 +1,38 @@
+{
+  "lastSavedAt": "2026-09-06T10:02:52.136Z",
+  "lastSelectedSequenceIndex": 0,
+  "cases": [
+    {
+      "caseId": "ACADEMY-CASE-001",
+      "lastRunAt": "2026-09-06T10:02:52.136Z",
+      "executionCount": 2,
+      "recentFailures": 0,
+      "lastMode": "FAST_REGRESSION"
+    },
+    {
+      "caseId": "ACADEMY-CASE-002",
+      "lastRunAt": null,
+      "executionCount": 0,
+      "recentFailures": 0
+    },
+    {
+      "caseId": "ACADEMY-CASE-003",
+      "lastRunAt": null,
+      "executionCount": 0,
+      "recentFailures": 0
+    },
+    {
+      "caseId": "ACADEMY-CASE-004",
+      "lastRunAt": null,
+      "executionCount": 0,
+      "recentFailures": 0
+    },
+    {
+      "caseId": "ACADEMY-CANARY-01",
+      "lastRunAt": "2026-09-06T10:02:52.106Z",
+      "executionCount": 2,
+      "recentFailures": 0,
+      "lastMode": "FULL_PRACTICE"
+    }
+  ]
+}

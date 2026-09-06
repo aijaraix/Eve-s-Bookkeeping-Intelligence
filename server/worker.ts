@@ -53,7 +53,40 @@ function requireWorkerAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// In-memory worker job registry with file persistence
+// In-memory worker job registry with durable file persistence
+const WORKER_JOBS_FILE = process.env.WORKER_JOBS_FILE || path.join(process.cwd(), "storage", "worker_jobs.json");
+
+export function saveWorkerJobsToDisk(): void {
+  try {
+    const storageDir = path.dirname(WORKER_JOBS_FILE);
+    if (!fs.existsSync(storageDir)) {
+      fs.mkdirSync(storageDir, { recursive: true });
+    }
+    const jobsArray = Array.from(workerJobs.values());
+    fs.writeFileSync(WORKER_JOBS_FILE, JSON.stringify(jobsArray, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[Worker] Error persisting worker jobs to disk:", err);
+  }
+}
+
+function loadWorkerJobsFromDisk(): void {
+  try {
+    if (fs.existsSync(WORKER_JOBS_FILE)) {
+      const content = fs.readFileSync(WORKER_JOBS_FILE, "utf-8");
+      const parsed: WorkerJob[] = JSON.parse(content);
+      if (Array.isArray(parsed)) {
+        for (const job of parsed) {
+          if (job.jobId) {
+            workerJobs.set(job.jobId, job);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[Worker] Error loading worker jobs from disk:", err);
+  }
+}
+
 export interface WorkerJob {
   jobId: string;
   intakeSessionId?: string;
@@ -120,6 +153,7 @@ export interface WorkerJob {
 }
 
 const workerJobs = new Map<string, WorkerJob>();
+loadWorkerJobsFromDisk();
 const router = new FileRouter();
 const anyDocParser = new AnyDocParser();
 const spreadsheetParser = new SpreadsheetParser();
@@ -545,6 +579,7 @@ async function executeWorkerExtraction(job: WorkerJob) {
     job.currentStage = "Deterministic extraction and accounting reconciliation completed";
     job.progress = 100;
     job.completedAt = new Date().toISOString();
+    saveWorkerJobsToDisk();
 
     console.log(`[Worker] Job ${job.jobId} completed successfully with ${facts.length} facts normalized.`);
   } catch (err: any) {
@@ -552,6 +587,7 @@ async function executeWorkerExtraction(job: WorkerJob) {
     job.status = "FAILED";
     job.lastError = err.message || "Deterministic extraction failed";
     job.currentStage = `Extraction failed: ${job.lastError}`;
+    saveWorkerJobsToDisk();
   }
 }
 

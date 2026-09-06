@@ -19,6 +19,7 @@ export type ObservatoryEventType =
   | 'ACADEMY_SLEEP'
   | 'ACADEMY_CASE_SCHEDULED'
   | 'ACADEMY_CASE_STARTED'
+  | 'ACADEMY_CASE_COMPLETED'
   | 'ACADEMY_CHECKPOINTED'
   | 'ACADEMY_RESUMED'
   | 'CUSTOMER_JOB_RECEIVED'
@@ -89,7 +90,7 @@ export interface ObservatoryEvent {
   eventId: string;
   timestamp: string;
   eventType: ObservatoryEventType;
-  sourceType: 'AGENT' | 'SERVICE' | 'CLIENT' | 'PIPELINE' | 'SCHEDULER' | 'EXTERNAL';
+  sourceType: 'AGENT' | 'SERVICE' | 'CLIENT' | 'SYNTHETIC_CLIENT' | 'PIPELINE' | 'SCHEDULER' | 'EXTERNAL';
   sourceId: string;
   targetType?: 'AGENT' | 'SERVICE' | 'CLIENT' | 'PIPELINE' | 'SCHEDULER' | 'EXTERNAL';
   targetId?: string;
@@ -110,6 +111,8 @@ export interface ObservatoryEvent {
   durationMs?: number;
   status: 'SUCCESS' | 'IN_PROGRESS' | 'FAILED' | 'PENDING' | 'CLEARED';
   severity: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'SUCCESS';
+  eventReality?: 'REAL_OPERATION' | 'REAL_OPERATION_SUMMARY' | 'FAST_REGRESSION' | 'SYNTHETIC_CLIENT_EVENT' | 'SYSTEM_HEALTH';
+  executionMode?: 'FAST_REGRESSION' | 'FULL_PRACTICE';
 }
 
 export class ObservatoryEventLedger {

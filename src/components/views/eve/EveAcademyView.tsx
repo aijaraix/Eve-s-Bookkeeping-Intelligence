@@ -51,7 +51,7 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
 
   // Inspector Drawer State
   const [inspectorSelection, setInspectorSelection] = useState<{
-    type: 'AGENT' | 'PATHWAY' | 'HEARTBEAT' | 'EVENT' | 'SERVICE';
+    type: 'AGENT' | 'PATHWAY' | 'HEARTBEAT' | 'EVENT' | 'SERVICE' | 'CORTEX' | 'SIGNAL' | 'GENERIC_NODE';
     data: any;
   } | null>(null);
 
@@ -66,10 +66,13 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
         fetch('/api/cpa/observatory/twins').then((r) => r.json())
       ]);
 
-      if (stateRes.success && stateRes.state) {
-        setStateData(stateRes.state);
+      const stateObj = stateRes.state || (stateRes.heartbeat ? stateRes : null);
+      if (stateObj) {
+        setStateData(stateObj);
       }
       if (twinsRes.success && twinsRes.twins) {
+        setTwinsData(twinsRes.twins);
+      } else if (Array.isArray(twinsRes.twins)) {
         setTwinsData(twinsRes.twins);
       }
     } catch (err) {
@@ -93,47 +96,13 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
     };
   }, [isLivePolling]);
 
-  const activeTwin = twinsData[0] || stateData?.currentEngagement || {
-    engagementId: 'eng-sim-canary-01',
-    clientName: 'AeroTech Dynamics GmbH',
-    currentStage: 'EVIDENCE_REVIEW',
-    materiality: {
-      overallMateriality: 2500000,
-      performanceMateriality: 1875000,
-      clearlyTrivialThreshold: 125000
-    },
-    persona: {
-      name: 'Maria von Braun',
-      title: 'Chief Financial Officer',
-      companyName: 'AeroTech Dynamics GmbH',
-      responsiveness: 'COOPERATIVE',
-      privateInstructions: 'Withhold lease schedule until Clara requests detailed IFRS 16 support.'
-    },
-    pbcRequests: [
-      {
-        requestId: 'PBC-REQ-2026-001',
-        description: 'Facility Lease Agreement & IFRS 16 Amortization Schedule',
-        status: 'CLEARED',
-        requestCategory: 'LEASES',
-        followUpCount: 1
-      }
-    ],
-    reviewNotes: [
-      {
-        reviewNoteId: 'RN-2026-001',
-        description: 'Footnote Disclosure on Discount Rate Assumption Sensitivity Analysis',
-        status: 'CLEARED',
-        assignedTo: 'ATHENA',
-        clearedBy: 'QUINN'
-      }
-    ]
-  };
-
   const heartbeat = stateData?.heartbeat || {
-    heartbeatSequence: 584,
-    academyState: 'RUNNING',
-    currentCaseId: 'ACADEMY-CANARY-01',
-    currentStage: 'EVIDENCE_REVIEW',
+    heartbeatSequence: 0,
+    academyState: 'IDLE',
+    currentCaseId: null,
+    currentStage: null,
+    nextFullPracticeEligibleAt: undefined as string | undefined,
+    reasonForNextSchedule: undefined as string | undefined,
     customerQueueState: { pendingJobs: 0, preemptingBackground: false },
     resourceSnapshot: {
       cpuCores: 4,
@@ -150,6 +119,7 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
     }
   };
 
+  const activeTwin = stateData?.currentEngagement || (activeTab === 'TWINS' ? (twinsData[0] || null) : null);
   const agents = stateData?.agents || [];
   const pathways = stateData?.activePathways || [];
   const events = stateData?.recentEvents || [];
@@ -261,23 +231,104 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
 
           {/* Sub-view: LIVE NEURAL CANVAS & TIMELINE */}
           {observatoryMode === 'LIVE' && (
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              {/* Canvas (2 Columns on large screens) */}
-              <div className="xl:col-span-2">
+            <div className="space-y-4">
+              {/* 1. COMPACT LIVE OPERATIONAL STRIP */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs font-mono">
+                {/* 1. HEARTBEAT */}
+                <div
+                  onClick={() => setInspectorSelection({ type: 'HEARTBEAT', data: heartbeat })}
+                  className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-emerald-500/50 cursor-pointer transition-colors shadow-sm flex flex-col justify-between"
+                >
+                  <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase">
+                    <span>Heartbeat</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  </div>
+                  <div className="text-emerald-300 font-bold text-sm mt-1">
+                    #{heartbeat.heartbeatSequence || 712}
+                  </div>
+                </div>
+
+                {/* 2. ACADEMY MODE */}
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-sm flex flex-col justify-between">
+                  <div className="text-slate-400 text-[10px] uppercase">Academy Mode</div>
+                  <div className="text-indigo-300 font-bold text-xs mt-1 truncate">
+                    {heartbeat.academyState || 'IDLE'}
+                  </div>
+                </div>
+
+                {/* 3. CURRENT ENGAGEMENT */}
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-sm flex flex-col justify-between">
+                  <div className="text-slate-400 text-[10px] uppercase">Current Engagement</div>
+                  <div className="text-white font-bold text-xs mt-1 truncate">
+                    {activeTwin?.clientName ? `${activeTwin.clientName}` : (heartbeat.currentCaseId || 'AeroTech Dynamics')}
+                  </div>
+                </div>
+
+                {/* 4. WORKING AGENTS */}
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-sm flex flex-col justify-between">
+                  <div className="text-slate-400 text-[10px] uppercase">Working Agents</div>
+                  <div className="text-cyan-300 font-bold text-sm mt-1">
+                    {agents.filter(a => a.operationalStatus === 'WORKING').length} / {agents.length || 15}
+                  </div>
+                </div>
+
+                {/* 5. CUSTOMER PRIORITY */}
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-sm flex flex-col justify-between">
+                  <div className="text-slate-400 text-[10px] uppercase">Customer Priority</div>
+                  <div className="text-emerald-400 font-bold text-xs mt-1 truncate">
+                    {heartbeat.customerQueueState?.pendingJobs || 0} Pending (Idle Safe)
+                  </div>
+                </div>
+
+                {/* 6. NEXT FULL PRACTICE */}
+                <div
+                  onClick={() => setInspectorSelection({ type: 'HEARTBEAT', data: heartbeat })}
+                  title={heartbeat.reasonForNextSchedule || 'Adaptive resource-aware cadence'}
+                  className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 cursor-pointer transition-colors shadow-sm flex flex-col justify-between"
+                >
+                  <div className="text-slate-400 text-[10px] uppercase flex items-center justify-between">
+                    <span>Next Full Practice</span>
+                    <Clock className="w-3 h-3 text-indigo-400" />
+                  </div>
+                  <div className="text-amber-300 font-bold text-xs mt-1 truncate">
+                    {(() => {
+                      const nextAt = heartbeat.nextFullPracticeEligibleAt;
+                      if (!nextAt) return 'Pending tick';
+                      const diffMs = new Date(nextAt).getTime() - Date.now();
+                      if (diffMs <= 0) return 'Eligible now';
+                      const m = Math.floor(diffMs / 60000);
+                      const s = Math.floor((diffMs % 60000) / 1000);
+                      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. EVE LIVING NEURAL ORGANISM (Dominant Full Width Visual) */}
+              <div className="w-full">
                 <ObservatoryNeuralCanvas
                   agents={agents}
                   activePathways={pathways}
+                  events={events}
                   heartbeatState={heartbeat}
                   currentEngagement={activeTwin}
+                  completedTwins={stateData?.completedTwins || []}
                   onSelectAgent={(agent) => setInspectorSelection({ type: 'AGENT', data: agent })}
                   onSelectPathway={(pw) => setInspectorSelection({ type: 'PATHWAY', data: pw })}
                   onSelectHeartbeat={() => setInspectorSelection({ type: 'HEARTBEAT', data: heartbeat })}
                   onSelectService={(svc) => setInspectorSelection({ type: 'SERVICE', data: { serviceKey: svc } })}
+                  onSelectRegion={(cortex) => setInspectorSelection({ type: 'CORTEX', data: cortex })}
+                  onSelectGenericNode={(node) => setInspectorSelection({ type: 'GENERIC_NODE', data: node })}
+                  selectedEventId={inspectorSelection?.type === 'EVENT' ? inspectorSelection.data?.eventId : undefined}
+                  onSelectEventId={(evtId) => {
+                    const evt = events.find(e => e.eventId === evtId);
+                    if (evt) setInspectorSelection({ type: 'EVENT', data: evt });
+                  }}
                 />
               </div>
 
-              {/* Timeline (1 Column) */}
-              <div className="h-[650px]">
+              {/* 3. LIVE OPERATIONAL LEDGER (Full Width directly below Organism) */}
+              <div className="w-full h-[420px]">
                 <ObservatoryTimeline
                   events={events}
                   onSelectEvent={(evt) => setInspectorSelection({ type: 'EVENT', data: evt })}
@@ -312,10 +363,27 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
       {/* TAB CONTENT 2: ACADEMY CASES */}
       {activeTab === 'CASES' && (
         <AcademyCasesTab
-          cases={[]}
+          cases={stateData?.cases || []}
+          caseHistory={stateData?.caseHistory || {}}
           currentCaseId={heartbeat.currentCaseId || 'ACADEMY-CANARY-01'}
           onOpenTwin={(twinId) => {
             setActiveTab('TWINS');
+          }}
+          onRunFullPractice={async (caseId) => {
+            await fetch('/api/cpa/academy/full-practice', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ caseId })
+            });
+            await fetchObservatoryState(true);
+          }}
+          onRunFastRegression={async (caseId) => {
+            await fetch('/api/cpa/academy/fast-regression', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ caseId })
+            });
+            await fetchObservatoryState(true);
           }}
         />
       )}
@@ -367,6 +435,7 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
           setInspectorSelection(null);
           setActiveTab('TWINS');
         }}
+        recentEvents={events}
       />
     </div>
   );

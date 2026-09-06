@@ -48,6 +48,12 @@ export interface CPAAgentProfile {
   preferredModelTier: 'LEVEL_0_DETERMINISTIC' | 'LEVEL_1_LOCAL_QWEN' | 'LEVEL_2_FAST_CLOUD' | 'LEVEL_3_HEAVY_CLOUD' | 'LEVEL_4_CPA_HUMAN';
   memoryNamespace: string;
   competencyScores: CompetencyScores;
+  baselineCompetency?: CompetencyScores;
+  measuredCompetency?: Partial<CompetencyScores>;
+  sampleSize?: number;
+  lastUpdated?: string;
+  confidence?: 'LOW' | 'MEDIUM' | 'HIGH';
+  evidenceCaseIds?: string[];
   jobsCompleted: number;
   successRate: number;
   escalationRate: number;
@@ -72,10 +78,23 @@ export interface SwarmComposition {
   completedAt?: string;
 }
 
+export interface MeasuredCompetencyLogEntry {
+  agentId: string;
+  dimension: string;
+  priorMeasuredScore: number;
+  newMeasuredScore: number;
+  sampleSize: number;
+  caseId: string;
+  evidence: string;
+  confidence: 'LOW' | 'MEDIUM' | 'HIGH';
+  timestamp: string;
+}
+
 export class CPAAgentRegistry {
   private static instance: CPAAgentRegistry | null = null;
   private agents: Map<string, CPAAgentProfile> = new Map();
   private activeSwarms: Map<string, SwarmComposition> = new Map();
+  private measuredCompetencyLogs: MeasuredCompetencyLogEntry[] = [];
   private aliases: Map<string, string> = new Map([
     // Hermes
     ['eveleadcpa', 'eve-hermes'],
@@ -752,6 +771,24 @@ export class CPAAgentRegistry {
     ];
 
     for (const agent of agentsList) {
+      if (!agent.baselineCompetency) {
+        agent.baselineCompetency = { ...agent.competencyScores };
+      }
+      if (!agent.measuredCompetency) {
+        agent.measuredCompetency = {};
+      }
+      if (agent.sampleSize === undefined) {
+        agent.sampleSize = 0;
+      }
+      if (!agent.lastUpdated) {
+        agent.lastUpdated = agent.updatedAt || now;
+      }
+      if (!agent.confidence) {
+        agent.confidence = 'LOW';
+      }
+      if (!agent.evidenceCaseIds) {
+        agent.evidenceCaseIds = [];
+      }
       this.agents.set(agent.agentId, agent);
     }
   }
@@ -862,6 +899,62 @@ export class CPAAgentRegistry {
       agent.escalationRate = Number(((prevEscalations + 1) / total).toFixed(4));
     }
     agent.updatedAt = new Date().toISOString();
+  }
+
+  public recordMeasuredCompetency(
+    agentId: string,
+    caseId: string,
+    scores: Partial<CompetencyScores>,
+    evidenceSummary?: string
+  ) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    agent.sampleSize = (agent.sampleSize || 0) + 1;
+    if (!agent.measuredCompetency) agent.measuredCompetency = {};
+    if (!agent.evidenceCaseIds) agent.evidenceCaseIds = [];
+    if (!agent.evidenceCaseIds.includes(caseId)) {
+      agent.evidenceCaseIds.push(caseId);
+    }
+
+    const now = new Date().toISOString();
+    for (const [dim, val] of Object.entries(scores)) {
+      const d = dim as keyof CompetencyScores;
+      const prior = agent.measuredCompetency[d] ?? 0.0;
+      if (typeof val === 'number') {
+        let updated: number;
+        if (agent.measuredCompetency[d] === undefined) {
+          updated = Number(val.toFixed(4));
+        } else {
+          const n = agent.sampleSize;
+          updated = Number(((prior * (n - 1) + val) / n).toFixed(4));
+        }
+        agent.measuredCompetency[d] = updated;
+
+        this.measuredCompetencyLogs.unshift({
+          agentId,
+          dimension: d,
+          priorMeasuredScore: prior,
+          newMeasuredScore: updated,
+          sampleSize: agent.sampleSize,
+          caseId,
+          evidence: evidenceSummary || `Empirical Full Practice evaluation on case ${caseId} (${(val * 100).toFixed(1)}%).`,
+          confidence: agent.sampleSize >= 10 ? 'HIGH' : agent.sampleSize >= 4 ? 'MEDIUM' : 'LOW',
+          timestamp: now
+        });
+      }
+    }
+
+    agent.confidence = agent.sampleSize >= 10 ? 'HIGH' : agent.sampleSize >= 4 ? 'MEDIUM' : 'LOW';
+    agent.lastUpdated = now;
+    agent.updatedAt = agent.lastUpdated;
+  }
+
+  public getMeasuredCompetencyLogs(agentId?: string): MeasuredCompetencyLogEntry[] {
+    if (agentId) {
+      return this.measuredCompetencyLogs.filter(l => l.agentId === agentId);
+    }
+    return this.measuredCompetencyLogs;
   }
 
   public addLearningCase(agentId: string, lc: Omit<LearningCase, 'caseId' | 'timestamp'>): LearningCase | null {

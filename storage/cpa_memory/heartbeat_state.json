@@ -1,8 +1,8 @@
 {
-  "lastHeartbeatAt": "2026-09-06T05:05:17.107Z",
-  "nextHeartbeatAt": "2026-09-06T05:05:47.107Z",
-  "heartbeatSequence": 370,
-  "academyState": "IDLE",
+  "lastHeartbeatAt": "2026-09-06T12:47:09.545Z",
+  "nextHeartbeatAt": "2026-09-06T12:47:24.545Z",
+  "heartbeatSequence": 714,
+  "academyState": "COOLDOWN",
   "currentCaseId": null,
   "currentStage": null,
   "checkpoint": null,
@@ -17,20 +17,20 @@
       0,
       0
     ],
-    "ramFreeMb": 3343,
+    "ramFreeMb": 3353,
     "ramTotalMb": 4096,
-    "ramUsageMb": 82,
+    "ramUsageMb": 99,
     "diskFreeGb": 755,
     "diskTotalGb": 756,
     "hardwareProfile": "EVE-NODE: 4 vCPU, 16 GB RAM (CPU-only, no GPU)"
   },
-  "lastCompletedCaseId": "CANARY-AAPL-10K-FY23",
+  "lastCompletedCaseId": "ACADEMY-CASE-003",
   "failureCount": 0,
-  "cooldownUntil": null,
+  "cooldownUntil": "2026-09-06T12:47:25.326Z",
   "lastDecision": {
-    "timestamp": "2026-09-06T05:05:17.197Z",
-    "action": "START_NEW_CASE",
-    "reason": "System capacity optimal (4 vCPU, 16 GB RAM healthy). Ready to execute next Academy benchmark."
+    "timestamp": "2026-09-06T12:46:54.770Z",
+    "action": "COOLDOWN_WAIT",
+    "reason": "Pacing cooldown in progress until 2026-09-06T12:47:25.326Z. Full Practice gate: Full Practice cooldown active (31s remaining until 2026-09-06T12:47:25.326Z)."
   },
   "servicesHealth": {
     "ollamaLocalAI": {
@@ -52,7 +52,34 @@
     "extractionWorker": {
       "url": "http://eve-s-bookkeeping-intelligence.zeabur.internal:8080",
       "verified": true,
-      "latencyMs": 73
+      "latencyMs": 211
     }
-  }
+  },
+  "executionLock": {
+    "state": "COMPLETED",
+    "caseId": "ACADEMY-CASE-003",
+    "executionId": "exec-fp-1788698799781-7wg4",
+    "claimedAt": "2026-09-06T12:46:39.781Z",
+    "startedAt": "2026-09-06T12:46:39.781Z",
+    "completedAt": "2026-09-06T12:46:40.326Z",
+    "heartbeatSequence": 712,
+    "caseReason": "German IFRS precision manufacturing multi-currency EUR/CHF cross-border coverage [ROUND_ROBIN_ROTATION]"
+  },
+  "currentFullPracticeLock": {
+    "state": "COMPLETED",
+    "caseId": "ACADEMY-CASE-003",
+    "executionId": "exec-fp-1788698799781-7wg4",
+    "claimedAt": "2026-09-06T12:46:39.781Z",
+    "startedAt": "2026-09-06T12:46:39.781Z",
+    "completedAt": "2026-09-06T12:46:40.326Z",
+    "heartbeatSequence": 712,
+    "caseReason": "German IFRS precision manufacturing multi-currency EUR/CHF cross-border coverage [ROUND_ROBIN_ROTATION]"
+  },
+  "lastFullPracticeAt": "2026-09-06T12:46:40.326Z",
+  "nextFullPracticeEligibleAt": "2026-09-06T13:31:40.326Z",
+  "lastFullPracticeCaseId": "ACADEMY-CASE-003",
+  "lastFullPracticeExecutionId": "exec-fp-1788698799781-7wg4",
+  "fullPracticeCooldown": 2700000,
+  "fullPracticeFailureCount": 0,
+  "reasonForNextSchedule": "Adaptive resource-aware idle cadence (45m: nominal idle cadence). Next launch balanced for container resources & rate limits."
 }

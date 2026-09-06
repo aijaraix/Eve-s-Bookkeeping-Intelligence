@@ -13,7 +13,7 @@ export interface ObservatoryAgent {
   allowedTools: string[];
   prohibitedTools: string[];
   preferredModelTier: string;
-  operationalStatus: 'AVAILABLE' | 'WORKING' | 'IDLE' | 'REVIEWING';
+  operationalStatus: 'AVAILABLE' | 'WORKING' | 'IDLE' | 'REVIEWING' | 'FAILED';
   currentTaskObjective?: string;
   activeWorkspaceId?: string;
   uptimeSeconds?: number;
@@ -71,6 +71,8 @@ export interface ObservatoryEventItem {
   summary: string;
   structuredMetadata?: Record<string, any>;
   durationMs?: number;
+  eventReality?: 'FAST_REGRESSION' | 'REAL_OPERATION' | 'SYNTHETIC_CLIENT_EVENT' | 'REAL_OPERATION_SUMMARY' | string;
+  executionMode?: 'FAST_REGRESSION' | 'FULL_PRACTICE' | string;
   status: 'SUCCESS' | 'IN_PROGRESS' | 'FAILED' | 'PENDING' | 'CLEARED';
   severity: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'SUCCESS';
 }
@@ -83,6 +85,8 @@ export interface ObservatoryStateData {
     academyState: 'IDLE' | 'RUNNING' | 'PAUSED_PREEMPTED' | 'CHECKPOINTING' | 'REGRESSION_TESTING' | 'DARWIN_ANALYSIS' | 'COOLDOWN' | 'COMPLETED';
     currentCaseId?: string | null;
     currentStage?: string | null;
+    nextFullPracticeEligibleAt?: string;
+    reasonForNextSchedule?: string;
     lastDecision?: {
       timestamp: string;
       action: string;
@@ -129,6 +133,9 @@ export interface ObservatoryStateData {
   };
   recentEvents: ObservatoryEventItem[];
   coverage: any;
+  completedTwins?: any[];
+  caseHistory?: Record<string, { caseId: string; lastRunAt: string | null; executionCount: number; failureCount: number; lastMode?: string }>;
+  cases?: any[];
   incidents: any[];
   evolutionProposals: any[];
   capabilityRequests: any[];

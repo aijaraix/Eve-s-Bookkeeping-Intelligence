@@ -1,0 +1,7 @@
+Fact ID,Metric,Label,Value,Currency,Statement,Source Document,Page,Verification
+"FACT-1","Revenue","Revenue",50503000000,"EUR","INCOME_STATEMENT","Annual Financial Report",1,"CONFIRMED"
+"FACT-2","Operating Profit","Operating Profit",9900000000,"EUR","INCOME_STATEMENT","Annual Financial Report",1,"CONFIRMED"
+"FACT-3","Total Assets","Total Assets",142500000000,"EUR","BALANCE_SHEET","Annual Financial Report",2,"CONFIRMED"
+"FACT-4","Total Liabilities","Total Liabilities",85200000000,"EUR","BALANCE_SHEET","Annual Financial Report",2,"CONFIRMED"
+"FACT-5","Total Equity","Total Equity",57300000000,"EUR","BALANCE_SHEET","Annual Financial Report",2,"CONFIRMED"
+"FACT-6","Operating Cash Flow","Operating Cash Flow",10772000000,"EUR","CASH_FLOW","Annual Financial Report",3,"CONFIRMED"

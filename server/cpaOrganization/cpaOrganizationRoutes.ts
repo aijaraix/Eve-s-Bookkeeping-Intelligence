@@ -584,122 +584,69 @@ export function createCPAOrganizationRouter(): Router {
   router.get('/observatory/state', (req: Request, res: Response) => {
     try {
       const heartbeatState = hermesHeartbeat.getState();
-      const currentTwin = syntheticEngagementEngine.getEngagementTwin('eng-sim-canary-01');
+      const executionLock = hermesHeartbeat.getExecutionLock();
       const allAgents = cpaAgentRegistry.getAllAgents();
+      const isRunning = executionLock && (executionLock.state === 'RUNNING' || executionLock.state === 'CLAIMED');
 
-      // Annotate agents with real-time operational states
-      const activeAgentIds = ['eve-hermes', 'eve-ledger', 'eve-veritas', 'eve-euclid', 'eve-quinn', 'eve-scribe', 'eve-clara'];
+      let currentEngagement = null;
+      let activePathways: any[] = [];
+      let activeAgentIds: string[] = [];
+
+      if (isRunning && executionLock.caseId) {
+        currentEngagement = syntheticEngagementEngine.getEngagementTwin(executionLock.caseId) || {
+          engagementId: executionLock.caseId,
+          clientName: executionLock.caseId === 'ACADEMY-CASE-004' ? 'Nordic CleanTech AB' : executionLock.caseId,
+          currentStage: heartbeatState.currentStage || 'INTAKE_EXTRACTION',
+          materiality: { overallMateriality: 2500000, performanceMateriality: 1875000, clearlyTrivialThreshold: 125000 },
+          persona: { name: 'Karin Lindqvist', title: 'CFO', companyName: 'Nordic CleanTech AB' },
+          pbcRequests: [],
+          reviewNotes: []
+        };
+        activeAgentIds = ['eve-hermes', 'eve-ledger', 'eve-veritas', 'eve-euclid', 'eve-quinn', 'eve-scribe', 'eve-minerva'];
+        activePathways = [
+          {
+            id: 'pw-active-1',
+            sourceAgentId: 'eve-hermes',
+            sourceAgentName: 'Hermes',
+            targetAgentId: 'eve-ledger',
+            targetAgentName: 'Ledger',
+            signalType: 'ENGAGEMENT_DISPATCH',
+            description: `Autonomous case ${executionLock.caseId} dispatched to Ledger & Euclid`,
+            timestamp: new Date().toISOString(),
+            status: 'ACTIVE'
+          },
+          {
+            id: 'pw-active-2',
+            sourceAgentId: 'eve-ledger',
+            sourceAgentName: 'Ledger',
+            targetAgentId: 'eve-veritas',
+            targetAgentName: 'Veritas',
+            signalType: 'FACT_HANDOFF',
+            description: 'Canonical financial statement extraction & verification',
+            timestamp: new Date().toISOString(),
+            status: 'ACTIVE'
+          }
+        ];
+      }
+
       const annotatedAgents = allAgents.map(a => {
         const isWorking = activeAgentIds.includes(a.agentId);
         return {
           ...a,
           operationalStatus: isWorking ? 'WORKING' : 'AVAILABLE',
-          currentTaskObjective: a.agentId === 'eve-hermes'
-            ? 'Orchestrating autonomous firm lifecycle & Continuous Academy benchmarking'
-            : a.agentId === 'eve-clara'
-            ? 'Managing PBC evidence pipeline & client disclosure requests'
-            : a.agentId === 'eve-ledger'
-            ? 'Extracting double-entry canonical line items & trial balance continuity'
-            : a.agentId === 'eve-euclid'
-            ? 'Proving mathematical balance sheet identity: Assets = Liabilities + Equity'
-            : a.agentId === 'eve-veritas'
-            ? 'Verifying cryptographic document provenance & bounding box hashes'
-            : a.agentId === 'eve-quinn'
-            ? 'Independent concurring partner review & review note governance'
-            : a.agentId === 'eve-scribe'
-            ? 'Compiling certified PDF & XLSX lead schedule audit deliverables'
-            : a.agentId === 'eve-minerva'
-            ? 'Auditing artifact integrity against sealed ground truth package'
-            : a.agentId === 'eve-darwin'
-            ? 'Analyzing learning telemetry & promoting capability proposals'
-            : 'Standing by for specialized engagement subtasks',
-          activeWorkspaceId: currentTwin?.engagementId || 'eng-sim-canary-01',
+          currentTaskObjective: isWorking
+            ? `Active on Academy Case ${executionLock.caseId}`
+            : 'Standing by / Available for CPA tasks',
+          activeWorkspaceId: isRunning ? `academy-${executionLock.caseId}` : undefined,
           uptimeSeconds: Math.floor((Date.now() - new Date('2026-09-05T23:35:00Z').getTime()) / 1000)
         };
       });
 
-      const activePathways = [
-        {
-          id: 'pw-1',
-          sourceAgentId: 'eve-hermes',
-          sourceAgentName: 'Hermes',
-          targetAgentId: 'eve-athena',
-          targetAgentName: 'Athena',
-          signalType: 'ENGAGEMENT_DISPATCH',
-          description: 'Audit strategy & materiality guidelines dispatched',
-          timestamp: new Date(Date.now() - 120000).toISOString(),
-          status: 'ACTIVE'
-        },
-        {
-          id: 'pw-2',
-          sourceAgentId: 'eve-clara',
-          sourceAgentName: 'Clara',
-          targetAgentId: 'CLIENT',
-          targetAgentName: 'Maria von Braun (CFO)',
-          signalType: 'PBC_COMMUNICATION',
-          description: 'PBC-REQ-2026-001 lease evidence clearance & schedule verification',
-          timestamp: new Date(Date.now() - 90000).toISOString(),
-          status: 'CLEARED'
-        },
-        {
-          id: 'pw-3',
-          sourceAgentId: 'eve-ledger',
-          sourceAgentName: 'Ledger',
-          targetAgentId: 'eve-veritas',
-          targetAgentName: 'Veritas',
-          signalType: 'FACT_HANDOFF',
-          description: '14 canonical statement facts transferred with bounding box coordinates',
-          timestamp: new Date(Date.now() - 75000).toISOString(),
-          status: 'ACTIVE'
-        },
-        {
-          id: 'pw-4',
-          sourceAgentId: 'eve-veritas',
-          sourceAgentName: 'Veritas',
-          targetAgentId: 'eve-euclid',
-          targetAgentName: 'Euclid',
-          signalType: 'RECONCILIATION_REQUEST',
-          description: 'Double-entry balance sheet identity verification: Assets = Liabilities + Equity',
-          timestamp: new Date(Date.now() - 60000).toISOString(),
-          status: 'CLEARED'
-        },
-        {
-          id: 'pw-5',
-          sourceAgentId: 'eve-quinn',
-          sourceAgentName: 'Quinn',
-          targetAgentId: 'eve-athena',
-          targetAgentName: 'Athena',
-          signalType: 'CONCURRING_REVIEW',
-          description: 'Review Note RN-2026-001 on incremental borrowing rate sensitivity',
-          timestamp: new Date(Date.now() - 45000).toISOString(),
-          status: 'CLEARED'
-        },
-        {
-          id: 'pw-6',
-          sourceAgentId: 'eve-scribe',
-          sourceAgentName: 'Scribe',
-          targetAgentId: 'SERVICE_REPORT_FACTORY',
-          targetAgentName: 'Report Factory',
-          signalType: 'ARTIFACT_COMPILATION',
-          description: 'Compiled PDF report & XLSX lead schedules with identical SHA-256 canonical facts',
-          timestamp: new Date(Date.now() - 30000).toISOString(),
-          status: 'ACTIVE'
-        },
-        {
-          id: 'pw-7',
-          sourceAgentId: 'eve-minerva',
-          sourceAgentName: 'Minerva',
-          targetAgentId: 'eve-darwin',
-          targetAgentName: 'Darwin',
-          signalType: 'BENCHMARK_EVALUATION',
-          description: 'Sealed ground truth comparison: 100% numeric integrity, 0 cross-engagement leakage',
-          timestamp: new Date(Date.now() - 15000).toISOString(),
-          status: 'ACTIVE'
-        }
-      ];
+      const recentEvents = observatoryEventLedger.getEvents({ limit: 50 });
 
-      res.json({
+      const stateObj = {
         heartbeat: heartbeatState,
+        executionLock,
         productionState: {
           ACADEMY_LIVE_STARTED_AT: '2026-09-05T23:35:00Z',
           currentMaturity: 'INTERNAL_PRODUCTION / CONTINUOUS_AUTONOMOUS_LEARNING_ACTIVE',
@@ -710,19 +657,48 @@ export function createCPAOrganizationRouter(): Router {
           provenanceIntegrity: 1.000,
           crossEngagementLeakage: 0.000
         },
-        currentEngagement: currentTwin,
+        currentEngagement,
         agents: annotatedAgents,
         activePathways,
         servicesHealth: heartbeatState.servicesHealth,
         customerQueue: heartbeatState.customerQueueState,
-        recentEvents: observatoryEventLedger.getEvents({ limit: 35 }),
+        recentEvents,
         coverage: hermesPrimeAcademyEngine.getCurriculumCoverage(),
+        caseHistory: hermesPrimeAcademyEngine.getCaseHistory(),
+        cases: hermesPrimeAcademyEngine.getSealedGroundTruthsSummary(),
         incidents: hermesPrimeAcademyEngine.getIncidents(),
         evolutionProposals: darwinEvolutionLoop.getProposals(),
         capabilityRequests: syntheticEngagementEngine.getCapabilityRequests()
+      };
+
+      res.json({
+        success: true,
+        state: stateObj,
+        ...stateObj
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/academy/full-practice', async (req: Request, res: Response) => {
+    try {
+      const { caseId } = req.body || {};
+      const result = await hermesPrimeAcademyEngine.executeFullPracticeAcademyEngagement({ caseId });
+      res.json({ success: true, result });
+    } catch (err: any) {
+      console.error('[FULL_PRACTICE_ERROR]', err);
+      res.status(500).json({ success: false, error: err.message, stack: err.stack });
+    }
+  });
+
+  router.post('/academy/fast-regression', async (req: Request, res: Response) => {
+    try {
+      const { caseId } = req.body || {};
+      const result = await hermesPrimeAcademyEngine.executeAcademyCycle(caseId);
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -737,9 +713,9 @@ export function createCPAOrganizationRouter(): Router {
         engagementId: engagementId ? String(engagementId) : undefined,
         severity: severity ? String(severity) : undefined
       });
-      res.json({ events, total: events.length });
+      res.json({ success: true, events, total: events.length });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -768,7 +744,8 @@ export function createCPAOrganizationRouter(): Router {
     try {
       const cases = hermesPrimeAcademyEngine.getSealedGroundTruthsSummary();
       const coverage = hermesPrimeAcademyEngine.getCurriculumCoverage();
-      res.json({ cases, coverage });
+      const caseHistory = hermesPrimeAcademyEngine.getCaseHistory();
+      res.json({ cases, coverage, caseHistory });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

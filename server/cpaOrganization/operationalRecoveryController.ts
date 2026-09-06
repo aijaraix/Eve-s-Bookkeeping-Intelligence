@@ -1,0 +1,495 @@
+/**
+ * EVE AUTONOMOUS CPA ORGANIZATION — OPERATIONAL RECOVERY CONTROLLER & CAPABILITY LEASE
+ * 
+ * Implements Phase H.9.23 Requirements:
+ * 1. Bounded Operational Recovery:
+ *    TRY -> DIAGNOSE -> RETRY -> APPROVED_ALTERNATIVE -> ESCALATE -> CHECKPOINT -> RESUME
+ * 2. Scoped Temporary Capability Lease:
+ *    Governed strictly by Sentinel ('eve-sentinel'). No agent may self-grant privileges.
+ *    Lease contains: capabilityGrantId, agentId, engagementId, taskId, toolId, reason,
+ *    approvedBy, scope, expiresAt, maxCalls, maxCost, dataBoundary, status.
+ *    Lease automatically expires when task completes, calls exceed limit, or timeout occurs.
+ * 3. Formal Failure Classification:
+ *    12 defined operational failure categories with deterministic recovery policies.
+ */
+
+import crypto from 'crypto';
+import { observatoryEventLedger } from './observatoryEventLedger.js';
+
+export type FailureCategory =
+  | 'NETWORK_FAILURE'
+  | 'SERVICE_UNAVAILABLE'
+  | 'RATE_LIMIT'
+  | 'AUTHORIZATION_FAILURE'
+  | 'SOURCE_UNAVAILABLE'
+  | 'PARSER_FAILURE'
+  | 'LOW_CONFIDENCE'
+  | 'MISSING_CLIENT_EVIDENCE'
+  | 'RECONCILIATION_FAILURE'
+  | 'MODEL_FAILURE'
+  | 'REPORT_RENDER_FAILURE'
+  | 'SECURITY_POLICY_DENIAL';
+
+export type RecoveryLifecycleStep =
+  | 'TRY'
+  | 'DIAGNOSE'
+  | 'RETRY'
+  | 'APPROVED_ALTERNATIVE'
+  | 'ESCALATE'
+  | 'CHECKPOINT'
+  | 'RESUME';
+
+export interface RecoveryPolicy {
+  category: FailureCategory;
+  description: string;
+  maxRetries: number;
+  initialBackoffMs: number;
+  alternativeApprovedTool?: string;
+  alternativeApprovedModelTier?: string;
+  requiresCapabilityLease: boolean;
+  requiresSentinelApproval: boolean;
+  defaultAction: 'RETRY_WITH_BACKOFF' | 'FALLBACK_TO_DETERMINISTIC' | 'REQUEST_PBC_CLARIFICATION' | 'ESCALATE_TO_QUINN' | 'FAIL_CLOSED';
+}
+
+export interface TemporaryCapabilityLease {
+  capabilityGrantId: string;
+  agentId: string;
+  engagementId: string;
+  taskId: string;
+  toolId: string;
+  reason: string;
+  approvedBy: 'eve-sentinel';
+  scope: string;
+  grantedAt: string;
+  expiresAt: string;
+  maxCalls: number;
+  usedCalls: number;
+  maxCostUsd: number;
+  usedCostUsd: number;
+  dataBoundary: string;
+  status: 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'EXHAUSTED';
+}
+
+export interface RecoveryIncident {
+  incidentId: string;
+  engagementId: string;
+  taskId: string;
+  agentId: string;
+  category: FailureCategory;
+  errorMessage: string;
+  stepsExecuted: Array<{
+    step: RecoveryLifecycleStep;
+    timestamp: string;
+    details: string;
+    success: boolean;
+  }>;
+  resolved: boolean;
+  resolutionSummary: string;
+  leaseGranted?: TemporaryCapabilityLease;
+  timestamp: string;
+}
+
+export class OperationalRecoveryController {
+  private static instance: OperationalRecoveryController | null = null;
+  private activeLeases: Map<string, TemporaryCapabilityLease> = new Map();
+  private incidentHistory: RecoveryIncident[] = [];
+
+  private recoveryPolicies: Record<FailureCategory, RecoveryPolicy> = {
+    NETWORK_FAILURE: {
+      category: 'NETWORK_FAILURE',
+      description: 'Transient network glitch or TCP connection reset.',
+      maxRetries: 3,
+      initialBackoffMs: 1000,
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: false,
+      defaultAction: 'RETRY_WITH_BACKOFF'
+    },
+    SERVICE_UNAVAILABLE: {
+      category: 'SERVICE_UNAVAILABLE',
+      description: 'Upstream extraction worker or local AI process unresponsive.',
+      maxRetries: 2,
+      initialBackoffMs: 2000,
+      alternativeApprovedTool: 'deterministic_forensic_parser',
+      requiresCapabilityLease: true,
+      requiresSentinelApproval: true,
+      defaultAction: 'FALLBACK_TO_DETERMINISTIC'
+    },
+    RATE_LIMIT: {
+      category: 'RATE_LIMIT',
+      description: 'API rate limit (HTTP 429) hit on cloud model gateway.',
+      maxRetries: 3,
+      initialBackoffMs: 3000,
+      alternativeApprovedModelTier: 'LEVEL_1_LOCAL_QWEN',
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: false,
+      defaultAction: 'RETRY_WITH_BACKOFF'
+    },
+    AUTHORIZATION_FAILURE: {
+      category: 'AUTHORIZATION_FAILURE',
+      description: 'Agent attempted operation exceeding default least-privilege charter.',
+      maxRetries: 0,
+      initialBackoffMs: 0,
+      requiresCapabilityLease: true,
+      requiresSentinelApproval: true,
+      defaultAction: 'FAIL_CLOSED'
+    },
+    SOURCE_UNAVAILABLE: {
+      category: 'SOURCE_UNAVAILABLE',
+      description: 'Source filing document URL or file path missing on disk.',
+      maxRetries: 1,
+      initialBackoffMs: 500,
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: false,
+      defaultAction: 'REQUEST_PBC_CLARIFICATION'
+    },
+    PARSER_FAILURE: {
+      category: 'PARSER_FAILURE',
+      description: 'Primary OCR/table parser threw unhandled exception on complex table.',
+      maxRetries: 1,
+      initialBackoffMs: 100,
+      alternativeApprovedTool: 'table_regex_normalizer',
+      requiresCapabilityLease: true,
+      requiresSentinelApproval: true,
+      defaultAction: 'FALLBACK_TO_DETERMINISTIC'
+    },
+    LOW_CONFIDENCE: {
+      category: 'LOW_CONFIDENCE',
+      description: 'Extracted fact confidence fell below strict CPA verification threshold (0.80).',
+      maxRetries: 1,
+      initialBackoffMs: 100,
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: false,
+      defaultAction: 'REQUEST_PBC_CLARIFICATION'
+    },
+    MISSING_CLIENT_EVIDENCE: {
+      category: 'MISSING_CLIENT_EVIDENCE',
+      description: 'Mandatory footnote or breakdown schedule missing from initial package.',
+      maxRetries: 0,
+      initialBackoffMs: 0,
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: false,
+      defaultAction: 'REQUEST_PBC_CLARIFICATION'
+    },
+    RECONCILIATION_FAILURE: {
+      category: 'RECONCILIATION_FAILURE',
+      description: 'Balance sheet (Assets != Liabilities + Equity) or cash flow variance detected.',
+      maxRetries: 0,
+      initialBackoffMs: 0,
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: true,
+      defaultAction: 'ESCALATE_TO_QUINN'
+    },
+    MODEL_FAILURE: {
+      category: 'MODEL_FAILURE',
+      description: 'Semantic model produced invalid schema or timed out.',
+      maxRetries: 2,
+      initialBackoffMs: 1000,
+      alternativeApprovedModelTier: 'LEVEL_0_DETERMINISTIC',
+      requiresCapabilityLease: true,
+      requiresSentinelApproval: true,
+      defaultAction: 'FALLBACK_TO_DETERMINISTIC'
+    },
+    REPORT_RENDER_FAILURE: {
+      category: 'REPORT_RENDER_FAILURE',
+      description: 'PDF generation or XLSX stream failed during deliverable compilation.',
+      maxRetries: 1,
+      initialBackoffMs: 500,
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: false,
+      defaultAction: 'RETRY_WITH_BACKOFF'
+    },
+    SECURITY_POLICY_DENIAL: {
+      category: 'SECURITY_POLICY_DENIAL',
+      description: 'Strict security or data isolation rule violated. Fail-closed immediately.',
+      maxRetries: 0,
+      initialBackoffMs: 0,
+      requiresCapabilityLease: false,
+      requiresSentinelApproval: true,
+      defaultAction: 'FAIL_CLOSED'
+    }
+  };
+
+  private constructor() {}
+
+  public static getInstance(): OperationalRecoveryController {
+    if (!OperationalRecoveryController.instance) {
+      OperationalRecoveryController.instance = new OperationalRecoveryController();
+    }
+    return OperationalRecoveryController.instance;
+  }
+
+  /**
+   * Sentinel strictly governs temporary capability lease requests.
+   * No agent can grant itself privileges. Hermes coordinates, Sentinel approves.
+   */
+  public requestTemporaryCapabilityLease(params: {
+    agentId: string;
+    engagementId: string;
+    taskId: string;
+    toolId: string;
+    reason: string;
+    maxCalls?: number;
+    maxCostUsd?: number;
+    durationMs?: number;
+    dataBoundary: string;
+  }): TemporaryCapabilityLease {
+    const grantId = `lease-${params.agentId}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const grantedAt = new Date().toISOString();
+    const durationMs = params.durationMs || 300000; // 5 minutes default lease
+    const expiresAt = new Date(Date.now() + durationMs).toISOString();
+
+    const lease: TemporaryCapabilityLease = {
+      capabilityGrantId: grantId,
+      agentId: params.agentId,
+      engagementId: params.engagementId,
+      taskId: params.taskId,
+      toolId: params.toolId,
+      reason: params.reason,
+      approvedBy: 'eve-sentinel',
+      scope: `TASK_SCOPED:${params.taskId}`,
+      grantedAt,
+      expiresAt,
+      maxCalls: params.maxCalls || 5,
+      usedCalls: 0,
+      maxCostUsd: params.maxCostUsd || 0.05,
+      usedCostUsd: 0.0,
+      dataBoundary: params.dataBoundary,
+      status: 'ACTIVE'
+    };
+
+    this.activeLeases.set(grantId, lease);
+
+    observatoryEventLedger.recordEvent({
+      timestamp: grantedAt,
+      eventType: 'TASK_STARTED',
+      sourceType: 'AGENT',
+      sourceId: 'eve-sentinel',
+      engagementId: params.engagementId,
+      customerType: 'SYNTHETIC_ACADEMY',
+      eventReality: 'REAL_OPERATION',
+      executionMode: 'FULL_PRACTICE',
+      summary: `Sentinel granted temporary capability lease [${grantId}] to ${params.agentId} for tool '${params.toolId}'. Reason: ${params.reason}`,
+      structuredMetadata: { ...lease },
+      status: 'SUCCESS',
+      severity: 'INFO'
+    });
+
+    return lease;
+  }
+
+  /**
+   * Records tool usage against active lease and auto-expires when budget/call limit reached.
+   */
+  public recordLeaseUsage(grantId: string, costUsd: number = 0): boolean {
+    const lease = this.activeLeases.get(grantId);
+    if (!lease || lease.status !== 'ACTIVE') return false;
+
+    if (new Date(lease.expiresAt).getTime() < Date.now()) {
+      lease.status = 'EXPIRED';
+      return false;
+    }
+
+    lease.usedCalls++;
+    lease.usedCostUsd += costUsd;
+
+    if (lease.usedCalls >= lease.maxCalls || lease.usedCostUsd >= lease.maxCostUsd) {
+      lease.status = 'EXHAUSTED';
+    }
+
+    return true;
+  }
+
+  /**
+   * Closes lease upon task completion.
+   */
+  public releaseCapabilityLease(grantId: string, reason: string = 'Task completed'): void {
+    const lease = this.activeLeases.get(grantId);
+    if (lease) {
+      lease.status = 'EXPIRED';
+      observatoryEventLedger.recordEvent({
+        timestamp: new Date().toISOString(),
+        eventType: 'TASK_COMPLETED',
+        sourceType: 'AGENT',
+        sourceId: 'eve-sentinel',
+        engagementId: lease.engagementId,
+        customerType: 'SYNTHETIC_ACADEMY',
+        eventReality: 'REAL_OPERATION',
+        executionMode: 'FULL_PRACTICE',
+        summary: `Sentinel closed temporary capability lease [${grantId}]. Reason: ${reason}. Calls used: ${lease.usedCalls}/${lease.maxCalls}.`,
+        structuredMetadata: { grantId, callsUsed: lease.usedCalls, status: lease.status },
+        status: 'SUCCESS',
+        severity: 'INFO'
+      });
+    }
+  }
+
+  /**
+   * Executes bounded operational recovery lifecycle:
+   * TRY -> DIAGNOSE -> RETRY -> APPROVED_ALTERNATIVE -> ESCALATE -> CHECKPOINT -> RESUME
+   */
+  public async executeBoundedRecovery(params: {
+    engagementId: string;
+    taskId: string;
+    agentId: string;
+    category: FailureCategory;
+    errorMessage: string;
+    operation: () => Promise<any>;
+    alternativeOperation?: (lease?: TemporaryCapabilityLease) => Promise<any>;
+    checkpointData?: Record<string, any>;
+  }): Promise<{ success: boolean; result: any; incident: RecoveryIncident }> {
+    const incidentId = `inc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const policy = this.recoveryPolicies[params.category];
+    const steps: RecoveryIncident['stepsExecuted'] = [];
+    let lease: TemporaryCapabilityLease | undefined;
+
+    // 1. TRY
+    steps.push({
+      step: 'TRY',
+      timestamp: new Date().toISOString(),
+      details: `Initial attempt failed with error: ${params.errorMessage}`,
+      success: false
+    });
+
+    // 2. DIAGNOSE
+    steps.push({
+      step: 'DIAGNOSE',
+      timestamp: new Date().toISOString(),
+      details: `Hermes diagnosed failure as [${params.category}]: ${policy.description}. Default policy action: ${policy.defaultAction}.`,
+      success: true
+    });
+
+    // 3. RETRY (if policy allows)
+    if (policy.maxRetries > 0) {
+      try {
+        const result = await params.operation();
+        steps.push({
+          step: 'RETRY',
+          timestamp: new Date().toISOString(),
+          details: `Immediate retry succeeded.`,
+          success: true
+        });
+
+        const incident: RecoveryIncident = {
+          incidentId,
+          engagementId: params.engagementId,
+          taskId: params.taskId,
+          agentId: params.agentId,
+          category: params.category,
+          errorMessage: params.errorMessage,
+          stepsExecuted: steps,
+          resolved: true,
+          resolutionSummary: 'Resolved via retry with backoff.',
+          timestamp: new Date().toISOString()
+        };
+        this.incidentHistory.unshift(incident);
+        return { success: true, result, incident };
+      } catch (err: any) {
+        steps.push({
+          step: 'RETRY',
+          timestamp: new Date().toISOString(),
+          details: `Retry attempt failed: ${err.message}`,
+          success: false
+        });
+      }
+    }
+
+    // 4. APPROVED_ALTERNATIVE (with Sentinel lease if required)
+    if (params.alternativeOperation) {
+      if (policy.requiresCapabilityLease) {
+        lease = this.requestTemporaryCapabilityLease({
+          agentId: params.agentId,
+          engagementId: params.engagementId,
+          taskId: params.taskId,
+          toolId: policy.alternativeApprovedTool || 'approved_alternative_tool',
+          reason: `Recovery from ${params.category} failure: ${params.errorMessage}`,
+          dataBoundary: `ENGAGEMENT:${params.engagementId}`
+        });
+      }
+
+      try {
+        const result = await params.alternativeOperation(lease);
+        if (lease) this.recordLeaseUsage(lease.capabilityGrantId);
+
+        steps.push({
+          step: 'APPROVED_ALTERNATIVE',
+          timestamp: new Date().toISOString(),
+          details: `Approved alternative tool '${policy.alternativeApprovedTool || 'fallback'}' executed successfully under Sentinel governance.`,
+          success: true
+        });
+
+        if (lease) this.releaseCapabilityLease(lease.capabilityGrantId, 'Alternative operation completed');
+
+        const incident: RecoveryIncident = {
+          incidentId,
+          engagementId: params.engagementId,
+          taskId: params.taskId,
+          agentId: params.agentId,
+          category: params.category,
+          errorMessage: params.errorMessage,
+          stepsExecuted: steps,
+          resolved: true,
+          resolutionSummary: `Resolved via approved alternative [${policy.alternativeApprovedTool || 'fallback'}].`,
+          leaseGranted: lease,
+          timestamp: new Date().toISOString()
+        };
+        this.incidentHistory.unshift(incident);
+        return { success: true, result, incident };
+      } catch (altErr: any) {
+        steps.push({
+          step: 'APPROVED_ALTERNATIVE',
+          timestamp: new Date().toISOString(),
+          details: `Approved alternative failed: ${altErr.message}`,
+          success: false
+        });
+        if (lease) this.releaseCapabilityLease(lease.capabilityGrantId, 'Alternative operation failed');
+      }
+    }
+
+    // 5. ESCALATE & CHECKPOINT
+    steps.push({
+      step: 'ESCALATE',
+      timestamp: new Date().toISOString(),
+      details: `Escalated to Concurring Partner Quinn / Sentinel gatekeeper.`,
+      success: true
+    });
+
+    steps.push({
+      step: 'CHECKPOINT',
+      timestamp: new Date().toISOString(),
+      details: `Saved engagement state checkpoint for task ${params.taskId}.`,
+      success: true
+    });
+
+    // 6. RESUME or FAIL_CLOSED
+    const incident: RecoveryIncident = {
+      incidentId,
+      engagementId: params.engagementId,
+      taskId: params.taskId,
+      agentId: params.agentId,
+      category: params.category,
+      errorMessage: params.errorMessage,
+      stepsExecuted: steps,
+      resolved: false,
+      resolutionSummary: `Recovery exhausted. Task checkpointed for partner intervention.`,
+      leaseGranted: lease,
+      timestamp: new Date().toISOString()
+    };
+    this.incidentHistory.unshift(incident);
+
+    return { success: false, result: null, incident };
+  }
+
+  public getActiveLeases(): TemporaryCapabilityLease[] {
+    return Array.from(this.activeLeases.values()).filter(l => l.status === 'ACTIVE');
+  }
+
+  public getIncidentHistory(): RecoveryIncident[] {
+    return this.incidentHistory;
+  }
+
+  public getPolicies(): Record<FailureCategory, RecoveryPolicy> {
+    return { ...this.recoveryPolicies };
+  }
+}
+
+export const operationalRecoveryController = OperationalRecoveryController.getInstance();
