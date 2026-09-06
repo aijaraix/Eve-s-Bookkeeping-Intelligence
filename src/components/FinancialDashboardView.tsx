@@ -24,8 +24,13 @@ import {
 import { usePractice } from '../context/PracticeContext';
 import { EMPTY_DISPLAY } from '../api/practiceClient';
 import { EmptyExtractionState } from './EmptyExtractionState';
+import { generateFactLineageId, renderRegistry } from '../utils/renderRegistry';
 
-export const FinancialDashboardView: React.FC = () => {
+export interface FinancialDashboardViewProps {
+  onInspectMetric?: (metricName: string) => void;
+}
+
+export const FinancialDashboardView: React.FC<FinancialDashboardViewProps> = ({ onInspectMetric }) => {
   const {
     summary,
     hasFacts,
@@ -277,29 +282,65 @@ export const FinancialDashboardView: React.FC = () => {
         )}
       </div>
 
-      {/* KPI Cards Grid */}
+      {/* KPI Cards Grid with Machine-Readable Render Lineage */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {kpis.map((kpi) => (
-          <div
-            key={kpi.title}
-            className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 shadow-2xs hover:border-blue-400 transition-colors"
-          >
-            <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-              <div className="flex items-center gap-2">
-                <kpi.icon className="w-4 h-4 text-blue-600" />
-                <span>{kpi.title}</span>
+        {kpis.map((kpi) => {
+          const flid = generateFactLineageId({
+            metric: kpi.title,
+            period: summary?.period,
+            entityId: selectedCompanyId
+          });
+          const isDerived = kpi.title === 'Current Ratio';
+          const derivId = isDerived ? 'DRV-CURRENT-RATIO-001' : undefined;
+
+          // Register render in RenderRegistry
+          renderRegistry.registerRender({
+            route: '/dashboard/financials',
+            screen: 'FINANCIAL_WORKBENCH',
+            component: 'FinancialDashboardView',
+            widget: 'KPI_SUMMARY_CARD',
+            factLineageId: flid,
+            canonicalFactId: `FCT-${kpi.title.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`,
+            derivedCalculationId: derivId,
+            entityId: selectedCompanyId || 'group',
+            period: summary?.period || 'current',
+            currency: activeCurrency,
+            displayScale: 'MILLIONS',
+            displayValue: String(kpi.value),
+            verificationState: hasFacts ? 'CONFIRMED' : 'UNCONFIRMED'
+          });
+
+          return (
+            <div
+              key={kpi.title}
+              onClick={() => onInspectMetric?.(kpi.title)}
+              data-fact-lineage-id={flid}
+              data-canonical-fact-id={`FCT-${kpi.title.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`}
+              data-entity-id={selectedCompanyId || 'group'}
+              data-period-id={summary?.period || 'current'}
+              data-currency={activeCurrency}
+              data-verification-state={hasFacts ? 'CONFIRMED' : 'UNCONFIRMED'}
+              data-derivation-id={derivId}
+              className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 shadow-2xs hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group"
+              title={`Click to inspect optical provenance and source audit trail for ${kpi.title}`}
+            >
+              <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+                <div className="flex items-center gap-2 group-hover:text-blue-600 transition-colors">
+                  <kpi.icon className="w-4 h-4 text-blue-600" />
+                  <span>{kpi.title}</span>
+                </div>
+                <span className="text-[10px] text-slate-400 uppercase font-mono">{activeCurrency}</span>
               </div>
-              <span className="text-[10px] text-slate-400 uppercase font-mono">{activeCurrency}</span>
+              <div className="text-2xl font-black text-slate-900 font-mono tracking-tight group-hover:text-blue-700 transition-colors">
+                {kpi.value}
+              </div>
+              <div className="text-xs text-slate-400 font-mono flex items-center justify-between">
+                <span>{kpi.subtext}</span>
+                {hasFacts && <span className="text-emerald-600 font-bold">100% Gated • Click to Inspect</span>}
+              </div>
             </div>
-            <div className="text-2xl font-black text-slate-900 font-mono tracking-tight">
-              {kpi.value}
-            </div>
-            <div className="text-xs text-slate-400 font-mono flex items-center justify-between">
-              <span>{kpi.subtext}</span>
-              {hasFacts && <span className="text-emerald-600 font-bold">100% Gated</span>}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Financial Performance Trend Chart */}

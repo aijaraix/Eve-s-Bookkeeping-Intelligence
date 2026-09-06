@@ -1,0 +1,71 @@
+{
+  "reportTitle": "PHASE H.9.16 — EVE PRODUCT, UI/UX & LIVE ACADEMY OBSERVATION REPORT",
+  "auditMode": "READ_ONLY_FORENSIC_OBSERVATION",
+  "timestamp": "2026-09-06T02:09:00Z",
+  "targetEnvironment": "EVE-BOOKKEEPING-PROD-AI",
+  "supervisor": "s6-overlay",
+  "serviceId": "6a9b137939c2940e7ee0c9d6",
+  "environmentId": "6a9b1274a34c009752279011",
+  "academyStatus": {
+    "runtimeStatus": "IDLE",
+    "liveStartedAt": "2026-09-06T01:56:56.971Z",
+    "lastHeartbeat": "2026-09-06T02:08:08.872Z",
+    "nextHeartbeat": "2026-09-06T02:08:38.872Z",
+    "heartbeatSequence": 5,
+    "lastCompletedCase": "CANARY-AAPL-10K-FY23",
+    "nextPlannedCase": "SCHEDULED_CURRICULUM_SELECTION",
+    "customerQueueState": {
+      "pendingJobs": 0,
+      "preemptingBackground": false
+    }
+  },
+  "resourceSnapshot": {
+    "cpuCores": 4,
+    "cpuLoadAvg": [0.01, 0.16, 0.32],
+    "ramFreeMb": 8506,
+    "ramTotalMb": 15071,
+    "ramUsageMb": 5,
+    "diskFreeGb": 79,
+    "diskTotalGb": 80,
+    "hardwareProfile": "EVE-NODE: 4 vCPU, 16 GB RAM (CPU-only, no GPU)"
+  },
+  "scorecard": {
+    "schedulerIndependence": "VERIFIED",
+    "heartbeatCadence": "ACTIVE_AND_ADVANCING",
+    "hardwareRealism": "VERIFIED",
+    "canaryCaseLineage": "CERTIFIED",
+    "postCanaryCases": "NO_ADDITIONAL_AUTONOMOUS_CASE_HAS_RUN_YET",
+    "productViewsCount": 24,
+    "modalsCount": 4,
+    "copilotDrawersCount": 1,
+    "clientSeedCleanliness": "DEFECT_IDENTIFIED_MOCK_BLEED",
+    "lineageDOMCoverage": "PARTIAL_3_OF_11_VIEWS"
+  },
+  "recommendations": [
+    {
+      "priority": "CRITICAL_P0",
+      "action": "Purge mock data bleed from PracticeContext",
+      "description": "Stop merging mockCompanies into active companies state"
+    },
+    {
+      "priority": "CRITICAL_P0",
+      "action": "Fix Copilot workspace parameter",
+      "description": "Align sendEveChat and server /api/chat on workspaceId"
+    },
+    {
+      "priority": "CRITICAL_P0",
+      "action": "Complete DOM lineage instrumentation",
+      "description": "Add data-fact-lineage-id to all rows in IncomeStatementView and EquityStatementView"
+    },
+    {
+      "priority": "HIGH_P1",
+      "action": "Reorganize sidebar hierarchy",
+      "description": "Group the 24 navigation items into 5 core CPA functional pillars"
+    },
+    {
+      "priority": "HIGH_P1",
+      "action": "Relocate technical diagnostics",
+      "description": "Move swarm and worker telemetry into an Administration drawer"
+    }
+  ]
+}

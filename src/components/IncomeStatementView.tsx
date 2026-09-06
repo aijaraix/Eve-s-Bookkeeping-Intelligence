@@ -17,9 +17,9 @@ export const IncomeStatementView: React.FC<IncomeStatementViewProps> = ({ onSele
   const lineItems = financialFacts.filter((f) => f.statementType === 'INCOME_STATEMENT');
   const filteredItems = lineItems.filter((item) => item.label.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const fmt = (raw?: number, fallback?: string) => {
+  const fmt = (raw?: number, fallback?: string | number | null) => {
     if (!hasFacts) return EMPTY_DISPLAY;
-    if (fallback && fallback !== EMPTY_DISPLAY) return fallback;
+    if (fallback && fallback !== EMPTY_DISPLAY) return String(fallback);
     if (raw == null || !Number.isFinite(raw) || raw === 0) return EMPTY_DISPLAY;
     return FinancialFormatter.format(raw, { currency: summary?.currency || company?.currency, scaleLabel: 'MILLIONS' });
   };

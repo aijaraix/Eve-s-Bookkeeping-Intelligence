@@ -45,7 +45,7 @@ export class DeliverablesEngine {
       }
     });
 
-    const calcTotal = (rows: LeadScheduleRow[]) => rows.reduce((sum, r) => sum + (parseFloat(r.valueFunctional.replace(/,/g, '')) || 0), 0);
+    const calcTotal = (rows: LeadScheduleRow[]) => rows.reduce((sum, r) => sum + (parseFloat(String(r.valueFunctional || '').replace(/,/g, '')) || 0), 0);
 
     return [
       {

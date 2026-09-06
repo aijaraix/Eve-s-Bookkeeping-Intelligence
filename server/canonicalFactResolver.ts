@@ -760,13 +760,24 @@ export class CanonicalFactResolver {
 
       // NON-MONETARY / RATIO / ESG GUARD
       if (isMonetaryTarget) {
-        const ratioKeywords = [
-          "ratio", "margin %", "intensity", "per turnover", "per revenue", "per share",
-          "per employee", "growth %", "growth rate", "percentage", "%", "kg", "kwh",
-          "tonnes", "co2", "index", "water consumption", "emissions", "carbon"
+        const ratioPatterns = [
+          /\bratios?\b/i,
+          /margin\s*%/i,
+          /\bintensity\b/i,
+          /\bper\s+(turnover|revenue|share|employee)\b/i,
+          /\bgrowth\s*%/i,
+          /\bgrowth\s+rate\b/i,
+          /\bpercentage\b/i,
+          /%/,
+          /\bkg\b/i,
+          /\bkwh\b/i,
+          /\btonnes\b/i,
+          /\bco2\b/i,
+          /\bwater\s+consumption\b/i,
+          /\b(emissions|carbon)\b/i
         ];
         const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
-        if (ratioKeywords.some(kw => textToScan.includes(kw))) {
+        if (ratioPatterns.some(pattern => pattern.test(textToScan))) {
           return false; // Reject non-monetary / ratio / ESG metrics from monetary canonical resolution
         }
       }

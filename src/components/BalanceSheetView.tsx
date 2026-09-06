@@ -4,8 +4,14 @@ import { usePractice } from '../context/PracticeContext';
 import { EMPTY_DISPLAY } from '../api/practiceClient';
 import { EmptyExtractionState } from './EmptyExtractionState';
 import { FinancialFormatter } from '../utils/financialFormatter';
+import { generateFactLineageId, renderRegistry } from '../utils/renderRegistry';
 
-export const BalanceSheetView: React.FC = () => {
+export interface BalanceSheetViewProps {
+  onInspectMetric?: (metricName: string) => void;
+  onSelectFact?: (fact: any) => void;
+}
+
+export const BalanceSheetView: React.FC<BalanceSheetViewProps> = ({ onInspectMetric, onSelectFact }) => {
   const { financialFacts, companies, selectedCompanyId, summary, hasFacts } = usePractice();
   const [activeTab, setActiveTab] = useState<'all' | 'assets' | 'liabilities' | 'equity'>('all');
   const company = companies.find((c) => c.id === selectedCompanyId);
@@ -18,9 +24,9 @@ export const BalanceSheetView: React.FC = () => {
     ? assets - (liabilities + equity)
     : null;
 
-  const fmt = (raw?: number, fallback?: string) => {
+  const fmt = (raw?: number, fallback?: string | number | null) => {
     if (!hasFacts) return EMPTY_DISPLAY;
-    if (fallback && fallback !== EMPTY_DISPLAY) return fallback;
+    if (fallback && fallback !== EMPTY_DISPLAY) return String(fallback);
     if (raw == null || !Number.isFinite(raw)) return EMPTY_DISPLAY;
     return FinancialFormatter.format(raw, { currency: summary?.currency || company?.currency, scaleLabel: 'MILLIONS' });
   };
@@ -65,17 +71,50 @@ export const BalanceSheetView: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 font-mono">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-          <div className="text-xs font-bold text-slate-500 uppercase">TOTAL ASSETS</div>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">{fmt(assets, summary?.assets)}</div>
+        <div
+          onClick={() => onInspectMetric?.('Total Assets')}
+          data-fact-lineage-id={generateFactLineageId({ metric: 'Total Assets', period: summary?.period, entityId: selectedCompanyId })}
+          data-canonical-fact-id="FCT-TOTAL_ASSETS"
+          data-entity-id={selectedCompanyId || 'group'}
+          data-period-id={summary?.period || 'current'}
+          data-currency={summary?.currency || company?.currency || 'USD'}
+          data-verification-state={hasFacts ? 'CONFIRMED' : 'UNCONFIRMED'}
+          className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group"
+          title="Click to inspect optical provenance for Total Assets"
+        >
+          <div className="text-xs font-bold text-slate-500 uppercase group-hover:text-blue-600 transition-colors">TOTAL ASSETS</div>
+          <div className="text-2xl font-extrabold text-slate-900 group-hover:text-blue-700 transition-colors mt-1">{fmt(assets, summary?.assets)}</div>
+          <div className="text-[10px] text-slate-400 mt-1">Click to inspect provenance</div>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-          <div className="text-xs font-bold text-slate-500 uppercase">TOTAL LIABILITIES</div>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">{fmt(liabilities, summary?.liabilities)}</div>
+        <div
+          onClick={() => onInspectMetric?.('Total Liabilities')}
+          data-fact-lineage-id={generateFactLineageId({ metric: 'Total Liabilities', period: summary?.period, entityId: selectedCompanyId })}
+          data-canonical-fact-id="FCT-TOTAL_LIABILITIES"
+          data-entity-id={selectedCompanyId || 'group'}
+          data-period-id={summary?.period || 'current'}
+          data-currency={summary?.currency || company?.currency || 'USD'}
+          data-verification-state={hasFacts ? 'CONFIRMED' : 'UNCONFIRMED'}
+          className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group"
+          title="Click to inspect optical provenance for Total Liabilities"
+        >
+          <div className="text-xs font-bold text-slate-500 uppercase group-hover:text-blue-600 transition-colors">TOTAL LIABILITIES</div>
+          <div className="text-2xl font-extrabold text-slate-900 group-hover:text-blue-700 transition-colors mt-1">{fmt(liabilities, summary?.liabilities)}</div>
+          <div className="text-[10px] text-slate-400 mt-1">Click to inspect provenance</div>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-          <div className="text-xs font-bold text-slate-500 uppercase">SHAREHOLDERS' EQUITY</div>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">{fmt(equity, summary?.equity)}</div>
+        <div
+          onClick={() => onInspectMetric?.("Shareholders' Equity")}
+          data-fact-lineage-id={generateFactLineageId({ metric: "Shareholders' Equity", period: summary?.period, entityId: selectedCompanyId })}
+          data-canonical-fact-id="FCT-SHAREHOLDERS_EQUITY"
+          data-entity-id={selectedCompanyId || 'group'}
+          data-period-id={summary?.period || 'current'}
+          data-currency={summary?.currency || company?.currency || 'USD'}
+          data-verification-state={hasFacts ? 'CONFIRMED' : 'UNCONFIRMED'}
+          className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group"
+          title="Click to inspect optical provenance for Shareholders' Equity"
+        >
+          <div className="text-xs font-bold text-slate-500 uppercase group-hover:text-blue-600 transition-colors">SHAREHOLDERS' EQUITY</div>
+          <div className="text-2xl font-extrabold text-slate-900 group-hover:text-blue-700 transition-colors mt-1">{fmt(equity, summary?.equity)}</div>
+          <div className="text-[10px] text-slate-400 mt-1">Click to inspect provenance</div>
         </div>
       </div>
 
@@ -107,18 +146,23 @@ export const BalanceSheetView: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visible.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50">
-                  <td className="py-3 px-6 text-slate-900 font-bold flex items-center gap-2">
+                <tr
+                  key={item.id}
+                  onClick={() => onSelectFact?.(item)}
+                  className="hover:bg-blue-50/60 cursor-pointer transition-colors group"
+                  title={`Click to view provenance for ${item.label}`}
+                >
+                  <td className="py-3 px-6 text-slate-900 font-bold flex items-center gap-2 group-hover:text-blue-700">
                     <FileText className="w-3.5 h-3.5 text-blue-500" />
                     {item.label}
                   </td>
-                  <td className="py-3 px-6 text-right font-extrabold">
+                  <td className="py-3 px-6 text-right font-extrabold group-hover:text-blue-700">
                     {FinancialFormatter.format(item.value, { currency: item.currency, scaleLabel: item.scaleSource || 'MILLIONS' })}
                   </td>
                   <td className="py-3 px-6 text-center">
                     {typeof item.confidence === 'number' ? `${(item.confidence * 100).toFixed(1)}%` : EMPTY_DISPLAY}
                   </td>
-                  <td className="py-3 px-6 text-right">{item.status}</td>
+                  <td className="py-3 px-6 text-right font-semibold text-emerald-600">{item.status}</td>
                 </tr>
               ))}
             </tbody>

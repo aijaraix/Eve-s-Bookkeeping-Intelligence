@@ -298,7 +298,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 >
                   <div className="flex items-center gap-2.5">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    {!isCollapsed && <span>Hermes 4-Agent Swarm</span>}
+                    {!isCollapsed && <span>Eve CPA Organization</span>}
                   </div>
                 </button>
 

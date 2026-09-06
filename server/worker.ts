@@ -60,11 +60,11 @@ export interface WorkerJob {
   workspaceId: string;
   documentId: string;
   documentTitle: string;
-  documentHash: string;
+  documentHash?: string;
   functionalCurrency: string;
   filePath: string;
   fileSize: number;
-  mimeType: string;
+  mimeType?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -85,33 +85,38 @@ export interface WorkerJob {
     | "COMPLETE_REVIEW_REQUIRED"
     | "WAITING_FOR_AI_CAPACITY"
     | "RETRYING"
-    | "FAILED";
+    | "FAILED"
+    | "PROCESSING"
+    | string;
   currentStage: string;
   progress: number;
-  retryCount: number;
+  retryCount?: number;
   counters: {
-    filesReceived: number;
-    pagesInventoried: number;
-    pagesParsed: number;
-    ocrPagesCount: number;
-    tablesIdentified: number;
-    tablesExtracted: number;
-    statementsIdentified: number;
-    statementsProcessed: number;
-    factsNormalized: number;
-    evidenceConfirmed: number;
-    accountingGatesPassed: number;
+    filesReceived?: number;
+    pagesInventoried?: number;
+    pagesParsed?: number;
+    ocrPagesCount?: number;
+    tablesIdentified?: number;
+    tablesExtracted?: number;
+    statementsIdentified?: number;
+    statementsProcessed?: number;
+    factsNormalized?: number;
+    evidenceConfirmed?: number;
+    accountingGatesPassed?: number;
+    [key: string]: any;
   };
   results: {
-    facts: ExtractedFact[];
-    entities: any[];
-    statements: any[];
-    discrepancies: any[];
-    validationResults: any;
-    pageDiagnostics: any[];
+    facts?: ExtractedFact[];
+    entities?: any[];
+    statements?: any[];
+    discrepancies?: any[];
+    validationResults?: any;
+    pageDiagnostics?: any[];
+    [key: string]: any;
   };
-  warnings: string[];
+  warnings?: string[];
   lastError?: string;
+  [key: string]: any;
 }
 
 const workerJobs = new Map<string, WorkerJob>();
@@ -143,12 +148,91 @@ app.get("/health", (req: Request, res: Response) => {
   });
 });
 
+// Local AI Proxy & Diagnostic Endpoints
+app.get("/api/worker/local-ai/status", async (req: Request, res: Response) => {
+  const localAiUrl = (process.env.LOCAL_AI_BASE_URL || "http://eve-local-ai.zeabur.internal:11434").replace(/\/$/, "");
+  const localAiModel = process.env.LOCAL_AI_MODEL || "qwen3.5:4b-q4_K_M";
+  const t0 = Date.now();
+  try {
+    const tagsRes = await fetch(`${localAiUrl}/api/tags`, { signal: AbortSignal.timeout(4000) }).catch(() => null);
+    if (tagsRes && tagsRes.ok) {
+      const data = await tagsRes.json().catch(() => ({}));
+      return res.json({
+        status: "HEALTHY",
+        localAiUrl,
+        model: localAiModel,
+        latencyMs: Date.now() - t0,
+        tags: data,
+        timestamp: new Date().toISOString()
+      });
+    }
+    const healthRes = await fetch(`${localAiUrl}/`, { signal: AbortSignal.timeout(4000) }).catch(() => null);
+    if (healthRes && healthRes.ok) {
+      return res.json({
+        status: "HEALTHY",
+        localAiUrl,
+        model: localAiModel,
+        latencyMs: Date.now() - t0,
+        timestamp: new Date().toISOString()
+      });
+    }
+    const modelsRes = await fetch(`${localAiUrl}/v1/models`, { signal: AbortSignal.timeout(4000) }).catch(() => null);
+    if (modelsRes && modelsRes.ok) {
+      const data = await modelsRes.json();
+      return res.json({
+        status: "HEALTHY",
+        localAiUrl,
+        model: localAiModel,
+        latencyMs: Date.now() - t0,
+        models: data,
+        timestamp: new Date().toISOString()
+      });
+    }
+    return res.status(503).json({
+      status: "UNAVAILABLE",
+      localAiUrl,
+      model: localAiModel,
+      latencyMs: Date.now() - t0,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    return res.status(503).json({
+      status: "ERROR",
+      localAiUrl,
+      model: localAiModel,
+      error: err.message,
+      latencyMs: Date.now() - t0
+    });
+  }
+});
+
+app.post("/api/worker/local-ai/predict", async (req: Request, res: Response) => {
+  const localAiUrl = (process.env.LOCAL_AI_BASE_URL || "http://eve-local-ai.zeabur.internal:11434").replace(/\/$/, "");
+  try {
+    const { requestBody } = req.body;
+    const bodyToSend = requestBody || req.body;
+    const aiRes = await fetch(`${localAiUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bodyToSend),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!aiRes.ok) {
+      return res.status(aiRes.status).json({ error: `Local AI returned HTTP ${aiRes.status}` });
+    }
+    const data = await aiRes.json();
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: err.message || "Failed to communicate with Local AI" });
+  }
+});
+
 app.get("/ready", (req: Request, res: Response) => {
   res.json({ ready: true, status: "ready" });
 });
 
 // Create Extraction Job
-app.post("/v1/jobs", requireWorkerAuth, upload.single("file"), async (req: Request, res: Response) => {
+app.post("/v1/jobs", requireWorkerAuth, upload.single("file") as any, async (req: Request, res: Response) => {
   try {
     const {
       workspaceId = "ws-default",
@@ -448,15 +532,15 @@ async function executeWorkerExtraction(job: WorkerJob) {
 
     job.counters.evidenceConfirmed = facts.filter((f) => f.confidence && f.confidence > 0.8).length;
     job.counters.accountingGatesPassed = [
-      validationRes.balanceSheetIdentity?.status === "BALANCED",
-      validationRes.incomeStatementIdentity?.status === "BALANCED",
-      validationRes.cashFlowRollForward?.status === "BALANCED",
+      (validationRes.balanceSheetIdentity?.status as any) === "BALANCED",
+      (validationRes.incomeStatementIdentity?.status as any) === "BALANCED",
+      (validationRes.cashFlowRollForward?.status as any) === "BALANCED",
       ...(validationRes.plausibilityDiagnostics?.map((p) => p.passed) || [])
     ].filter(Boolean).length;
     job.results.validationResults = validationRes;
 
     // COMPLETE JOB
-    const hasFailures = validationRes.overallStatus === "FAILED" || (validationRes as any).hasCriticalFailures;
+    const hasFailures = (validationRes.overallStatus as any) === "FAILED" || (validationRes as any).hasCriticalFailures;
     job.status = hasFailures ? "COMPLETE_REVIEW_REQUIRED" : "COMPLETE";
     job.currentStage = "Deterministic extraction and accounting reconciliation completed";
     job.progress = 100;
@@ -697,6 +781,19 @@ const isDirectRun =
 if (isDirectRun && process.env.NODE_ENV !== "test") {
   app.listen(WORKER_PORT, "0.0.0.0", () => {
     console.log(`[Zeabur Worker] Eve Dedicated Extraction Worker running on port ${WORKER_PORT}`);
+    const localAiUrl = (process.env.LOCAL_AI_BASE_URL || "http://eve-local-ai.zeabur.internal:11434").replace(/\/$/, "");
+    const localAiModel = process.env.LOCAL_AI_MODEL || "qwen3.5:4b-q4_K_M";
+    fetch(`${localAiUrl}/api/tags`, { signal: AbortSignal.timeout(3000) })
+      .then((r) => {
+        if (r.ok) {
+          console.log(`[Worker] Local AI: ENABLED (${localAiModel} at ${localAiUrl})`);
+        } else {
+          console.log(`[Worker] Local AI: DISABLED (fallback: deterministic + cloud)`);
+        }
+      })
+      .catch(() => {
+        console.log(`[Worker] Local AI: DISABLED (fallback: deterministic + cloud)`);
+      });
   });
 }
 

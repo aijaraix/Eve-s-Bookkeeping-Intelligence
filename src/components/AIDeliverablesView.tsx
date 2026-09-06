@@ -86,7 +86,17 @@ export const AIDeliverablesView: React.FC<AIDeliverablesViewProps> = ({ onOpenRe
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <a
+            href="/reports/PHASE_H916_AUDIT_REPORT.html"
+            target="_blank"
+            rel="noreferrer"
+            className="px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer border border-purple-200 transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5 text-purple-600" />
+            <span>Download H.9.16 Audit Report</span>
+          </a>
+
           <button
             onClick={() => handleExportCsv('lead-schedules')}
             className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer border border-slate-200 transition-colors"

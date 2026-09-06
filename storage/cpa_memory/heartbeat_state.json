@@ -1,0 +1,58 @@
+{
+  "lastHeartbeatAt": "2026-09-06T02:00:59.680Z",
+  "nextHeartbeatAt": "2026-09-06T02:01:29.680Z",
+  "heartbeatSequence": 2,
+  "academyState": "IDLE",
+  "currentCaseId": null,
+  "currentStage": null,
+  "checkpoint": null,
+  "customerQueueState": {
+    "pendingJobs": 0,
+    "preemptingBackground": false
+  },
+  "resourceSnapshot": {
+    "cpuCores": 2,
+    "cpuLoadAvg": [
+      0,
+      0,
+      0
+    ],
+    "ramFreeMb": 3281,
+    "ramTotalMb": 4096,
+    "ramUsageMb": 146,
+    "diskFreeGb": 755,
+    "diskTotalGb": 756,
+    "hardwareProfile": "EVE-NODE: 4 vCPU, 16 GB RAM (CPU-only, no GPU)"
+  },
+  "lastCompletedCaseId": "CANARY-AAPL-10K-FY23",
+  "failureCount": 0,
+  "cooldownUntil": null,
+  "lastDecision": {
+    "timestamp": "2026-09-06T02:00:59.697Z",
+    "action": "START_NEW_CASE",
+    "reason": "System capacity optimal (4 vCPU, 16 GB RAM healthy). Ready to execute next Academy benchmark."
+  },
+  "servicesHealth": {
+    "ollamaLocalAI": {
+      "url": "http://eve-local-ai.zeabur.internal:11434",
+      "verified": true,
+      "model": "qwen3.5:4b-q4_K_M",
+      "latencyMs": 15
+    },
+    "hermesAgent": {
+      "gatewayUrl": "http://eve-hermes.zeabur.internal:8642",
+      "dashboardUrl": "https://eves-hermes.zeabur.app",
+      "verified": true
+    },
+    "openClawGateway": {
+      "gatewayUrl": "http://eve-openclaw.zeabur.internal:18789",
+      "dashboardUrl": "https://eves-openclaw.zeabur.app",
+      "verified": true
+    },
+    "extractionWorker": {
+      "url": "http://eve-s-bookkeeping-intelligence.zeabur.internal:8080",
+      "verified": true,
+      "latencyMs": 5
+    }
+  }
+}

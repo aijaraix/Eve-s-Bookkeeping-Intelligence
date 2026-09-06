@@ -21,6 +21,8 @@ import { runPhaseH94AdversarialTests } from "./server/tests/phaseH94Adversarial.
 import { runPhaseH941CapacityRecoveryTests } from "./server/tests/phaseH941CapacityRecovery.test.js";
 import { runFailClosedTests } from "./server/tests/phaseFailClosed.test.js";
 import { runPhaseH95NullSafetyTests } from "./server/tests/phaseH95NullSafety.test.js";
+import { runPhaseH912BTests } from "./server/tests/phaseH912B.test.js";
+import { runPhaseH913TestSuite } from "./server/tests/phaseH913.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -643,6 +645,25 @@ assert(
   `Phase H.9.5 Suite failed (${h95Res.failures.length} failures): ${h95Res.failures.join("; ")}`,
   "All 7/7 Phase H.9.5 Null-Safety & Malformed Input tests passed cleanly."
 );
+
+console.log(`\n${colors.bold}[SUITE H.9.12B: EVE AUTONOMOUS CPA ORGANIZATION]${colors.reset}`);
+const h912BRes = await runPhaseH912BTests();
+assert(
+  "Phase H.9.12B Eve Autonomous CPA Organization Suite (11/11 Passed)",
+  h912BRes.failures.length === 0 && h912BRes.passed === 11,
+  `Phase H.9.12B Suite failed (${h912BRes.failures.length} failures): ${h912BRes.failures.join("; ")}`,
+  "All 11/11 Phase H.9.12B Eve Autonomous CPA Organization tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE H.9.13: 24-HOUR HERMES PRIME CPA ACADEMY & RENDER-LINEAGE]${colors.reset}`);
+const h913Res = await runPhaseH913TestSuite();
+assert(
+  "Phase H.9.13 24-Hour Hermes Prime Academy & Render-Lineage Suite (11/11 Passed)",
+  h913Res.passed,
+  `Phase H.9.13 Suite failed: ${h913Res.message}`,
+  h913Res.message
+);
+
 
 
 // Final Reporting

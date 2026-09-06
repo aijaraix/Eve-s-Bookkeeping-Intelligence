@@ -78,7 +78,7 @@ function PracticeApp() {
         confidence: 0.99,
         verified: true,
         scale: 'Millions'
-      });
+      } as any);
     }
   };
 
@@ -161,7 +161,7 @@ function PracticeApp() {
 
           {/* PILLAR 2: FINANCIAL WORKBENCH */}
           {activeView === 'financials-dashboard' && (
-            <FinancialDashboardView />
+            <FinancialDashboardView onInspectMetric={handleInspectMetric} />
           )}
 
           {activeView === 'income-statement' && (
@@ -169,11 +169,17 @@ function PracticeApp() {
           )}
 
           {activeView === 'balance-sheet' && (
-            <BalanceSheetView />
+            <BalanceSheetView
+              onInspectMetric={handleInspectMetric}
+              onSelectFact={(fact) => setSelectedFact(fact)}
+            />
           )}
 
           {activeView === 'cash-flow' && (
-            <CashFlowView />
+            <CashFlowView
+              onInspectMetric={handleInspectMetric}
+              onSelectFact={(fact) => setSelectedFact(fact)}
+            />
           )}
 
           {activeView === 'equity-statement' && (

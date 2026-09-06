@@ -1,0 +1,71 @@
+[
+  {
+    "caseId": "case-1788534266198-773274",
+    "timestamp": "2026-09-04T15:04:26.199Z",
+    "taskType": "STATEMENT_TYPE_CLASSIFICATION",
+    "inputSnapshot": {
+      "systemPrompt": "You are a certified lead CPA classifier. Classify the financial statement type.\nStrictly return JSON: {\"statementType\": \"INCOME_STATEMENT\" | \"BALANCE_SHEET\" | \"CASH_FLOW_STATEMENT\" | \"CHANGES_IN_EQUITY\" | \"NOTES_AND_DISCLOSURES\" | \"UNKNOWN\", \"confidence\": 0.0-1.0, \"justification\": string}",
+      "userPrompt": "Document: Unilever Annual Report and Accounts 2024\nSample line items:\nTurnover 60,780 59,604\nCost of sales (34,500) (35,000)\nGross profit 26,280 24,604\nOperating profit 10,450 9,760"
+    },
+    "localOutput": null,
+    "decision": "ESCALATED",
+    "confidence": 0,
+    "failureMode": "ERROR: HTTP 404",
+    "auditNotes": "Fell back to deterministic rules due to local AI exception"
+  },
+  {
+    "caseId": "case-1788534266297-ce8e22",
+    "timestamp": "2026-09-04T15:04:26.297Z",
+    "taskType": "CANONICAL_ROW_MAPPING",
+    "inputSnapshot": {
+      "systemPrompt": "You are an expert CPA mapping line items to standardized GAAP/IFRS canonical tags.\nCommon canonical tags: REVENUE, COST_OF_GOODS_SOLD, GROSS_PROFIT, OPERATING_EXPENSES, OPERATING_INCOME, PRE_TAX_INCOME, INCOME_TAX, NET_INCOME, CASH_AND_EQUIVALENTS, ACCOUNTS_RECEIVABLE, INVENTORIES, TOTAL_CURRENT_ASSETS, PROPERTY_PLANT_EQUIPMENT, GOODWILL, INTANGIBLE_ASSETS, TOTAL_ASSETS, ACCOUNTS_PAYABLE, CURRENT_DEBT, TOTAL_CURRENT_LIABILITIES, LONG_TERM_DEBT, TOTAL_LIABILITIES, SHARE_CAPITAL, RETAINED_EARNINGS, TOTAL_EQUITY, OPERATING_CASH_FLOW, INVESTING_CASH_FLOW, FINANCING_CASH_FLOW.\nStrictly return JSON: {\"canonicalTag\": string, \"confidence\": 0.0-1.0}",
+      "userPrompt": "Line Item: \"Turnover\"\nStatement Type: INCOME_STATEMENT\nSurrounding items: "
+    },
+    "localOutput": null,
+    "decision": "ESCALATED",
+    "confidence": 0,
+    "failureMode": "ERROR: HTTP 404",
+    "auditNotes": "Fell back to deterministic rules due to local AI exception"
+  },
+  {
+    "caseId": "case-1788534266391-9143ce",
+    "timestamp": "2026-09-04T15:04:26.391Z",
+    "taskType": "ENTITY_TYPE_CLASSIFICATION",
+    "inputSnapshot": {
+      "systemPrompt": "You are a forensic corporate structure auditor. Classify the entity type.\nAllowed types: \"CORPORATION\" | \"SUBSIDIARY\" | \"JOINT_VENTURE\" | \"ASSOCIATE\" | \"AUDIT_FIRM\" | \"REGULATOR\" | \"FINANCIAL_INSTITUTION\" | \"INDIVIDUAL\" | \"UNKNOWN\".\nStrictly return JSON: {\"entityType\": string, \"confidence\": 0.0-1.0}",
+      "userPrompt": "Entity Name: \"PricewaterhouseCoopers LLP\"\nContext: Unilever Audit Report"
+    },
+    "localOutput": null,
+    "decision": "ESCALATED",
+    "confidence": 0,
+    "failureMode": "ERROR: HTTP 404",
+    "auditNotes": "Fell back to deterministic rules due to local AI exception"
+  },
+  {
+    "caseId": "case-1788534266479-bafc3f",
+    "timestamp": "2026-09-04T15:04:26.479Z",
+    "taskType": "MULTILINGUAL_ACCOUNTING_TERM_MAPPING",
+    "inputSnapshot": {
+      "systemPrompt": "You are a multilingual financial accounting translator. Translate foreign accounting terms (German, French, Spanish, Italian, Dutch, Chinese, Japanese) to standard English IFRS/GAAP terms.\nStrictly return JSON: {\"englishStandardTerm\": string, \"confidence\": 0.0-1.0}",
+      "userPrompt": "Term: \"Umsatzerlöse\"\nSource Language: German\nStandard: IFRS"
+    },
+    "localOutput": null,
+    "decision": "ESCALATED",
+    "confidence": 0,
+    "failureMode": "ERROR: HTTP 404",
+    "auditNotes": "Fell back to deterministic rules due to local AI exception"
+  },
+  {
+    "caseId": "case-1788534266479-2aea1d",
+    "timestamp": "2026-09-04T15:04:26.479Z",
+    "taskType": "CANONICAL_ROW_MAPPING",
+    "inputSnapshot": {
+      "rawRowLabel": "Turnover"
+    },
+    "localOutput": "REVENUE",
+    "groundTruth": "REVENUE",
+    "decision": "ACCEPTED",
+    "confidence": 0.99,
+    "auditNotes": "Verified against IFRS taxonomy"
+  }
+]

@@ -194,7 +194,7 @@ export async function generateDeliverable(params: {
 export async function sendEveChat(message: string, workspaceId?: string, email?: string): Promise<string> {
   try {
     const json = await apiPost<any>('/api/chat', { message, workspaceId }, email);
-    return json.reply || json.message || json.text || 'No response from Eve.';
+    return json.answer || json.reply || json.message || json.text || 'No response from Eve.';
   } catch (err: any) {
     return `Eve cannot answer from verified facts yet. ${err.message || ''}`.trim();
   }
@@ -433,3 +433,104 @@ export function jobIsSuccess(status?: string): boolean {
   const s = String(status || '').toUpperCase();
   return s === 'COMPLETED' || s === 'COMPLETED_WITH_WARNINGS' || s === 'REVIEW_REQUIRED';
 }
+
+// =========================================================================
+// EVE AUTONOMOUS CPA ORGANIZATION API CLIENTS (Phase H.9.12B)
+// =========================================================================
+
+export async function fetchCPAAgents(email?: string): Promise<{ agents: any[]; total: number }> {
+  try {
+    return await apiGet<{ agents: any[]; total: number }>('/api/cpa/agents', email);
+  } catch {
+    return { agents: [], total: 0 };
+  }
+}
+
+export async function fetchCPASwarms(email?: string): Promise<{ swarms: any[]; total: number }> {
+  try {
+    return await apiGet<{ swarms: any[]; total: number }>('/api/cpa/swarms', email);
+  } catch {
+    return { swarms: [], total: 0 };
+  }
+}
+
+export async function fetchCPARouterTelemetry(email?: string): Promise<any> {
+  try {
+    return await apiGet<any>('/api/cpa/router/telemetry', email);
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchCPAAcademyEvaluations(email?: string): Promise<any> {
+  try {
+    return await apiGet<any>('/api/cpa/academy/evaluations', email);
+  } catch {
+    return { evaluations: [], benchmarks: [] };
+  }
+}
+
+export async function runCPAAcademyEvaluation(email?: string): Promise<any> {
+  return apiPost<any>('/api/cpa/academy/run-eval', {}, email);
+}
+
+export async function fetchCPADarwinLog(email?: string): Promise<{ proposals: any[]; total: number }> {
+  try {
+    return await apiGet<{ proposals: any[]; total: number }>('/api/cpa/darwin/evolution-log', email);
+  } catch {
+    return { proposals: [], total: 0 };
+  }
+}
+
+export async function fetchCPAMemory(agentId: string, email?: string): Promise<{ memories: any[]; total: number }> {
+  try {
+    return await apiGet<{ memories: any[]; total: number }>(`/api/cpa/memory/${encodeURIComponent(agentId)}`, email);
+  } catch {
+    return { memories: [], total: 0 };
+  }
+}
+
+export async function fetchCPASkills(email?: string): Promise<{ skills: any[]; total: number }> {
+  try {
+    return await apiGet<{ skills: any[]; total: number }>('/api/cpa/skills', email);
+  } catch {
+    return { skills: [], total: 0 };
+  }
+}
+
+export async function fetchCPAHeartbeatStatus(email?: string): Promise<any> {
+  try {
+    return await apiGet<any>('/api/cpa/heartbeat/status', email);
+  } catch {
+    return null;
+  }
+}
+
+export async function spawnCPASpecialist(topic: string, customTitle?: string, targetWorkspaceId?: string, email?: string): Promise<any> {
+  return apiPost<any>('/api/cpa/specialist/spawn', { topic, customTitle, targetWorkspaceId }, email);
+}
+
+export async function dispatchCPASwarm(swarmId: string, workspaceId?: string, workspaceFacts?: any[], email?: string): Promise<any> {
+  return apiPost<any>(`/api/cpa/swarms/${encodeURIComponent(swarmId)}/dispatch`, { workspaceId, workspaceFacts }, email);
+}
+
+export async function executeCPASkill(skillId: string, agentId: string, input: Record<string, any>, email?: string): Promise<any> {
+  return apiPost<any>('/api/cpa/skills/execute', { skillId, agentId, input }, email);
+}
+
+export async function storeCPAMemory(memory: { namespace: string; type: string; key: string; value: any; tags?: string[]; confidence?: number }, email?: string): Promise<any> {
+  return apiPost<any>('/api/cpa/memory', memory, email);
+}
+
+export async function recordCPALearningCase(agentId: string, data: { context: string; observedDefect: string; rootCause: string; remedyApplied: string; verifiedBy?: string }, email?: string): Promise<any> {
+  return apiPost<any>(`/api/cpa/agents/${encodeURIComponent(agentId)}/learning-case`, data, email);
+}
+
+export async function fetchCPACanaryResult(email?: string): Promise<any> {
+  try {
+    return await apiGet<any>('/api/cpa/academy/canary-result', email);
+  } catch {
+    return null;
+  }
+}
+

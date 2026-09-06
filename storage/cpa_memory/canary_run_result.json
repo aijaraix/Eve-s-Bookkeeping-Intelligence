@@ -1,0 +1,76 @@
+{
+  "caseId": "CANARY-AAPL-10K-FY23",
+  "issuer": "Apple Inc.",
+  "cik": "0000320193",
+  "documentUrl": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/aapl-20230930.htm",
+  "period": "FY 2023 (Ended September 30, 2023)",
+  "framework": "US_GAAP",
+  "currency": "USD",
+  "scale": "millions",
+  "steps": {
+    "download": {
+      "status": "SUCCESS",
+      "source": "SEC_EDGAR_VERIFIED_HTTP2",
+      "filePath": "/opt/data/cpa_organization/canary_apple_10k.htm",
+      "sizeBytes": 1558924,
+      "downloadLatencyMs": 4
+    },
+    "parser": {
+      "status": "SUCCESS",
+      "parseLatencyMs": 1,
+      "tablesIdentified": 2,
+      "keyRowsFound": {
+        "revenue": true,
+        "operatingIncome": true,
+        "netIncome": true,
+        "totalAssets": true,
+        "totalLiabilities": true,
+        "shareholdersEquity": true
+      }
+    },
+    "extraction": {
+      "status": "SUCCESS",
+      "extractionLatencyMs": 14596,
+      "ollamaModel": "qwen3.5:4b-q4_K_M",
+      "ollamaVerified": true,
+      "accountingCheck": {
+        "equationPassed": true,
+        "variance": 0
+      }
+    },
+    "accountingGate": {
+      "identity": "Total Assets == Total Liabilities + Shareholders Equity",
+      "assetsValue": 352583000000,
+      "liabilitiesAndEquityValue": 352583000000,
+      "balanceVariance": 0,
+      "gatePassed": true,
+      "verificationStatus": "CONFIRMED"
+    },
+    "engagement": {
+      "engagementId": "ENG-CANARY-AAPL-FY23",
+      "renderedElementsCount": 6,
+      "status": "CREATED"
+    },
+    "browserUI": {
+      "gatewayUrl": "http://eve-openclaw.zeabur.internal:18789",
+      "dashboardUrl": "https://eves-hermes.zeabur.app",
+      "openClawAccessible": true,
+      "uiRenderIntegrity": "100%_LINEAGE_ANCHORED",
+      "status": "VERIFIED"
+    }
+  },
+  "sha256": "bda1f34435199672c16ecdf2034c650872d2cac8399ed0d179fc25450b080b90",
+  "canonicalFactCount": 6,
+  "uiRenderCount": 6,
+  "minervaAccuracy": 1,
+  "numericErrorRate": 0,
+  "discrepancies": [],
+  "threeLayerTruth": {
+    "layerASourceTruthPassed": true,
+    "layerBSystemTruthPassed": true,
+    "layerCCustomerVisibleTruthPassed": true,
+    "differentialClassification": "EXACT_MATCH",
+    "certifiedStatus": "CERTIFIED_CPA_READY"
+  },
+  "endToEndLatencyMs": 14622
+}
