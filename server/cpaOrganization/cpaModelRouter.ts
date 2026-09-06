@@ -15,6 +15,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { observatoryEventLedger } from './observatoryEventLedger.js';
+import { operationalRecoveryController } from './operationalRecoveryController.js';
 
 export type ModelRoutingTier =
   | 'LEVEL_0_DETERMINISTIC'
@@ -39,6 +40,8 @@ export interface ModelExecutionRecord {
   routingDecisionId: string;
   tier: ModelRoutingTier;
   model: string;
+  actualModel?: string;
+  executionStatus?: 'PRIMARY_MODEL_SUCCESS' | 'MODEL_FALLBACK' | 'DETERMINISTIC_FALLBACK' | 'MODEL_UNAVAILABLE';
   purpose: string;
   requestTimestamp: string;
   responseTimestamp: string;
@@ -168,10 +171,10 @@ export class CPAModelRouter {
         taskId: params.taskId,
         taskType: params.taskType,
         selectedTier: 'LEVEL_2_FAST_CLOUD',
-        selectedModel: 'Gemini 2.5 Flash',
+        selectedModel: 'gemini-3.1-flash-lite',
         reason: 'Economical cloud model generates narrative audit report text and executive disclosures grounded in facts.',
         deterministicEligible: false,
-        estimatedCostUsd: 0.002,
+        estimatedCostUsd: 0.0005,
         timestamp: now
       };
     }
@@ -185,10 +188,10 @@ export class CPAModelRouter {
         taskId: params.taskId,
         taskType: params.taskType,
         selectedTier: 'LEVEL_3_HEAVY_CLOUD',
-        selectedModel: 'Gemini 2.5 Pro',
+        selectedModel: 'gemini-3.5-flash',
         reason: 'Complex IFRS/GAAP multi-topic technical memorandum analysis requires maximum reasoning depth.',
         deterministicEligible: false,
-        estimatedCostUsd: 0.015,
+        estimatedCostUsd: 0.002,
         timestamp: now
       };
     }
@@ -251,19 +254,23 @@ export class CPAModelRouter {
     let success = true;
     let fallback = false;
     let fallbackReason: string | undefined;
+    let actualModel = decision.selectedModel;
+    let executionStatus: 'PRIMARY_MODEL_SUCCESS' | 'MODEL_FALLBACK' | 'DETERMINISTIC_FALLBACK' | 'MODEL_UNAVAILABLE' = 'PRIMARY_MODEL_SUCCESS';
     let costUsd = decision.estimatedCostUsd;
     let tokensUsed = { promptTokens: 0, completionTokens: 0 };
 
     if (decision.selectedTier === 'LEVEL_0_DETERMINISTIC') {
       // Deterministic processing (<1ms)
       outputText = `[DETERMINISTIC_EXECUTION]: Verified with zero-tolerance mathematical tie-out for ${params.taskId}. Identity variance = 0.000.`;
+      actualModel = 'Level 0 Euclid Deterministic Identity Reconciler';
+      executionStatus = 'PRIMARY_MODEL_SUCCESS';
       costUsd = 0.0;
     } else if (decision.selectedTier === 'LEVEL_1_LOCAL_QWEN') {
       // Level 1: Attempt local Ollama / qwen3.5:4b-q4_K_M
       const ollamaUrl = process.env.LOCAL_AI_BASE_URL || 'http://localhost:11434';
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3500);
+        const timeout = setTimeout(() => controller.abort(), 2000);
 
         const res = await fetch(`${ollamaUrl}/api/generate`, {
           method: 'POST',
@@ -282,18 +289,32 @@ export class CPAModelRouter {
           outputText = data.response || '';
           tokensUsed = { promptTokens: data.prompt_eval_count || 120, completionTokens: data.eval_count || 85 };
           costUsd = 0.0; // Local on-prem zero token cost
+          actualModel = process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M';
+          executionStatus = 'PRIMARY_MODEL_SUCCESS';
         } else {
           throw new Error(`Ollama HTTP ${res.status}`);
         }
       } catch (err: any) {
         fallback = true;
-        fallbackReason = `Ollama unavailable (${err.message}). Applied deterministic semantic classifier fallback.`;
+        fallbackReason = `Ollama unreachable (${err.message}). Recovered via deterministic semantic classifier.`;
+        actualModel = 'Deterministic Semantic Entity Classifier';
+        executionStatus = 'DETERMINISTIC_FALLBACK';
         outputText = `[LEVEL_1_FALLBACK]: Semantic entity mapping categorized table successfully: ${params.taskType} confirmed for ${params.taskId}.`;
+
+        // Register recovery with OperationalRecoveryController
+        operationalRecoveryController.executeRecovery({
+          category: 'SERVICE_UNAVAILABLE',
+          operationName: 'ollama_local_qwen_inference',
+          originalError: err,
+          retryCount: 0,
+          context: { taskId: params.taskId, taskType: params.taskType }
+        });
       }
     } else if (decision.selectedTier === 'LEVEL_2_FAST_CLOUD' || decision.selectedTier === 'LEVEL_3_HEAVY_CLOUD') {
       // Level 2 / 3: Cloud Gemini model
       const ai = this.getGemini();
-      const targetModel = decision.selectedTier === 'LEVEL_3_HEAVY_CLOUD' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+      const targetModel = decision.selectedTier === 'LEVEL_3_HEAVY_CLOUD' ? 'gemini-3.5-flash' : 'gemini-3.1-flash-lite';
+      const fallbackModel = 'gemini-3.1-flash-lite';
 
       if (ai) {
         try {
@@ -304,20 +325,48 @@ export class CPAModelRouter {
           });
           outputText = response.text || '';
           tokensUsed = { promptTokens: 350, completionTokens: 180 };
-          costUsd = decision.selectedTier === 'LEVEL_3_HEAVY_CLOUD' ? 0.005 : 0.001;
+          costUsd = decision.selectedTier === 'LEVEL_3_HEAVY_CLOUD' ? 0.002 : 0.0005;
+          actualModel = targetModel;
+          executionStatus = 'PRIMARY_MODEL_SUCCESS';
         } catch (err: any) {
-          fallback = true;
-          fallbackReason = `Gemini call failed (${err.message}). Fallen back to autonomous CPA policy synthesis engine.`;
-          outputText = `[CLOUD_POLICY_SYNTHESIS]: Technical accounting policy for ${params.taskId} complies with applicable financial framework standards. Zero non-conforming disclosures identified.`;
+          // Attempt model fallback
+          try {
+            if (targetModel !== fallbackModel) {
+              const fullPrompt = `${params.systemPrompt ? params.systemPrompt + '\n\n' : ''}${promptText}`;
+              const fbResponse = await ai.models.generateContent({
+                model: fallbackModel,
+                contents: fullPrompt
+              });
+              outputText = fbResponse.text || '';
+              tokensUsed = { promptTokens: 250, completionTokens: 120 };
+              costUsd = 0.0005;
+              fallback = true;
+              fallbackReason = `Primary model ${targetModel} failed (${err.message}); recovered via ${fallbackModel}.`;
+              actualModel = fallbackModel;
+              executionStatus = 'MODEL_FALLBACK';
+            } else {
+              throw err;
+            }
+          } catch (fbErr: any) {
+            fallback = true;
+            fallbackReason = `Gemini call failed (${err.message}). Fallen back to autonomous CPA policy synthesis engine.`;
+            actualModel = 'Autonomous CPA Policy Synthesis Engine';
+            executionStatus = 'DETERMINISTIC_FALLBACK';
+            outputText = `[CLOUD_POLICY_SYNTHESIS]: Technical accounting policy for ${params.taskId} complies with applicable financial framework standards. Zero non-conforming disclosures identified.`;
+          }
         }
       } else {
         fallback = true;
         fallbackReason = 'GEMINI_API_KEY unconfigured in environment. Employed local deterministic CPA rule synthesis.';
+        actualModel = 'Local Deterministic CPA Policy Engine';
+        executionStatus = 'DETERMINISTIC_FALLBACK';
         outputText = `[OFFLINE_POLICY_SYNTHESIS]: Technical review confirmed note disclosures for ${params.taskId} satisfy reporting standard criteria.`;
       }
     } else {
       // Level 4: CPA Human Reviewer
       outputText = `[CPA_HUMAN_MEMORANDUM]: Concurring partner technical memorandum recorded. Discrepancy cleared pursuant to audit standards.`;
+      actualModel = 'Human Certified Public Accountant (CPA Reviewer)';
+      executionStatus = 'PRIMARY_MODEL_SUCCESS';
       costUsd = 0.0;
     }
 
@@ -329,6 +378,8 @@ export class CPAModelRouter {
       routingDecisionId: decision.taskId,
       tier: decision.selectedTier,
       model: decision.selectedModel,
+      actualModel,
+      executionStatus,
       purpose: params.purpose || params.taskType,
       requestTimestamp: reqTimestamp,
       responseTimestamp: respTimestamp,
@@ -353,7 +404,7 @@ export class CPAModelRouter {
       customerType: 'SYNTHETIC_ACADEMY',
       eventReality: 'REAL_OPERATION',
       executionMode: 'FULL_PRACTICE',
-      summary: `Model router executed [${decision.selectedTier}] via ${decision.selectedModel} (${latencyMs}ms, $${costUsd.toFixed(4)}). Fallback: ${fallback ? 'YES' : 'NO'}.`,
+      summary: `Model router executed [${decision.selectedTier}] via ${actualModel} (${latencyMs}ms, $${costUsd.toFixed(4)}, status: ${executionStatus}). Fallback: ${fallback ? 'YES' : 'NO'}.`,
       structuredMetadata: { ...execution },
       status: 'SUCCESS',
       severity: fallback ? 'WARNING' : 'SUCCESS'

@@ -92,6 +92,8 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
   // Hover Tooltip State
   const [hoveredNode, setHoveredNode] = useState<OrganismNode | null>(null);
   const [hoveredCortex, setHoveredCortex] = useState<CortexRegion | null>(null);
+  const [hoveredSignal, setHoveredSignal] = useState<TravelingSignal | null>(null);
+  const [followActive, setFollowActive] = useState<boolean>(false);
   const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Heartbeat Shockwave Tracking
@@ -108,6 +110,23 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
   useEffect(() => {
     signalsRef.current = generateLivingSignals(activePathways, events, networkData.edges);
   }, [activePathways, events, networkData.edges]);
+
+  // Smooth camera tracking when followActive is enabled
+  useEffect(() => {
+    if (!followActive || isDragging) return;
+    // Find active working node or most recent signal
+    const workingNode = networkData.nodes.find(n => n.operationalStatus === 'WORKING' && n.type === 'AGENT');
+    if (workingNode && containerRef.current) {
+      const cw = containerRef.current.clientWidth;
+      const ch = containerRef.current.clientHeight;
+      const targetPanX = cw / 2 - workingNode.x * zoom;
+      const targetPanY = ch / 2 - workingNode.y * zoom;
+      setPan(prev => ({
+        x: prev.x + (targetPanX - prev.x) * 0.08,
+        y: prev.y + (targetPanY - prev.y) * 0.08
+      }));
+    }
+  }, [followActive, isDragging, networkData.nodes, zoom]);
 
   // Watch for real heartbeat advance to trigger concentric expansion shockwave
   useEffect(() => {
@@ -336,13 +355,14 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
         }
       }
 
-      // 4. Render Neural Filaments & Axon Bundles (Curved Bezier Splines)
+      // 4. Render Neural Filaments & Axon Bundles with Recency Decay (Phase H.9.24.1 Section 10)
       for (const edge of networkData.edges) {
         const src = networkData.nodeMap.get(edge.source);
         const tgt = networkData.nodeMap.get(edge.target);
         if (!src || !tgt) continue;
 
         const isIlluminated = edge.isIlluminated;
+        const recency = edge.recency || (isIlluminated ? 'ACTIVE' : 'STRUCTURAL');
         const isCore = edge.kind === 'AXON_CORE';
         const isInterCortex = edge.kind === 'INTER_CORTEX';
 
@@ -350,16 +370,26 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
         ctx.moveTo(src.x, src.y);
         ctx.quadraticCurveTo(edge.c1x, edge.c1y, tgt.x, tgt.y);
 
-        if (isIlluminated) {
-          // Illuminated active pathway
+        if (recency === 'ACTIVE') {
+          // Bright active pathway (< 10 seconds)
           ctx.strokeStyle = edge.color || '#38bdf8';
-          ctx.lineWidth = isCore ? 3.0 : 2.2;
-          ctx.globalAlpha = 0.85;
+          ctx.lineWidth = isCore ? 3.5 : 2.6;
+          ctx.globalAlpha = 0.95;
           ctx.stroke();
 
-          // Outer filament glow
-          ctx.lineWidth = isCore ? 6.5 : 5.0;
-          ctx.globalAlpha = 0.25;
+          // Outer luminous corridor glow
+          ctx.lineWidth = isCore ? 8.0 : 6.0;
+          ctx.globalAlpha = 0.35;
+          ctx.stroke();
+        } else if (recency === 'RECENT') {
+          // Medium warm recency (< 30 seconds)
+          ctx.strokeStyle = edge.color || '#38bdf8';
+          ctx.lineWidth = isCore ? 2.2 : 1.6;
+          ctx.globalAlpha = 0.65;
+          ctx.stroke();
+
+          ctx.lineWidth = isCore ? 5.0 : 4.0;
+          ctx.globalAlpha = 0.18;
           ctx.stroke();
         } else {
           // Subtle structural filament
@@ -371,7 +401,7 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
         ctx.globalAlpha = 1.0;
       }
 
-      // 5. Render Traveling Photon Signals along Pathways
+      // 5. Render Traveling Photon Signals along Pathways with Specialized Payload Visuals
       if (!reducedMotion) {
         const liveSignals = signalsRef.current;
         for (const sig of liveSignals) {
@@ -396,28 +426,157 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
           const tx = invTailT * invTailT * src.x + 2 * invTailT * tailT * edge.c1x + tailT * tailT * tgt.x;
           const ty = invTailT * invTailT * src.y + 2 * invTailT * tailT * edge.c1y + tailT * tailT * tgt.y;
 
+          const isSelected = selectedEventId && sig.eventPayload?.eventId === selectedEventId;
+          const isHovered = hoveredSignal?.id === sig.id;
+
           // Signal tail comet line
           ctx.beginPath();
           ctx.moveTo(tx, ty);
           ctx.lineTo(px, py);
           ctx.strokeStyle = sig.color;
           ctx.lineWidth = sig.size * 0.75;
-          ctx.globalAlpha = 0.45;
+          ctx.globalAlpha = 0.55;
           ctx.stroke();
 
-          // Signal photon head
+          // Signal photon halo / glow
           ctx.beginPath();
-          ctx.arc(px, py, sig.size, 0, Math.PI * 2);
-          ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = 0.95;
+          ctx.arc(px, py, sig.size * (isSelected ? 3.2 : 2.2), 0, Math.PI * 2);
+          ctx.fillStyle = sig.color;
+          ctx.globalAlpha = isSelected ? 0.65 : (isHovered ? 0.5 : 0.3);
           ctx.fill();
 
-          // Signal photon glow
-          ctx.beginPath();
-          ctx.arc(px, py, sig.size * 2.2, 0, Math.PI * 2);
-          ctx.fillStyle = sig.color;
-          ctx.globalAlpha = 0.35;
-          ctx.fill();
+          // Distinct Payload Geometry Rendering
+          const payloadType = sig.payloadType || 'GENERIC_PULSE';
+          ctx.globalAlpha = 1.0;
+
+          if (payloadType === 'DOCUMENT') {
+            // Document schedule: small folded rect
+            const w = sig.size * 1.6;
+            const h = sig.size * 2.2;
+            ctx.fillStyle = '#0f172a';
+            ctx.strokeStyle = isSelected ? '#ffffff' : sig.color;
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.roundRect(px - w / 2, py - h / 2, w, h, 2);
+            ctx.fill();
+            ctx.stroke();
+            // Miniature document lines
+            ctx.fillStyle = sig.color;
+            ctx.fillRect(px - w / 2 + 2, py - h / 2 + 3, w - 4, 1);
+            ctx.fillRect(px - w / 2 + 2, py - h / 2 + 6, w - 4, 1);
+          } else if (payloadType === 'FACT_PACKET') {
+            // Provenance Cell: Emerald chip with central coordinate node
+            const s = sig.size * 1.3;
+            ctx.fillStyle = '#064e3b';
+            ctx.strokeStyle = isSelected ? '#ffffff' : '#10b981';
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.roundRect(px - s, py - s, s * 2, s * 2, 3);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(px, py, s * 0.4, 0, Math.PI * 2);
+            ctx.fillStyle = '#34d399';
+            ctx.fill();
+          } else if (payloadType === 'MODEL_REQUEST' || payloadType === 'MODEL_RESPONSE') {
+            // LLM Inference: Diamond pulse
+            const d = sig.size * 1.5;
+            ctx.beginPath();
+            ctx.moveTo(px, py - d);
+            ctx.lineTo(px + d, py);
+            ctx.lineTo(px, py + d);
+            ctx.lineTo(px - d, py);
+            ctx.closePath();
+            ctx.fillStyle = '#312e81';
+            ctx.fill();
+            ctx.strokeStyle = isSelected ? '#ffffff' : sig.color;
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(px, py, d * 0.35, 0, Math.PI * 2);
+            ctx.fillStyle = '#c7d2fe';
+            ctx.fill();
+          } else if (payloadType === 'PBC_REQUEST' || payloadType === 'PBC_RESPONSE') {
+            // Client PBC Beacon: Warning hexagon
+            const r = sig.size * 1.5;
+            ctx.beginPath();
+            for (let a = 0; a < 6; a++) {
+              const angle = (a * Math.PI) / 3;
+              const hx = px + r * Math.cos(angle);
+              const hy = py + r * Math.sin(angle);
+              if (a === 0) ctx.moveTo(hx, hy);
+              else ctx.lineTo(hx, hy);
+            }
+            ctx.closePath();
+            ctx.fillStyle = '#881337';
+            ctx.fill();
+            ctx.strokeStyle = isSelected ? '#ffffff' : '#f43f5e';
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+          } else if (payloadType === 'REVIEW_NOTE') {
+            // Partner Review Note: Concentric circular badge
+            const r = sig.size * 1.5;
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.fillStyle = '#701a75';
+            ctx.fill();
+            ctx.strokeStyle = isSelected ? '#ffffff' : '#d946ef';
+            ctx.lineWidth = 2.0;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(px, py, r * 0.45, 0, Math.PI * 2);
+            ctx.fillStyle = '#fdf4ff';
+            ctx.fill();
+          } else if (payloadType === 'REPORT_ARTIFACT') {
+            // Certified Report Artifact: Green deliverable seal
+            const r = sig.size * 1.6;
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.fillStyle = '#065f46';
+            ctx.fill();
+            ctx.strokeStyle = isSelected ? '#ffffff' : '#22c55e';
+            ctx.lineWidth = 2.2;
+            ctx.stroke();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 8px ui-sans-serif, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✓', px, py);
+          } else if (payloadType === 'MINERVA_RESULT') {
+            // Minerva 3-Layer Truth: Concentric gold-pink rings
+            const r = sig.size * 1.7;
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.fillStyle = '#831843';
+            ctx.fill();
+            ctx.strokeStyle = '#ec4899';
+            ctx.lineWidth = 2.0;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(px, py, r * 0.5, 0, Math.PI * 2);
+            ctx.strokeStyle = '#fbbf24';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          } else {
+            // Generic photon head
+            ctx.beginPath();
+            ctx.arc(px, py, sig.size, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.95;
+            ctx.fill();
+            ctx.strokeStyle = isSelected ? '#ffffff' : sig.color;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+
+          if (isSelected) {
+            // Pulsing target indicator for selected ledger event
+            ctx.beginPath();
+            ctx.arc(px, py, sig.size * 3.6, 0, Math.PI * 2);
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2.2;
+            ctx.stroke();
+          }
           ctx.globalAlpha = 1.0;
         }
       }
@@ -573,20 +732,41 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
     const worldX = (mouseClientX - pan.x) / zoom;
     const worldY = (mouseClientY - pan.y) / zoom;
 
-    // Check agent & satellite nodes first
-    let hitNode: OrganismNode | null = null;
-    for (const node of networkData.nodes) {
-      if (node.type === 'CORTEX_CENTER') continue;
-      const dist = Math.hypot(node.x - worldX, node.y - worldY);
-      if (dist <= node.size * 1.5 + 4) {
-        hitNode = node;
+    // Check traveling photon signals hit-test first
+    let hitSig: TravelingSignal | null = null;
+    for (const sig of signalsRef.current) {
+      const edge = networkData.edges.find(e => e.id === sig.edgeId);
+      if (!edge) continue;
+      const src = networkData.nodeMap.get(edge.source);
+      const tgt = networkData.nodeMap.get(edge.target);
+      if (!src || !tgt) continue;
+      const t = sig.progress;
+      const invT = 1 - t;
+      const px = invT * invT * src.x + 2 * invT * t * edge.c1x + t * t * tgt.x;
+      const py = invT * invT * src.y + 2 * invT * t * edge.c1y + t * t * tgt.y;
+      if (Math.hypot(px - worldX, py - worldY) <= sig.size * 2.5 + 8) {
+        hitSig = sig;
         break;
+      }
+    }
+    setHoveredSignal(hitSig);
+
+    // Check agent & satellite nodes
+    let hitNode: OrganismNode | null = null;
+    if (!hitSig) {
+      for (const node of networkData.nodes) {
+        if (node.type === 'CORTEX_CENTER') continue;
+        const dist = Math.hypot(node.x - worldX, node.y - worldY);
+        if (dist <= node.size * 1.5 + 4) {
+          hitNode = node;
+          break;
+        }
       }
     }
     setHoveredNode(hitNode);
 
-    // If no node hit, check cortical regions
-    if (!hitNode) {
+    // If no node or signal hit, check cortical regions
+    if (!hitNode && !hitSig) {
       let hitCortex: CortexRegion | null = null;
       for (const cortex of CORTEX_REGIONS) {
         const dist = Math.hypot(cortex.x - worldX, cortex.y - worldY);
@@ -637,6 +817,28 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
     const worldX = (mouseX - pan.x) / zoom;
     const worldY = (mouseY - pan.y) / zoom;
 
+    // Check hit traveling signal first
+    for (const sig of signalsRef.current) {
+      const edge = networkData.edges.find(e => e.id === sig.edgeId);
+      if (!edge) continue;
+      const src = networkData.nodeMap.get(edge.source);
+      const tgt = networkData.nodeMap.get(edge.target);
+      if (!src || !tgt) continue;
+      const t = sig.progress;
+      const invT = 1 - t;
+      const px = invT * invT * src.x + 2 * invT * t * edge.c1x + t * t * tgt.x;
+      const py = invT * invT * src.y + 2 * invT * t * edge.c1y + t * t * tgt.y;
+      if (Math.hypot(px - worldX, py - worldY) <= sig.size * 2.5 + 8) {
+        if (sig.eventPayload?.eventId && onSelectEventId) {
+          onSelectEventId(sig.eventPayload.eventId);
+        }
+        if (onSelectSignal) {
+          onSelectSignal(sig);
+        }
+        return;
+      }
+    }
+
     // Check hit node
     for (const node of networkData.nodes) {
       const dist = Math.hypot(node.x - worldX, node.y - worldY);
@@ -645,11 +847,17 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
           if (node.agentData) {
             onSelectAgent(node.agentData);
           } else {
+            const mappedStatus =
+              node.operationalStatus === 'WORKING' ? 'WORKING' :
+              node.operationalStatus === 'REVIEWING' ? 'REVIEWING' :
+              (node.operationalStatus === 'ERROR' || node.operationalStatus === 'FAILED') ? 'FAILED' :
+              node.operationalStatus === 'AVAILABLE' ? 'AVAILABLE' : 'IDLE';
+
             onSelectAgent({
               agentId: node.id,
               name: node.label,
               role: node.sublabel || 'Autonomous CPA Agent',
-              operationalStatus: (node.operationalStatus === 'FAILED' ? 'IDLE' : node.operationalStatus) || 'AVAILABLE',
+              operationalStatus: mappedStatus,
               title: node.label,
               mission: 'Autonomous financial operation',
               charter: ['Charter adherence', 'US-GAAP / IFRS precision'],
@@ -754,6 +962,18 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
 
         {/* Right: Viewport Action Controls */}
         <div className="flex items-center gap-1.5 pointer-events-auto bg-slate-900/85 backdrop-blur-md border border-slate-700/70 p-1 rounded-xl shadow-lg">
+          <button
+            onClick={() => setFollowActive(!followActive)}
+            title={followActive ? 'Disable Camera Tracking' : 'Enable Camera Follow Active Agent'}
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-mono font-medium rounded-lg transition-colors cursor-pointer ${
+              followActive
+                ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-500/40'
+                : 'text-slate-300 hover:text-cyan-400 hover:bg-slate-800'
+            }`}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">{followActive ? 'Following' : 'Follow'}</span>
+          </button>
           <button
             onClick={handleFocusActive}
             title="Focus Active Working Agents"
@@ -874,6 +1094,43 @@ export const ObservatoryNeuralCanvas: React.FC<ObservatoryNeuralCanvasProps> = (
               <span>Stage 1: Document Ingestion</span>
               <span className="text-amber-300 font-bold">{(replayProgress * 100).toFixed(0)}% Completed</span>
               <span>Stage 16: Minerva Attestation</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Signal Inspector Tooltip (Phase H.9.24.1 Section 11) */}
+      {hoveredSignal && !hoveredNode && (
+        <div
+          className="absolute pointer-events-none z-30 p-3.5 bg-slate-950/95 border border-cyan-500/50 rounded-xl shadow-2xl backdrop-blur-md text-xs font-sans text-slate-200 max-w-sm animate-in fade-in zoom-in-95 duration-100"
+          style={{
+            left: Math.min(mousePos.x + 15, (containerRef.current?.clientWidth || 800) - 300),
+            top: Math.min(mousePos.y + 15, (containerRef.current?.clientHeight || 600) - 160)
+          }}
+        >
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="font-bold text-white font-mono flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: hoveredSignal.color }} />
+              {hoveredSignal.payloadType || 'PAYLOAD PACKET'}
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950 text-cyan-400 border border-cyan-800">
+              {hoveredSignal.executionMode}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-300 font-medium mb-2">
+            {hoveredSignal.label}
+          </p>
+          <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono text-slate-400 pt-2 border-t border-slate-800">
+            <div>From: <span className="text-slate-200 font-bold">{hoveredSignal.sourceNodeId}</span></div>
+            <div>To: <span className="text-slate-200 font-bold">{hoveredSignal.targetNodeId}</span></div>
+            {hoveredSignal.latencyMs !== undefined && (
+              <div>Latency: <span className="text-emerald-400 font-bold">{hoveredSignal.latencyMs}ms</span></div>
+            )}
+            {hoveredSignal.engagementId && (
+              <div className="col-span-2 truncate">Engagement: <span className="text-indigo-300">{hoveredSignal.engagementId}</span></div>
+            )}
+            <div className="col-span-2 text-sky-400 font-semibold pt-1">
+              Click to inspect in Event Ledger →
             </div>
           </div>
         </div>

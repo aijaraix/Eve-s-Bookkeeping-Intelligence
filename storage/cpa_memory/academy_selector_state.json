@@ -1,31 +1,34 @@
 {
-  "lastSavedAt": "2026-09-06T10:02:52.136Z",
-  "lastSelectedSequenceIndex": 0,
+  "lastSavedAt": "2026-09-06T14:47:25.593Z",
+  "lastSelectedSequenceIndex": 3,
   "cases": [
     {
       "caseId": "ACADEMY-CASE-001",
-      "lastRunAt": "2026-09-06T10:02:52.136Z",
-      "executionCount": 2,
+      "lastRunAt": "2026-09-06T13:37:06.624Z",
+      "executionCount": 59,
       "recentFailures": 0,
-      "lastMode": "FAST_REGRESSION"
+      "lastMode": "FULL_PRACTICE"
     },
     {
       "caseId": "ACADEMY-CASE-002",
-      "lastRunAt": null,
-      "executionCount": 0,
-      "recentFailures": 0
+      "lastRunAt": "2026-09-06T14:12:21.496Z",
+      "executionCount": 59,
+      "recentFailures": 0,
+      "lastMode": "FULL_PRACTICE"
     },
     {
       "caseId": "ACADEMY-CASE-003",
-      "lastRunAt": null,
-      "executionCount": 0,
-      "recentFailures": 0
+      "lastRunAt": "2026-09-06T14:47:25.593Z",
+      "executionCount": 60,
+      "recentFailures": 0,
+      "lastMode": "FULL_PRACTICE"
     },
     {
       "caseId": "ACADEMY-CASE-004",
-      "lastRunAt": null,
-      "executionCount": 0,
-      "recentFailures": 0
+      "lastRunAt": "2026-09-06T12:51:40.592Z",
+      "executionCount": 59,
+      "recentFailures": 0,
+      "lastMode": "FULL_PRACTICE"
     },
     {
       "caseId": "ACADEMY-CANARY-01",

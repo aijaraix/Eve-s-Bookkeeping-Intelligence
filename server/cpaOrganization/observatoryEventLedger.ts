@@ -118,6 +118,7 @@ export interface ObservatoryEvent {
 export class ObservatoryEventLedger {
   private static instance: ObservatoryEventLedger | null = null;
   private storageDir: string;
+  private archivesDir: string;
   private eventsFilePath: string;
   private memoryEvents: ObservatoryEvent[] = [];
   private maxInMemoryEvents = 1500;
@@ -131,6 +132,15 @@ export class ObservatoryEventLedger {
         fs.mkdirSync(this.storageDir, { recursive: true });
       } catch (e) {
         console.warn('[ObservatoryEventLedger] Error creating storage dir:', e);
+      }
+    }
+
+    this.archivesDir = path.join(this.storageDir, 'archives');
+    if (!fs.existsSync(this.archivesDir)) {
+      try {
+        fs.mkdirSync(this.archivesDir, { recursive: true });
+      } catch (e) {
+        console.warn('[ObservatoryEventLedger] Error creating archives dir:', e);
       }
     }
 
@@ -538,10 +548,137 @@ export class ObservatoryEventLedger {
       this.memoryEvents = this.memoryEvents.slice(-this.maxInMemoryEvents);
     }
 
-    // Persist asynchronously without blocking execution
+    // Append to durable historical archive and persist rolling ring buffer
+    this.appendEventToArchive(fullEvent);
     setTimeout(() => this.persistToDisk(), 50);
 
     return fullEvent;
+  }
+
+  /**
+   * Appends event to daily partitioned append-only JSONL archive.
+   * Ensures that no historical event is lost when memory buffer wraps.
+   */
+  private appendEventToArchive(event: ObservatoryEvent): void {
+    try {
+      const dateStr = (event.timestamp || new Date().toISOString()).slice(0, 10);
+      const archivePath = path.join(this.archivesDir, `events_${dateStr}.jsonl`);
+      const line = JSON.stringify(event) + '\n';
+      fs.appendFileSync(archivePath, line, 'utf-8');
+    } catch (err) {
+      console.warn('[ObservatoryEventLedger] Failed to append event to durable archive:', err);
+    }
+  }
+
+  /**
+   * Queries durable historical archives beyond the in-memory rolling buffer window.
+   */
+  public queryArchivedEvents(options?: {
+    date?: string; // YYYY-MM-DD
+    startDate?: string;
+    endDate?: string;
+    eventType?: string;
+    agentId?: string;
+    engagementId?: string;
+    caseId?: string;
+    limit?: number;
+  }): { events: ObservatoryEvent[]; totalFound: number; source: 'MEMORY_AND_DURABLE_ARCHIVES' } {
+    const limit = options?.limit || 200;
+    const results: ObservatoryEvent[] = [];
+    const seenEventIds = new Set<string>();
+
+    // 1. Gather relevant archive files
+    let archiveFiles: string[] = [];
+    try {
+      if (fs.existsSync(this.archivesDir)) {
+        archiveFiles = fs.readdirSync(this.archivesDir)
+          .filter(f => f.startsWith('events_') && f.endsWith('.jsonl'))
+          .sort()
+          .reverse(); // newest first
+      }
+    } catch (e) {
+      console.warn('[ObservatoryEventLedger] Error reading archives directory:', e);
+    }
+
+    // If specific date requested, filter
+    if (options?.date) {
+      archiveFiles = archiveFiles.filter(f => f === `events_${options.date}.jsonl`);
+    }
+
+    for (const file of archiveFiles) {
+      if (results.length >= limit) break;
+      try {
+        const fullPath = path.join(this.archivesDir, file);
+        const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          try {
+            const ev = JSON.parse(line) as ObservatoryEvent;
+            if (seenEventIds.has(ev.eventId)) continue;
+
+            if (options?.eventType && options.eventType !== 'ALL' && ev.eventType !== options.eventType) continue;
+            if (options?.engagementId && ev.engagementId !== options.engagementId) continue;
+            if (options?.caseId && ev.academyCaseId !== options.caseId) continue;
+            if (options?.agentId && ev.agentId !== options.agentId && ev.sourceId !== options.agentId && ev.targetId !== options.agentId) continue;
+
+            seenEventIds.add(ev.eventId);
+            results.push(ev);
+            if (results.length >= limit) break;
+          } catch (pe) {}
+        }
+      } catch (fe) {}
+    }
+
+    // Also include any recent memory events not yet in archive
+    for (let i = this.memoryEvents.length - 1; i >= 0; i--) {
+      if (results.length >= limit) break;
+      const ev = this.memoryEvents[i];
+      if (seenEventIds.has(ev.eventId)) continue;
+      if (options?.eventType && options.eventType !== 'ALL' && ev.eventType !== options.eventType) continue;
+      if (options?.engagementId && ev.engagementId !== options.engagementId) continue;
+      if (options?.caseId && ev.academyCaseId !== options.caseId) continue;
+      if (options?.agentId && ev.agentId !== options.agentId && ev.sourceId !== options.agentId && ev.targetId !== options.agentId) continue;
+
+      seenEventIds.add(ev.eventId);
+      results.push(ev);
+    }
+
+    return {
+      events: results.slice(0, limit),
+      totalFound: results.length,
+      source: 'MEMORY_AND_DURABLE_ARCHIVES'
+    };
+  }
+
+  /**
+   * Returns metadata on durable historical archive files.
+   */
+  public getArchiveSummary(): {
+    totalArchiveFiles: number;
+    archiveDir: string;
+    files: Array<{ filename: string; sizeBytes: number; date: string }>;
+  } {
+    const files: Array<{ filename: string; sizeBytes: number; date: string }> = [];
+    try {
+      if (fs.existsSync(this.archivesDir)) {
+        const fileNames = fs.readdirSync(this.archivesDir).filter(f => f.endsWith('.jsonl'));
+        for (const name of fileNames) {
+          const stat = fs.statSync(path.join(this.archivesDir, name));
+          files.push({
+            filename: name,
+            sizeBytes: stat.size,
+            date: name.replace('events_', '').replace('.jsonl', '')
+          });
+        }
+      }
+    } catch (e) {}
+
+    return {
+      totalArchiveFiles: files.length,
+      archiveDir: this.archivesDir,
+      files
+    };
   }
 
   public getEvents(options?: {

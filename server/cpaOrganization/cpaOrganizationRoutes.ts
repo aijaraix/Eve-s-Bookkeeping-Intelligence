@@ -719,6 +719,34 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
+  router.get('/observatory/archives', (req: Request, res: Response) => {
+    try {
+      const summary = observatoryEventLedger.getArchiveSummary();
+      res.json({ success: true, ...summary });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/observatory/archives/query', (req: Request, res: Response) => {
+    try {
+      const { date, startDate, endDate, eventType, agentId, engagementId, caseId, limit } = req.query;
+      const result = observatoryEventLedger.queryArchivedEvents({
+        date: date ? String(date) : undefined,
+        startDate: startDate ? String(startDate) : undefined,
+        endDate: endDate ? String(endDate) : undefined,
+        eventType: eventType ? String(eventType) : undefined,
+        agentId: agentId ? String(agentId) : undefined,
+        engagementId: engagementId ? String(engagementId) : undefined,
+        caseId: caseId ? String(caseId) : undefined,
+        limit: limit ? parseInt(String(limit), 10) : 200
+      });
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/observatory/twins', (req: Request, res: Response) => {
     try {
       const twins = syntheticEngagementEngine.getAllTwins();

@@ -1,0 +1,55 @@
+{
+  "reportId": "REP-1788706045529",
+  "version": "v1.0",
+  "engagementId": "eng-practice-044858",
+  "clientName": "Berlin Präzisionsmechanik AG",
+  "title": "Berlin Präzisionsmechanik AG Audited Financial Deliverable Package",
+  "period": "FY 2025",
+  "currency": "EUR",
+  "generatedAt": "2026-09-06T14:47:25.588Z",
+  "euclidBalance": {
+    "assets": 19200000000,
+    "liabilities": 11400000000,
+    "equity": 7800000000,
+    "variance": 0
+  },
+  "facts": [
+    {
+      "canonicalMetric": "Revenue",
+      "label": "Revenue",
+      "value": 8450000000,
+      "statement": "INCOME_STATEMENT",
+      "sourceDoc": "Annual Financial Report",
+      "page": 2,
+      "verificationStatus": "CONFIRMED"
+    },
+    {
+      "canonicalMetric": "Total Assets",
+      "label": "Total Assets",
+      "value": 19200000000,
+      "statement": "BALANCE_SHEET",
+      "sourceDoc": "Annual Financial Report",
+      "page": 4,
+      "verificationStatus": "CONFIRMED"
+    },
+    {
+      "canonicalMetric": "Total Liabilities",
+      "label": "Total Liabilities",
+      "value": 11400000000,
+      "statement": "BALANCE_SHEET",
+      "sourceDoc": "Annual Financial Report",
+      "page": 4,
+      "verificationStatus": "CONFIRMED"
+    },
+    {
+      "canonicalMetric": "Total Equity",
+      "label": "Total Equity",
+      "value": 7800000000,
+      "statement": "BALANCE_SHEET",
+      "sourceDoc": "Annual Financial Report",
+      "page": 4,
+      "verificationStatus": "CONFIRMED"
+    }
+  ],
+  "quinnSignoff": "CLEARED_CONCURRING_PARTNER"
+}

@@ -1,5 +1,6 @@
 import Graph from 'graphology';
 import { ObservatoryAgent, ObservatoryPathway, ObservatoryEventItem } from './ObservatoryTypes';
+import { resolveVisualEvent, SignalPayloadType, normalizeNodeId, EVENT_VISUAL_CATALOG } from './eventVisualMapping';
 
 export interface CortexRegion {
   id: string;
@@ -28,7 +29,8 @@ export interface OrganismNode {
   baseColor: string;
   activeColor: string;
   agentData?: ObservatoryAgent;
-  operationalStatus?: 'AVAILABLE' | 'WORKING' | 'IDLE' | 'REVIEWING' | 'FAILED';
+  operationalStatus?: 'AVAILABLE' | 'WORKING' | 'IDLE' | 'REVIEWING' | 'WAITING' | 'BLOCKED' | 'DEGRADED' | 'ERROR' | 'FAILED';
+  currentTask?: string;
   meta?: Record<string, any>;
 }
 
@@ -45,6 +47,8 @@ export interface OrganismEdge {
   activeAlpha: number;
   color: string;
   isIlluminated?: boolean;
+  recency?: 'ACTIVE' | 'RECENT' | 'STRUCTURAL';
+  lastActiveTime?: number;
   activeEvent?: ObservatoryEventItem;
 }
 
@@ -58,6 +62,13 @@ export interface TravelingSignal {
   color: string;
   size: number;
   executionMode: 'FULL_PRACTICE' | 'FAST_REGRESSION' | 'REAL_OPERATION';
+  payloadType?: SignalPayloadType;
+  payloadSummary?: string;
+  status?: string;
+  latencyMs?: number;
+  correlationId?: string;
+  engagementId?: string;
+  isMapped?: boolean;
   eventPayload?: ObservatoryEventItem;
   label: string;
   timestamp: number;
@@ -591,30 +602,80 @@ export function buildLivingOrganismNetwork(
 
   // 9. Match real active pathways and illuminate them
   for (const pw of activePathways) {
-    const matchingEdge = edges.find(
-      e => (e.source === pw.sourceAgentId && e.target === pw.targetAgentId) ||
-           (e.source === pw.targetAgentId && e.target === pw.sourceAgentId)
+    const src = normalizeNodeId(pw.sourceAgentId);
+    const tgt = normalizeNodeId(pw.targetAgentId);
+    let matchingEdge = edges.find(
+      e => (e.source === src && e.target === tgt) ||
+           (e.source === tgt && e.target === src)
     );
+    if (!matchingEdge && nodeMap.has(src) && nodeMap.has(tgt)) {
+      addFilament(src, tgt, 'AXON_CORE', '#38bdf8', 0.9, 0.2);
+      matchingEdge = edges[edges.length - 1];
+    }
     if (matchingEdge) {
       matchingEdge.isIlluminated = true;
-      matchingEdge.baseAlpha = 0.85;
+      matchingEdge.recency = 'ACTIVE';
+      matchingEdge.baseAlpha = 0.95;
+      matchingEdge.lastActiveTime = new Date(pw.timestamp).getTime();
     }
   }
 
-  // 10. Match recent events to illuminate recently used pathways
-  const recentCutoff = Date.now() - 60000; // within last 60 seconds
+  // 10. Match recent events to illuminate recently used pathways with recency decay
+  // Bright = active now (<10s), Medium = last 30s, Dim = structural
+  const now = Date.now();
   for (const evt of recentEvents) {
-    if (new Date(evt.timestamp).getTime() > recentCutoff) {
-      const srcNode = evt.sourceId;
-      const tgtNode = evt.targetId;
-      if (srcNode && tgtNode) {
-        const edge = edges.find(
-          e => (e.source === srcNode && e.target === tgtNode) ||
-               (e.source === tgtNode && e.target === srcNode)
-        );
-        if (edge) {
-          edge.isIlluminated = true;
-          edge.activeEvent = evt;
+    if (evt.eventType === 'HEARTBEAT') continue; // Heartbeats pulse Hermes core, don't keep operational pathways permanently lit
+    
+    const eventTime = new Date(evt.timestamp).getTime();
+    const ageMs = now - eventTime;
+    if (ageMs > 45000) continue; // within last 45 seconds
+
+    const resolved = resolveVisualEvent(evt);
+    const srcNode = resolved.sourceId;
+    const tgtNode = resolved.targetId;
+
+    if (srcNode && tgtNode && nodeMap.has(srcNode) && nodeMap.has(tgtNode)) {
+      let edge = edges.find(
+        e => (e.source === srcNode && e.target === tgtNode) ||
+             (e.source === tgtNode && e.target === srcNode)
+      );
+
+      if (!edge) {
+        // Dynamically bridge verified communication path
+        addFilament(srcNode, tgtNode, 'AXON_CORE', resolved.color, 0.8, 0.25);
+        edge = edges[edges.length - 1];
+      }
+
+      if (edge) {
+        edge.isIlluminated = true;
+        edge.activeEvent = evt;
+        edge.lastActiveTime = eventTime;
+        if (ageMs < 10000) {
+          edge.recency = 'ACTIVE';
+          edge.baseAlpha = 0.95;
+          edge.color = resolved.color;
+        } else if (ageMs < 30000) {
+          if (edge.recency !== 'ACTIVE') {
+            edge.recency = 'RECENT';
+            edge.baseAlpha = 0.65;
+          }
+        }
+      }
+
+      // Update Node operational state from authoritative event binding
+      const srcObj = nodeMap.get(srcNode);
+      if (srcObj && resolved.binding.sourceNodeState) {
+        if (ageMs < 30000 || resolved.binding.isLongRunning) {
+          srcObj.operationalStatus = resolved.binding.sourceNodeState;
+          srcObj.currentTask = evt.summary;
+        }
+      }
+
+      const tgtObj = nodeMap.get(tgtNode);
+      if (tgtObj && resolved.binding.targetNodeState) {
+        if (ageMs < 30000 || resolved.binding.isLongRunning) {
+          tgtObj.operationalStatus = resolved.binding.targetNodeState;
+          tgtObj.currentTask = evt.summary;
         }
       }
     }
@@ -625,6 +686,7 @@ export function buildLivingOrganismNetwork(
 
 /**
  * Creates live traveling signals from real active pathways and recent events
+ * Enforces Visual Truth: Signals are created ONLY from real persisted events/pathways
  */
 export function generateLivingSignals(
   activePathways: ObservatoryPathway[] = [],
@@ -635,53 +697,68 @@ export function generateLivingSignals(
 
   // 1. Signals from active pathways
   for (const pw of activePathways) {
+    const src = normalizeNodeId(pw.sourceAgentId);
+    const tgt = normalizeNodeId(pw.targetAgentId);
     const edge = edges.find(
-      e => (e.source === pw.sourceAgentId && e.target === pw.targetAgentId)
+      e => (e.source === src && e.target === tgt) ||
+           (e.source === tgt && e.target === src)
     );
     if (edge) {
       signals.push({
         id: `sig-pw-${pw.id}`,
         edgeId: edge.id,
-        sourceNodeId: pw.sourceAgentId,
-        targetNodeId: pw.targetAgentId,
+        sourceNodeId: src,
+        targetNodeId: tgt,
         progress: (Date.now() % 3000) / 3000,
         speed: 0.008,
         color: '#38bdf8',
         size: 5.5,
         executionMode: 'FULL_PRACTICE',
+        payloadType: 'FACT_PACKET',
+        payloadSummary: pw.signalType,
+        status: pw.status || 'ACTIVE',
         label: pw.signalType,
         timestamp: new Date(pw.timestamp).getTime()
       });
     }
   }
 
-  // 2. Signals from recent real events (last 45 seconds)
+  // 2. Signals from recent real events (last 45 seconds, excluding raw ambient heartbeats)
   const now = Date.now();
-  const recentEventsFiltered = recentEvents.filter(
-    e => now - new Date(e.timestamp).getTime() < 45000 && e.sourceId && e.targetId
+  const operationalEvents = recentEvents.filter(
+    e => e.eventType !== 'HEARTBEAT' && (now - new Date(e.timestamp).getTime()) < 45000
   );
 
-  for (const evt of recentEventsFiltered.slice(0, 10)) {
+  for (const evt of operationalEvents.slice(0, 16)) {
+    const resolved = resolveVisualEvent(evt);
     const edge = edges.find(
-      e => (e.source === evt.sourceId && e.target === evt.targetId) ||
-           (e.source === evt.targetId && e.target === evt.sourceId)
+      e => (e.source === resolved.sourceId && e.target === resolved.targetId) ||
+           (e.source === resolved.targetId && e.target === resolved.sourceId)
     );
+
     if (edge) {
       const isFastRegression = evt.executionMode === 'FAST_REGRESSION' || evt.eventReality === 'FAST_REGRESSION';
       const eventTime = new Date(evt.timestamp).getTime();
-      const elapsed = (now - eventTime) % 2500;
+      const loopDuration = isFastRegression ? 1800 : 3200;
+      const elapsed = (now - eventTime) % loopDuration;
+      
       signals.push({
         id: `sig-evt-${evt.eventId}`,
         edgeId: edge.id,
-        sourceNodeId: evt.sourceId,
-        targetNodeId: evt.targetId || edge.target,
-        progress: elapsed / 2500,
-        speed: isFastRegression ? 0.015 : 0.007,
-        color: isFastRegression ? '#06b6d4' : (evt.severity === 'ERROR' ? '#ef4444' : '#10b981'),
-        size: isFastRegression ? 4.0 : 6.0,
+        sourceNodeId: resolved.sourceId,
+        targetNodeId: resolved.targetId,
+        progress: elapsed / loopDuration,
+        speed: isFastRegression ? 0.018 : 0.008,
+        color: isFastRegression ? '#06b6d4' : resolved.color,
+        size: isFastRegression ? 4.0 : 6.5,
         executionMode: isFastRegression ? 'FAST_REGRESSION' : 'FULL_PRACTICE',
+        payloadType: resolved.payloadType,
+        payloadSummary: evt.summary,
+        status: evt.status,
+        engagementId: evt.engagementId || evt.academyCaseId,
+        isMapped: resolved.isMapped,
         eventPayload: evt,
-        label: evt.summary.length > 25 ? evt.summary.substring(0, 25) + '…' : evt.summary,
+        label: evt.summary.length > 30 ? evt.summary.substring(0, 30) + '…' : evt.summary,
         timestamp: eventTime
       });
     }
