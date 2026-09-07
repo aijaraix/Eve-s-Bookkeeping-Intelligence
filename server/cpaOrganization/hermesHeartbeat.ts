@@ -341,6 +341,14 @@ export class HermesHeartbeat {
     } catch {
       // Non-blocking
     }
+
+    // 6. Connect Operational Recovery Controller supervision
+    try {
+      const { operationalRecoveryController } = await import('./operationalRecoveryController.js');
+      operationalRecoveryController.monitorHeartbeatAndProgression(this.state);
+    } catch {
+      // Non-blocking
+    }
   }
 
   private async checkInfrastructureHealth() {
@@ -392,6 +400,31 @@ export class HermesHeartbeat {
   }
 
   public computeAdaptiveFullPracticeCooldown(): { cooldownMs: number; reason: string } {
+    // Check if unrun curriculum cases (zero executions) are queued in the curriculum
+    let isUnrunCurriculum = false;
+    try {
+      const stateFile = path.join(this.storageDir, 'academy_learning_state.json');
+      if (fs.existsSync(stateFile)) {
+        const raw = fs.readFileSync(stateFile, 'utf-8');
+        const data = JSON.parse(raw);
+        const runsByCase = data.runsByCase || {};
+        const cases = ['ACADEMY-CASE-005', 'ACADEMY-CASE-006', 'ACADEMY-CASE-007', 'ACADEMY-CASE-008', 'ACADEMY-CASE-009'];
+        for (const c of cases) {
+          if (!runsByCase[c] || runsByCase[c] === 0) {
+            isUnrunCurriculum = true;
+            break;
+          }
+        }
+      }
+    } catch {}
+
+    if (isUnrunCurriculum) {
+      return {
+        cooldownMs: 60 * 1000,
+        reason: 'Curriculum Progression Cadence: nominal 60s pacing interval between unrun specialist curriculum cases.'
+      };
+    }
+
     // Target idle cadence: 30 to 120 minutes (nominal ~45 minutes)
     let targetMinutes = 45;
     const factors: string[] = [];

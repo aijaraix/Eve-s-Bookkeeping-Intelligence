@@ -19,6 +19,7 @@ import { AccountingValidationEngine } from "./accountingValidationEngine.js";
 import { CanonicalFactResolver } from "./canonicalFactResolver.js";
 import { assertRealDocumentHash } from "./failClosedGuards.js";
 import { ExtractedFact } from "../src/types.js";
+import { DocumentPurposeClassifier, DocumentClassificationResult } from "./cpaOrganization/documentClassificationEngine.js";
 
 const app = express();
 const WORKER_PORT = Number(process.env.WORKER_PORT || process.env.PORT || 4000);
@@ -503,6 +504,15 @@ async function executeWorkerExtraction(job: WorkerJob) {
       },
       ...(entityResult.referencedEntities || [])
     ];
+
+    // Execute Document Purpose Classification (Part 5)
+    const docPurposeResult: DocumentClassificationResult = DocumentPurposeClassifier.classify({
+      filename: job.documentTitle,
+      textSample: parsedDoc.raw_text?.substring(0, 15000),
+      tableHeaders: (parsedDoc.tables || []).flatMap((t: any) => t.headers || []).slice(0, 30)
+    });
+    (job.results as any).documentClassification = docPurposeResult;
+    (job.results as any).documentPurpose = docPurposeResult.documentType;
 
     // Identify statements
     const fullText = parsedDoc.raw_text || "";

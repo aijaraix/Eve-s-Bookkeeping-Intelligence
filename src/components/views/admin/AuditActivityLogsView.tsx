@@ -9,9 +9,9 @@ export interface AuditActivityLogsViewProps {
 
 export const AuditActivityLogsView: React.FC<AuditActivityLogsViewProps> = () => {
   const logs = [
-    { timestamp: new Date().toISOString(), event: 'SYSTEM_AUDIT_MEMO_GENERATED', actor: 'Steve Stein, CPA', details: 'Downloaded Phase H.9.16 certified HTML audit report.' },
-    { timestamp: new Date(Date.now() - 300000).toISOString(), event: 'IDENTITY_CHECK_EXECUTED', actor: 'EUCLID Agent', details: 'Balance Sheet identity verified ($512,163M = $243,686M + $268,477M).' },
-    { timestamp: new Date(Date.now() - 1200000).toISOString(), event: 'FACTS_EXTRACTED', actor: 'ATHENA Agent', details: 'Extracted 12 canonical facts from SEC Form 10-K msft-20260630.htm.' },
+    { timestamp: new Date().toISOString(), event: 'SYSTEM_AUDIT_MEMO_GENERATED', actor: 'Steve Stein, CPA', details: 'Generated certified audit report package with full lineage.' },
+    { timestamp: new Date(Date.now() - 300000).toISOString(), event: 'IDENTITY_CHECK_EXECUTED', actor: 'EUCLID Agent', details: 'Balance Sheet accounting identity reconciliation check executed.' },
+    { timestamp: new Date(Date.now() - 1200000).toISOString(), event: 'FACTS_EXTRACTED', actor: 'ATHENA Agent', details: 'Extracted and validated canonical financial facts from primary filing.' },
     { timestamp: new Date(Date.now() - 3600000).toISOString(), event: 'DAEMON_BOOTSTRAPPED', actor: 'HERMES Agent', details: 'Hermes autonomous daemon initialized with atomic state persistence.' }
   ];
 

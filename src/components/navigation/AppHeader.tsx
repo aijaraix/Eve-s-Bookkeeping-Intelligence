@@ -53,10 +53,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg border border-slate-200/80 font-medium text-slate-800">
           <Building2 className="w-3.5 h-3.5 text-slate-500" />
           <span className="truncate max-w-[140px] sm:max-w-[180px] font-semibold">
-            {activeClientName || 'Microsoft Corporation'}
+            {activeClientName || 'No Engagement Selected'}
           </span>
           <span className="text-slate-300">|</span>
-          <span className="text-slate-600 font-mono text-[11px]">{activePeriod || 'FY2024'}</span>
+          <span className="text-slate-600 font-mono text-[11px]">{activePeriod || '—'}</span>
         </div>
 
         {/* Presentation Currency Selector */}

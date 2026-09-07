@@ -17,7 +17,8 @@ import {
   ReportScopeConfig,
   ReportSectionPayload,
   ReportMetricItem,
-  ReportStatementTable
+  ReportStatementTable,
+  ReportStatementRow
 } from '../../types/reportDataContract.js';
 
 export interface ReportWizardConfig {
@@ -160,91 +161,121 @@ export class DeliverableWizardEngine {
       scale: f.scale || 'Millions'
     }));
 
-    // Build Financial Statement Tables
+    // Build Financial Statement Tables from real verified facts
+    const revFact = verifiedFacts.find(f => ['revenue', 'total_revenue', 'revenues', 'sales'].includes((f.canonicalMetric || '').toLowerCase()));
+    const cogsFact = verifiedFacts.find(f => ['cost_of_goods_sold', 'cost_of_revenue', 'cogs'].includes((f.canonicalMetric || '').toLowerCase()));
+    const gpFact = verifiedFacts.find(f => ['gross_profit', 'gross_margin'].includes((f.canonicalMetric || '').toLowerCase()));
+    const opFact = verifiedFacts.find(f => ['operating_income', 'operating_profit', 'ebit'].includes((f.canonicalMetric || '').toLowerCase()));
+    const niFact = verifiedFacts.find(f => ['net_income', 'net_profit'].includes((f.canonicalMetric || '').toLowerCase()));
+
+    const revVal = revFact ? Number(revFact.valueFunctional ?? revFact.valueOriginal ?? 0) : null;
+    const cogsVal = cogsFact ? Number(cogsFact.valueFunctional ?? cogsFact.valueOriginal ?? 0) : null;
+    const gpVal = gpFact ? Number(gpFact.valueFunctional ?? gpFact.valueOriginal ?? 0) : (revVal !== null && cogsVal !== null ? revVal - cogsVal : null);
+    const opVal = opFact ? Number(opFact.valueFunctional ?? opFact.valueOriginal ?? 0) : null;
+    const niVal = niFact ? Number(niFact.valueFunctional ?? niFact.valueOriginal ?? 0) : null;
+
+    const primaryPeriod = config.scope.selectedPeriods[0] || 'FY2025';
+
+    const incomeRows: ReportStatementRow[] = [];
+    if (revVal !== null) {
+      incomeRows.push({
+        id: 'row-rev',
+        label: revFact?.labelNormalized || revFact?.labelOriginal || 'Total Revenue / Net Turnover',
+        canonicalMetric: 'revenue',
+        level: 0,
+        isHeader: false,
+        valuesByPeriod: { [primaryPeriod]: revVal },
+        formattedByPeriod: { [primaryPeriod]: this.formatCurrency(revVal, config.scope.presentationCurrency) },
+        canonicalFactIds: { [primaryPeriod]: revFact?.id || 'fact-rev' }
+      });
+    }
+    if (gpVal !== null) {
+      incomeRows.push({
+        id: 'row-gp',
+        label: gpFact?.labelNormalized || 'Gross Profit',
+        canonicalMetric: 'gross_profit',
+        level: 1,
+        isHeader: false,
+        valuesByPeriod: { [primaryPeriod]: gpVal },
+        formattedByPeriod: { [primaryPeriod]: this.formatCurrency(gpVal, config.scope.presentationCurrency) },
+        canonicalFactIds: { [primaryPeriod]: gpFact?.id || 'fact-gp' }
+      });
+    }
+    if (opVal !== null) {
+      incomeRows.push({
+        id: 'row-op',
+        label: opFact?.labelNormalized || opFact?.labelOriginal || 'Operating Income',
+        canonicalMetric: 'operating_income',
+        level: 1,
+        isHeader: false,
+        valuesByPeriod: { [primaryPeriod]: opVal },
+        formattedByPeriod: { [primaryPeriod]: this.formatCurrency(opVal, config.scope.presentationCurrency) },
+        canonicalFactIds: { [primaryPeriod]: opFact?.id || 'fact-op' }
+      });
+    }
+    if (niVal !== null) {
+      incomeRows.push({
+        id: 'row-ni',
+        label: niFact?.labelNormalized || niFact?.labelOriginal || 'Net Income Attributable to Group',
+        canonicalMetric: 'net_income',
+        level: 0,
+        isTotal: true,
+        valuesByPeriod: { [primaryPeriod]: niVal },
+        formattedByPeriod: { [primaryPeriod]: this.formatCurrency(niVal, config.scope.presentationCurrency) },
+        canonicalFactIds: { [primaryPeriod]: niFact?.id || 'fact-ni' }
+      });
+    }
+
     const incomeTable: ReportStatementTable = {
       statementName: 'INCOME_STATEMENT',
       periods: config.scope.selectedPeriods,
       currency: config.scope.presentationCurrency,
       scale: 'Millions',
-      rows: [
-        {
-          id: 'row-rev',
-          label: 'Total Revenue / Net Turnover',
-          canonicalMetric: 'revenue',
-          level: 0,
-          isHeader: false,
-          valuesByPeriod: { [config.scope.selectedPeriods[0]]: assetsFact ? 245123 : 245123 },
-          formattedByPeriod: { [config.scope.selectedPeriods[0]]: '$245,123M' },
-          canonicalFactIds: { [config.scope.selectedPeriods[0]]: 'fact-rev-1' }
-        },
-        {
-          id: 'row-gp',
-          label: 'Gross Profit',
-          canonicalMetric: 'gross_profit',
-          level: 1,
-          isHeader: false,
-          valuesByPeriod: { [config.scope.selectedPeriods[0]]: 170700 },
-          formattedByPeriod: { [config.scope.selectedPeriods[0]]: '$170,700M' },
-          canonicalFactIds: { [config.scope.selectedPeriods[0]]: 'fact-gp-1' }
-        },
-        {
-          id: 'row-op',
-          label: 'Operating Income',
-          canonicalMetric: 'operating_income',
-          level: 1,
-          isHeader: false,
-          valuesByPeriod: { [config.scope.selectedPeriods[0]]: 109433 },
-          formattedByPeriod: { [config.scope.selectedPeriods[0]]: '$109,433M' },
-          canonicalFactIds: { [config.scope.selectedPeriods[0]]: 'fact-op-1' }
-        },
-        {
-          id: 'row-ni',
-          label: 'Net Income Attributable to Group',
-          canonicalMetric: 'net_income',
-          level: 0,
-          isTotal: true,
-          valuesByPeriod: { [config.scope.selectedPeriods[0]]: 88308 },
-          formattedByPeriod: { [config.scope.selectedPeriods[0]]: '$88,308M' },
-          canonicalFactIds: { [config.scope.selectedPeriods[0]]: 'fact-ni-1' }
-        }
-      ]
+      rows: incomeRows
     };
+
+    const balanceRows: ReportStatementRow[] = [];
+    if (assetsVal !== null) {
+      balanceRows.push({
+        id: 'row-assets',
+        label: assetsFact?.labelNormalized || assetsFact?.labelOriginal || 'Total Assets',
+        canonicalMetric: 'total_assets',
+        level: 0,
+        isTotal: true,
+        valuesByPeriod: { [primaryPeriod]: assetsVal },
+        formattedByPeriod: { [primaryPeriod]: this.formatCurrency(assetsVal, config.scope.presentationCurrency) },
+        canonicalFactIds: { [primaryPeriod]: assetsFact?.id || 'fact-assets' }
+      });
+    }
+    if (liabVal !== null) {
+      balanceRows.push({
+        id: 'row-liab',
+        label: liabFact?.labelNormalized || liabFact?.labelOriginal || 'Total Liabilities',
+        canonicalMetric: 'total_liabilities',
+        level: 0,
+        valuesByPeriod: { [primaryPeriod]: liabVal },
+        formattedByPeriod: { [primaryPeriod]: this.formatCurrency(liabVal, config.scope.presentationCurrency) },
+        canonicalFactIds: { [primaryPeriod]: liabFact?.id || 'fact-liab' }
+      });
+    }
+    if (equityVal !== null) {
+      balanceRows.push({
+        id: 'row-eq',
+        label: equityFact?.labelNormalized || equityFact?.labelOriginal || 'Total Stockholders Equity',
+        canonicalMetric: 'stockholders_equity',
+        level: 0,
+        valuesByPeriod: { [primaryPeriod]: equityVal },
+        formattedByPeriod: { [primaryPeriod]: this.formatCurrency(equityVal, config.scope.presentationCurrency) },
+        canonicalFactIds: { [primaryPeriod]: equityFact?.id || 'fact-eq' }
+      });
+    }
 
     const balanceTable: ReportStatementTable = {
       statementName: 'BALANCE_SHEET',
       periods: config.scope.selectedPeriods,
       currency: config.scope.presentationCurrency,
       scale: 'Millions',
-      rows: [
-        {
-          id: 'row-assets',
-          label: 'Total Assets',
-          canonicalMetric: 'total_assets',
-          level: 0,
-          isTotal: true,
-          valuesByPeriod: { [config.scope.selectedPeriods[0]]: assetsVal || 512163 },
-          formattedByPeriod: { [config.scope.selectedPeriods[0]]: this.formatCurrency(assetsVal || 512163, config.scope.presentationCurrency) },
-          canonicalFactIds: { [config.scope.selectedPeriods[0]]: assetsFact?.id || 'fact-assets' }
-        },
-        {
-          id: 'row-liab',
-          label: 'Total Liabilities',
-          canonicalMetric: 'total_liabilities',
-          level: 0,
-          valuesByPeriod: { [config.scope.selectedPeriods[0]]: liabVal || 243686 },
-          formattedByPeriod: { [config.scope.selectedPeriods[0]]: this.formatCurrency(liabVal || 243686, config.scope.presentationCurrency) },
-          canonicalFactIds: { [config.scope.selectedPeriods[0]]: liabFact?.id || 'fact-liab' }
-        },
-        {
-          id: 'row-eq',
-          label: 'Total Stockholders Equity',
-          canonicalMetric: 'stockholders_equity',
-          level: 0,
-          valuesByPeriod: { [config.scope.selectedPeriods[0]]: equityVal || 268477 },
-          formattedByPeriod: { [config.scope.selectedPeriods[0]]: this.formatCurrency(equityVal || 268477, config.scope.presentationCurrency) },
-          canonicalFactIds: { [config.scope.selectedPeriods[0]]: equityFact?.id || 'fact-eq' }
-        }
-      ]
+      rows: balanceRows
     };
 
     // Sections assembly

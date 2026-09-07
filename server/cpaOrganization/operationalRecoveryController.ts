@@ -13,6 +13,8 @@
  *    12 defined operational failure categories with deterministic recovery policies.
  */
 
+import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import { observatoryEventLedger } from './observatoryEventLedger.js';
 
@@ -89,10 +91,209 @@ export interface RecoveryIncident {
   timestamp: string;
 }
 
+export interface CapabilityRequestPayload {
+  requestId: string;
+  agentId: string;
+  engagementId: string;
+  capability: string;
+  toolId?: string;
+  reason: string;
+  justification: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  requestedScope: string;
+  maxCalls?: number;
+  durationMs?: number;
+  requestedAt: string;
+  status: 'PROPOSED' | 'APPROVED' | 'DENIED' | 'REVOKED' | 'EXPIRED';
+  reviewDecision?: {
+    reviewer: 'eve-sentinel';
+    approved: boolean;
+    decisionReason: string;
+    reviewedAt: string;
+    leaseGrantId?: string;
+  };
+}
+
 export class OperationalRecoveryController {
   private static instance: OperationalRecoveryController | null = null;
   private activeLeases: Map<string, TemporaryCapabilityLease> = new Map();
+  private capabilityRequests: Map<string, CapabilityRequestPayload> = new Map();
   private incidentHistory: RecoveryIncident[] = [];
+  private persistenceFile: string;
+
+  private constructor() {
+    this.persistenceFile = path.join(process.cwd(), 'storage', 'cpa_memory', 'capability_leases.json');
+    this.loadPersistedState();
+    if (!fs.existsSync(this.persistenceFile)) {
+      this.persistState();
+    }
+  }
+
+  private loadPersistedState() {
+    try {
+      if (fs.existsSync(this.persistenceFile)) {
+        const raw = fs.readFileSync(this.persistenceFile, 'utf-8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.leases)) {
+          for (const l of data.leases) this.activeLeases.set(l.capabilityGrantId, l);
+        }
+        if (Array.isArray(data.requests)) {
+          for (const r of data.requests) this.capabilityRequests.set(r.requestId, r);
+        }
+      }
+    } catch (err) {
+      console.warn('[OperationalRecoveryController] Failed to load persisted capability state:', err);
+    }
+  }
+
+  private persistState() {
+    try {
+      const dir = path.dirname(this.persistenceFile);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(this.persistenceFile, JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        activeLeaseCount: this.activeLeases.size,
+        leases: Array.from(this.activeLeases.values()),
+        requests: Array.from(this.capabilityRequests.values())
+      }, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[OperationalRecoveryController] Failed to persist capability state:', err);
+    }
+  }
+
+  public static getInstance(): OperationalRecoveryController {
+    if (!OperationalRecoveryController.instance) {
+      OperationalRecoveryController.instance = new OperationalRecoveryController();
+    }
+    return OperationalRecoveryController.instance;
+  }
+
+  /**
+   * Part 10: Formal Capability Request Workflow governed by Sentinel.
+   * Review and approval/denial workflow with least-privilege temporary grants and audit trail.
+   */
+  public submitCapabilityRequest(params: {
+    agentId: string;
+    engagementId: string;
+    capability: string;
+    toolId?: string;
+    reason: string;
+    justification: string;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    requestedScope: string;
+    maxCalls?: number;
+    durationMs?: number;
+  }): CapabilityRequestPayload {
+    const requestId = `cap-req-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const nowIso = new Date().toISOString();
+
+    const request: CapabilityRequestPayload = {
+      requestId,
+      agentId: params.agentId,
+      engagementId: params.engagementId,
+      capability: params.capability,
+      toolId: params.toolId,
+      reason: params.reason,
+      justification: params.justification,
+      riskLevel: params.riskLevel,
+      requestedScope: params.requestedScope,
+      maxCalls: params.maxCalls || 5,
+      durationMs: params.durationMs || 300000,
+      requestedAt: nowIso,
+      status: 'PROPOSED'
+    };
+
+    observatoryEventLedger.recordEvent({
+      timestamp: nowIso,
+      eventType: 'CAPABILITY_REQUEST',
+      sourceType: 'AGENT',
+      sourceId: params.agentId,
+      targetType: 'AGENT',
+      targetId: 'eve-sentinel',
+      engagementId: params.engagementId,
+      summary: `Agent ${params.agentId} requested capability '${params.capability}' (${params.riskLevel} risk). Reason: ${params.reason}`,
+      structuredMetadata: { ...request },
+      status: 'SUCCESS',
+      severity: 'INFO'
+    });
+
+    // Sentinel Governance Evaluation:
+    // 1. Least privilege: CRITICAL risk requires fail-closed or elevated scrutiny
+    // 2. Verified charter & justification
+    const isApproved = params.riskLevel !== 'CRITICAL' && Boolean(params.justification && params.reason);
+    const decisionReason = isApproved
+      ? `Sentinel approved bounded temporary grant for ${params.agentId} under least-privilege policy (${params.requestedScope}).`
+      : `Sentinel denied capability request: ${params.riskLevel === 'CRITICAL' ? 'CRITICAL risk operations prohibited by Sentinel charter' : 'Insufficient justification'}.`;
+
+    request.status = isApproved ? 'APPROVED' : 'DENIED';
+    request.reviewDecision = {
+      reviewer: 'eve-sentinel',
+      approved: isApproved,
+      decisionReason,
+      reviewedAt: new Date().toISOString()
+    };
+
+    if (isApproved) {
+      const lease = this.requestTemporaryCapabilityLease({
+        agentId: params.agentId,
+        engagementId: params.engagementId,
+        taskId: `task-${requestId}`,
+        toolId: params.toolId || params.capability,
+        reason: params.reason,
+        scope: params.requestedScope,
+        durationMs: params.durationMs,
+        maxCalls: params.maxCalls,
+        dataBoundary: `ENGAGEMENT_${params.engagementId}`
+      });
+      request.reviewDecision.leaseGrantId = lease.capabilityGrantId;
+    }
+
+    this.capabilityRequests.set(requestId, request);
+    this.persistState();
+    return request;
+  }
+
+  /**
+   * Auto-revokes expired leases.
+   */
+  public checkAndRevokeExpiredLeases(): number {
+    const now = Date.now();
+    let revoked = 0;
+    for (const lease of this.activeLeases.values()) {
+      if (lease.status === 'ACTIVE' && new Date(lease.expiresAt).getTime() <= now) {
+        lease.status = 'EXPIRED';
+        revoked++;
+      }
+    }
+    if (revoked > 0) this.persistState();
+    return revoked;
+  }
+
+  /**
+   * Monitors Hermes heartbeat and autonomous progression health.
+   */
+  public monitorHeartbeatAndProgression(heartbeatState: any): {
+    healthy: boolean;
+    stallDetected: boolean;
+    recommendedAction?: string;
+  } {
+    this.checkAndRevokeExpiredLeases();
+    if (!heartbeatState) return { healthy: true, stallDetected: false };
+
+    // Check if case is running but stuck (e.g. > 15 minutes)
+    if (heartbeatState.academyState === 'RUNNING' && heartbeatState.executionLock?.startedAt) {
+      const elapsed = Date.now() - new Date(heartbeatState.executionLock.startedAt).getTime();
+      if (elapsed > 15 * 60 * 1000) {
+        return {
+          healthy: false,
+          stallDetected: true,
+          recommendedAction: 'RESET_STALLED_EXECUTION_LOCK'
+        };
+      }
+    }
+
+    return { healthy: true, stallDetected: false };
+  }
 
   private recoveryPolicies: Record<FailureCategory, RecoveryPolicy> = {
     NETWORK_FAILURE: {
@@ -209,15 +410,6 @@ export class OperationalRecoveryController {
     }
   };
 
-  private constructor() {}
-
-  public static getInstance(): OperationalRecoveryController {
-    if (!OperationalRecoveryController.instance) {
-      OperationalRecoveryController.instance = new OperationalRecoveryController();
-    }
-    return OperationalRecoveryController.instance;
-  }
-
   /**
    * Sentinel strictly governs temporary capability lease requests.
    * No agent can grant itself privileges. Hermes coordinates, Sentinel approves.
@@ -228,6 +420,7 @@ export class OperationalRecoveryController {
     taskId: string;
     toolId: string;
     reason: string;
+    scope?: string;
     maxCalls?: number;
     maxCostUsd?: number;
     durationMs?: number;
@@ -246,7 +439,7 @@ export class OperationalRecoveryController {
       toolId: params.toolId,
       reason: params.reason,
       approvedBy: 'eve-sentinel',
-      scope: `TASK_SCOPED:${params.taskId}`,
+      scope: params.scope || `TASK_SCOPED:${params.taskId}`,
       grantedAt,
       expiresAt,
       maxCalls: params.maxCalls || 5,

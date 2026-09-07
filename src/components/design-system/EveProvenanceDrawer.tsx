@@ -130,7 +130,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="flex items-center gap-2 font-medium text-slate-900">
                       <FileText className="w-4 h-4 text-indigo-500" />
-                      {metadata.sourceDocName || 'msft-20260630.htm'}
+                      {metadata.sourceDocName || 'Audited Source Document'}
                     </span>
                     <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600 text-[11px]">
                       Page {metadata.sourcePage || 1}
@@ -139,7 +139,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
 
                   <div className="p-3 bg-amber-50/50 border border-amber-200/60 rounded-lg text-xs font-serif leading-relaxed text-slate-800">
                     <p className="italic">
-                      "{metadata.sourceRawValue ? `...stated at ${metadata.sourceRawValue} in canonical audited financial statements...` : 'Consolidated Statements of Income — Revenue, Operating Expenses, and Net Income derived from audited SEC Form 10-K filing.'}"
+                      "{metadata.sourceRawValue ? `...stated at ${metadata.sourceRawValue} in authoritative audited financial statements...` : 'Canonical disclosure verified from authoritative filing.'}"
                     </p>
                   </div>
                 </div>
@@ -202,11 +202,11 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 font-mono text-[11px] space-y-2 text-slate-700">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Fact Lineage ID:</span>
-                    <span className="font-bold">{metadata.factLineageId || 'fl-msft-rev-001'}</span>
+                    <span className="font-bold">{metadata.factLineageId || 'fl-fact-canonical-001'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Render ID:</span>
-                    <span>{metadata.renderId || 'rnd-ui-kpi-rev'}</span>
+                    <span>{metadata.renderId || 'rnd-ui-kpi-metric'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Assigned Agent:</span>

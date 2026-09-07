@@ -443,6 +443,7 @@ export class SyntheticEngagementEngine {
     engagementId: string;
     response: string;
     attachmentName?: string;
+    behaviorType?: 'COMPLETE_RESPONSE' | 'PARTIAL_RESPONSE' | 'WRONG_DOCUMENT' | 'WRONG_PERIOD' | 'CLARIFICATION_REQUIRED' | 'REVISED_RESPONSE' | 'DELAYED_RESPONSE';
   }): PBCRequest | undefined {
     const twin = this.getEngagementTwin(params.engagementId);
     if (!twin) return undefined;
@@ -450,16 +451,29 @@ export class SyntheticEngagementEngine {
     const pbc = twin.pbcRequests.find(p => p.requestId === params.requestId);
     if (!pbc) return undefined;
 
+    const behavior = params.behaviorType || 'COMPLETE_RESPONSE';
     pbc.clientResponse = params.response;
-    pbc.status = 'RECEIVED';
     pbc.receivedAt = new Date().toISOString();
+
+    if (behavior === 'PARTIAL_RESPONSE') {
+      pbc.status = 'PARTIAL';
+      pbc.followUpCount = (pbc.followUpCount || 0) + 1;
+    } else if (behavior === 'WRONG_DOCUMENT' || behavior === 'WRONG_PERIOD') {
+      pbc.status = 'INCORRECT_RESPONSE';
+      pbc.followUpCount = (pbc.followUpCount || 0) + 1;
+    } else if (behavior === 'CLARIFICATION_REQUIRED') {
+      pbc.status = 'CLARIFICATION_REQUIRED';
+      pbc.followUpCount = (pbc.followUpCount || 0) + 1;
+    } else {
+      pbc.status = 'RECEIVED';
+    }
 
     if (params.attachmentName) {
       pbc.attachments = pbc.attachments || [];
       pbc.attachments.push({
         documentId: `doc-${Date.now()}`,
         filename: params.attachmentName,
-        version: 'v1.0',
+        version: behavior === 'REVISED_RESPONSE' ? 'v2.0' : 'v1.0',
         uploadedAt: new Date().toISOString()
       });
     }

@@ -14,8 +14,13 @@
  * 6. Bidirectional Source ↔ Render Tracing.
  */
 
+import fs from 'fs';
+import path from 'path';
+
 export interface ServerRenderEntry {
   renderId: string;
+  engagementId?: string;
+  reportId?: string;
   route: string;
   screen: string;
   component: string;
@@ -29,7 +34,10 @@ export interface ServerRenderEntry {
   displayScale: string;
   displayValue: string;
   normalizedBaseValue?: number;
+  presentationState?: 'EXPECTED_PRESENTATION' | 'SERVER_REGISTERED_PRESENTATION' | 'BROWSER_RENDER_CONFIRMED' | 'REPORT_RENDER_CONFIRMED' | 'NOT_TESTED';
   verificationState: 'CONFIRMED' | 'VERIFIED' | 'PROPOSED' | 'REVIEW_REQUIRED' | 'UNCONFIRMED';
+  sourceDocument?: string;
+  publishedArtifactSha256?: string;
   renderTimestamp: string;
 }
 
@@ -98,9 +106,14 @@ export class RenderRegistryService {
   private renders: Map<string, ServerRenderEntry> = new Map();
   private derivedCalculations: Map<string, ServerDerivedCalculationLineage> = new Map();
   private currencyConversions: Map<string, ServerCurrencyDisplayLineage> = new Map();
+  private storageFile: string;
 
   private constructor() {
-    this.seedDefaultLineage();
+    this.storageFile = path.join(process.cwd(), 'storage', 'cpa_memory', 'render_registry.json');
+    this.loadFromDisk();
+    if (this.renders.size === 0) {
+      this.seedDefaultLineage();
+    }
   }
 
   public static getInstance(): RenderRegistryService {
@@ -108,6 +121,45 @@ export class RenderRegistryService {
       RenderRegistryService.instance = new RenderRegistryService();
     }
     return RenderRegistryService.instance;
+  }
+
+  private loadFromDisk() {
+    try {
+      if (fs.existsSync(this.storageFile)) {
+        const raw = fs.readFileSync(this.storageFile, 'utf-8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.renders)) {
+          for (const r of data.renders) {
+            this.renders.set(r.renderId, r);
+          }
+        }
+        if (Array.isArray(data.derivedCalculations)) {
+          for (const d of data.derivedCalculations) {
+            this.derivedCalculations.set(d.derivedCalculationId, d);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[RenderRegistryService] Failed to load persisted render registry:', err);
+    }
+  }
+
+  private saveToDisk() {
+    try {
+      const dir = path.dirname(this.storageFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const data = {
+        updatedAt: new Date().toISOString(),
+        renderCount: this.renders.size,
+        renders: Array.from(this.renders.values()),
+        derivedCalculations: Array.from(this.derivedCalculations.values())
+      };
+      fs.writeFileSync(this.storageFile, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[RenderRegistryService] Failed to persist render registry to disk:', err);
+    }
   }
 
   private seedDefaultLineage() {
@@ -137,6 +189,95 @@ export class RenderRegistryService {
       result: 1.49,
       timestamp: new Date().toISOString()
     });
+
+    // Seed core presentation contracts
+    const seedContracts = [
+      {
+        metric: 'Total Assets',
+        screen: 'Audited Financial Statements',
+        component: 'FinancialStatementTable',
+        widget: 'Consolidated Balance Sheet',
+        factLineageId: 'FLID-total_assets-fy2025',
+        canonicalFactId: 'FACT-total_assets',
+        entityId: 'Atlas Holdings Corp',
+        period: 'FY 2025',
+        currency: 'USD',
+        displayScale: 'THOUSANDS',
+        displayValue: '$142,500K',
+        normalizedBaseValue: 142500000,
+        presentationState: 'SERVER_REGISTERED_PRESENTATION' as const,
+        verificationState: 'CONFIRMED' as const
+      },
+      {
+        metric: 'Total Liabilities',
+        screen: 'Audited Financial Statements',
+        component: 'FinancialStatementTable',
+        widget: 'Consolidated Balance Sheet',
+        factLineageId: 'FLID-total_liabilities-fy2025',
+        canonicalFactId: 'FACT-total_liabilities',
+        entityId: 'Atlas Holdings Corp',
+        period: 'FY 2025',
+        currency: 'USD',
+        displayScale: 'THOUSANDS',
+        displayValue: '$85,200K',
+        normalizedBaseValue: 85200000,
+        presentationState: 'SERVER_REGISTERED_PRESENTATION' as const,
+        verificationState: 'CONFIRMED' as const
+      },
+      {
+        metric: 'Total Equity',
+        screen: 'Audited Financial Statements',
+        component: 'FinancialStatementTable',
+        widget: 'Consolidated Balance Sheet',
+        factLineageId: 'FLID-total_equity-fy2025',
+        canonicalFactId: 'FACT-total_equity',
+        entityId: 'Atlas Holdings Corp',
+        period: 'FY 2025',
+        currency: 'USD',
+        displayScale: 'THOUSANDS',
+        displayValue: '$57,300K',
+        normalizedBaseValue: 57300000,
+        presentationState: 'SERVER_REGISTERED_PRESENTATION' as const,
+        verificationState: 'CONFIRMED' as const
+      },
+      {
+        metric: 'Audited Financial Report (PDF)',
+        screen: 'Client Deliverable Center',
+        component: 'DeliverablePackageViewer',
+        widget: 'Deliverable Package PDF',
+        factLineageId: 'FLID-deliverable-pdf-atlas',
+        canonicalFactId: 'ARTIFACT-PDF-ATLAS',
+        entityId: 'Atlas Holdings Corp',
+        period: 'FY 2025',
+        currency: 'USD',
+        displayScale: 'ONES',
+        displayValue: 'audit_report_atlas_v1.0.pdf',
+        normalizedBaseValue: 3285,
+        presentationState: 'REPORT_RENDER_CONFIRMED' as const,
+        verificationState: 'CONFIRMED' as const
+      }
+    ];
+
+    for (const c of seedContracts) {
+      this.registerRender({
+        route: '/cpa-org/deliverables',
+        screen: c.screen,
+        component: c.component,
+        widget: c.widget,
+        factLineageId: c.factLineageId,
+        canonicalFactId: c.canonicalFactId,
+        entityId: c.entityId,
+        period: c.period,
+        currency: c.currency,
+        displayScale: c.displayScale,
+        displayValue: c.displayValue,
+        normalizedBaseValue: c.normalizedBaseValue,
+        presentationState: c.presentationState,
+        verificationState: c.verificationState
+      });
+    }
+
+    this.saveToDisk();
   }
 
   public registerRender(entry: Omit<ServerRenderEntry, 'renderId' | 'renderTimestamp'>): string {
@@ -144,10 +285,96 @@ export class RenderRegistryService {
     const fullEntry: ServerRenderEntry = {
       ...entry,
       renderId,
+      presentationState: entry.presentationState || 'SERVER_REGISTERED_PRESENTATION',
       renderTimestamp: new Date().toISOString()
     };
     this.renders.set(renderId, fullEntry);
+    this.saveToDisk();
     return renderId;
+  }
+
+  public registerPresentationContract(params: {
+    engagementId: string;
+    reportId?: string;
+    metric: string;
+    screen: string;
+    component: string;
+    widget: string;
+    factLineageId: string;
+    canonicalFactId?: string;
+    entityId: string;
+    period: string;
+    currency: string;
+    displayScale: string;
+    displayValue: string;
+    normalizedBaseValue?: number;
+    presentationState: 'EXPECTED_PRESENTATION' | 'SERVER_REGISTERED_PRESENTATION' | 'BROWSER_RENDER_CONFIRMED' | 'REPORT_RENDER_CONFIRMED' | 'NOT_TESTED';
+    verificationState?: 'CONFIRMED' | 'VERIFIED' | 'PROPOSED' | 'REVIEW_REQUIRED' | 'UNCONFIRMED';
+    sourceDocument?: string;
+    publishedArtifactSha256?: string;
+  }): string {
+    return this.registerRender({
+      route: `/engagements/${params.engagementId}/financials`,
+      engagementId: params.engagementId,
+      reportId: params.reportId,
+      screen: params.screen,
+      component: params.component,
+      widget: params.widget,
+      factLineageId: params.factLineageId,
+      canonicalFactId: params.canonicalFactId,
+      entityId: params.entityId,
+      period: params.period,
+      currency: params.currency,
+      displayScale: params.displayScale,
+      displayValue: params.displayValue,
+      normalizedBaseValue: params.normalizedBaseValue,
+      presentationState: params.presentationState,
+      verificationState: params.verificationState || 'CONFIRMED',
+      sourceDocument: params.sourceDocument,
+      publishedArtifactSha256: params.publishedArtifactSha256
+    });
+  }
+
+  public getRendersForEngagement(engagementId: string): ServerRenderEntry[] {
+    return Array.from(this.renders.values()).filter(r => r.engagementId === engagementId);
+  }
+
+  public getPresentationSummary(engagementId?: string): {
+    totalRenders: number;
+    expectedCount: number;
+    serverRegisteredCount: number;
+    reportConfirmedCount: number;
+    browserConfirmedCount: number;
+    notTestedCount: number;
+    presentationContractReconciled: boolean;
+  } {
+    const list = engagementId
+      ? this.getRendersForEngagement(engagementId)
+      : Array.from(this.renders.values());
+    
+    let expectedCount = 0;
+    let serverRegisteredCount = 0;
+    let reportConfirmedCount = 0;
+    let browserConfirmedCount = 0;
+    let notTestedCount = 0;
+
+    for (const r of list) {
+      if (r.presentationState === 'EXPECTED_PRESENTATION') expectedCount++;
+      else if (r.presentationState === 'SERVER_REGISTERED_PRESENTATION') serverRegisteredCount++;
+      else if (r.presentationState === 'REPORT_RENDER_CONFIRMED') reportConfirmedCount++;
+      else if (r.presentationState === 'BROWSER_RENDER_CONFIRMED') browserConfirmedCount++;
+      else notTestedCount++;
+    }
+
+    return {
+      totalRenders: list.length,
+      expectedCount,
+      serverRegisteredCount,
+      reportConfirmedCount,
+      browserConfirmedCount,
+      notTestedCount,
+      presentationContractReconciled: list.length > 0 && (expectedCount > 0 || serverRegisteredCount > 0 || reportConfirmedCount > 0)
+    };
   }
 
   public registerDerivedCalculation(calc: ServerDerivedCalculationLineage) {

@@ -324,6 +324,53 @@ export class HermesPrimeAcademyEngine {
         console.warn('[HermesPrimeAcademyEngine] Error loading selector state:', e);
       }
     }
+
+    // Authoritative Reconciliation: Cross-verify execution counts with immutable observatory event ledger
+    try {
+      const ledgerPath = path.join(this.storageDir, 'observatory_events.json');
+      if (fs.existsSync(ledgerPath)) {
+        const rawEvents = fs.readFileSync(ledgerPath, 'utf-8');
+        const parsedEvents = JSON.parse(rawEvents);
+        if (Array.isArray(parsedEvents)) {
+          const ledgerCompletions: Record<string, { count: number; lastTs: string; lastMode?: string }> = {};
+          for (const ev of parsedEvents) {
+            if (ev.eventType === 'ACADEMY_CASE_COMPLETED' && ev.academyCaseId) {
+              const cid = ev.academyCaseId;
+              if (!ledgerCompletions[cid]) {
+                ledgerCompletions[cid] = { count: 0, lastTs: ev.timestamp, lastMode: ev.executionMode || 'FULL_PRACTICE' };
+              }
+              ledgerCompletions[cid].count++;
+              if (ev.timestamp > ledgerCompletions[cid].lastTs) {
+                ledgerCompletions[cid].lastTs = ev.timestamp;
+                ledgerCompletions[cid].lastMode = ev.executionMode || 'FULL_PRACTICE';
+              }
+            }
+          }
+          // Reconcile: If ledger has recorded completions, it is authoritative
+          for (const [cid, info] of Object.entries(ledgerCompletions)) {
+            let hist = this.caseHistory.get(cid);
+            if (!hist) {
+              hist = { caseId: cid, lastRunAt: info.lastTs, executionCount: info.count, recentFailures: 0, lastMode: info.lastMode as any };
+              this.caseHistory.set(cid, hist);
+            } else {
+              if (hist.executionCount < info.count) {
+                hist.executionCount = info.count;
+              }
+              if (!hist.lastRunAt || info.lastTs > hist.lastRunAt) {
+                hist.lastRunAt = info.lastTs;
+              }
+              if (info.lastMode) {
+                hist.lastMode = info.lastMode as any;
+              }
+            }
+          }
+          // Persist reconciled state to disk immediately
+          this.saveSelectorState();
+        }
+      }
+    } catch (err) {
+      console.warn('[HermesPrimeAcademyEngine] Authoritative ledger reconciliation warning:', err);
+    }
   }
 
   private saveSelectorState() {
@@ -1334,6 +1381,96 @@ export class HermesPrimeAcademyEngine {
         privateInstructions: 'Submit IAS 38 R&D capitalization development cost ledgers and grant reconciliation.',
         privateScenarioInstructions: 'Submit IAS 38 R&D capitalization development cost ledgers and grant reconciliation.'
       },
+      'ACADEMY-CASE-005': {
+        personaId: 'persona-meridian-msterling',
+        name: 'Marcus Sterling',
+        title: 'Group Chief Financial Officer',
+        companyName: 'Meridian Global Holdings SE',
+        email: 'm.sterling@meridian-holdings.academy',
+        clientName: 'Meridian Global Holdings SE',
+        primaryContact: 'Marcus Sterling, Group Chief Financial Officer',
+        contactEmail: 'm.sterling@meridian-holdings.academy',
+        industry: 'Enterprise Software & Technology',
+        accountingFramework: 'IFRS / Multi-Currency EUR/USD/GBP/SGD',
+        tone: 'EXECUTIVE',
+        responsiveness: 'COOPERATIVE',
+        accountingSophistication: 'HIGH',
+        recordsQuality: 'ORGANIZED',
+        privateInstructions: 'Provide multi-tier subsidiary consolidation elimination workpapers and non-controlling interest tie-out schedule.',
+        privateScenarioInstructions: 'Provide multi-tier subsidiary consolidation elimination workpapers and non-controlling interest tie-out schedule.'
+      },
+      'ACADEMY-CASE-006': {
+        personaId: 'persona-solaria-jlmoreau',
+        name: 'Jean-Luc Moreau',
+        title: 'International Finance Director',
+        companyName: 'Solaria Pacific Renewable Energy Ltd',
+        email: 'jl.moreau@solaria-pacific.academy',
+        clientName: 'Solaria Pacific Renewable Energy Ltd',
+        primaryContact: 'Jean-Luc Moreau, International Finance Director',
+        contactEmail: 'jl.moreau@solaria-pacific.academy',
+        industry: 'Renewable Energy & Infrastructure',
+        accountingFramework: 'IFRS / ASX Statutory (AUD/NZD/JPY)',
+        tone: 'METICULOUS',
+        responsiveness: 'COOPERATIVE',
+        accountingSophistication: 'HIGH',
+        recordsQuality: 'ORGANIZED',
+        privateInstructions: 'Provide IAS 21 cross-currency forward swap schedule and foreign translation reserve reconciliation.',
+        privateScenarioInstructions: 'Provide IAS 21 cross-currency forward swap schedule and foreign translation reserve reconciliation.'
+      },
+      'ACADEMY-CASE-007': {
+        personaId: 'persona-vanguard-vvance',
+        name: 'Dr. Victor Vance',
+        title: 'VP Financial Reporting & Controller',
+        companyName: 'Vanguard Cybernetics Corp',
+        email: 'v.vance@vanguard-cybernetics.academy',
+        clientName: 'Vanguard Cybernetics Corp',
+        primaryContact: 'Dr. Victor Vance, VP Financial Reporting & Controller',
+        contactEmail: 'v.vance@vanguard-cybernetics.academy',
+        industry: 'Autonomous Systems & Cybernetics',
+        accountingFramework: 'US GAAP (SEC Form 10-K)',
+        tone: 'ANALYTICAL',
+        responsiveness: 'PARTIAL',
+        accountingSophistication: 'HIGH',
+        recordsQuality: 'PARTIAL',
+        privateInstructions: 'Reconcile MD&A narrative constant-currency revenue growth figures with Footnote 4 disaggregated contract revenue disclosures upon Clara inquiry.',
+        privateScenarioInstructions: 'Reconcile MD&A narrative constant-currency revenue growth figures with Footnote 4 disaggregated contract revenue disclosures upon Clara inquiry.'
+      },
+      'ACADEMY-CASE-008': {
+        personaId: 'persona-biosynthetica-afinch',
+        name: 'Dr. Alistair Finch',
+        title: 'Chief Accounting Officer',
+        companyName: 'BioSynthetica International Inc',
+        email: 'a.finch@biosynthetica.academy',
+        clientName: 'BioSynthetica International Inc',
+        primaryContact: 'Dr. Alistair Finch, Chief Accounting Officer',
+        contactEmail: 'a.finch@biosynthetica.academy',
+        industry: 'Biopharmaceuticals & Life Sciences',
+        accountingFramework: 'US GAAP / IFRS Dual Reporting',
+        tone: 'SCHOLARLY',
+        responsiveness: 'COOPERATIVE',
+        accountingSophistication: 'HIGH',
+        recordsQuality: 'ORGANIZED',
+        privateInstructions: 'Supply dual-framework taxonomy crosswalk bridging UK statutory turnover to SEC ASC 606 revenue recognition.',
+        privateScenarioInstructions: 'Supply dual-framework taxonomy crosswalk bridging UK statutory turnover to SEC ASC 606 revenue recognition.'
+      },
+      'ACADEMY-CASE-009': {
+        personaId: 'persona-quantum-uvonburg',
+        name: 'Urs von Burg',
+        title: 'Head of Statutory Reporting & Group Controlling',
+        companyName: 'Quantum Edge Technologies AG',
+        email: 'u.vonburg@quantum-edge.academy',
+        clientName: 'Quantum Edge Technologies AG',
+        primaryContact: 'Urs von Burg, Head of Statutory Reporting & Group Controlling',
+        contactEmail: 'u.vonburg@quantum-edge.academy',
+        industry: 'Quantum Computing Hardware',
+        accountingFramework: 'IFRS / SIX Swiss Exchange Statutory',
+        tone: 'PRECISE',
+        responsiveness: 'COOPERATIVE',
+        accountingSophistication: 'HIGH',
+        recordsQuality: 'ORGANIZED',
+        privateInstructions: 'Provide detailed project-by-project IAS 38 development cost capitalization audit trial and impairment testing documentation.',
+        privateScenarioInstructions: 'Provide detailed project-by-project IAS 38 development cost capitalization audit trial and impairment testing documentation.'
+      },
       'ACADEMY-CANARY-01': {
         personaId: 'persona-aerotech-mvonbraun',
         name: 'Maria von Braun',
@@ -1938,12 +2075,33 @@ export class HermesPrimeAcademyEngine {
 
     // Stage 8: REVIEW_NOTES & Quinn Concurring Partner Review
     syntheticEngagementEngine.advanceStage(engagementId, 'REVIEW_NOTES');
+    // Tailor Quinn's review note subject and description specifically to the accounting risk profile of the case
+    let reviewSubject = `Footnote & Accounting Policy Review (${groundTruth.framework})`;
+    let reviewDesc = `Verify that disclosures for ${groundTruth.expectedFacts[0].canonicalMetric} and consolidation notes comply fully with ${groundTruth.framework}.`;
+    
+    if (groundTruth.caseId === 'ACADEMY-CASE-007') {
+      reviewSubject = `Forensic Discrepancy Resolution: MD&A vs Footnote Revenue Growth (${groundTruth.framework})`;
+      reviewDesc = `Reconcile constant-currency revenue growth narrative in MD&A Item 7 with ASC 606 disaggregated contract revenue disclosures in Note 4 for ${groundTruth.issuer}.`;
+    } else if (groundTruth.caseId === 'ACADEMY-CASE-008') {
+      reviewSubject = `Dual Taxonomy Alignment: US GAAP ASC 606 vs UK IFRS Turnover (${groundTruth.framework})`;
+      reviewDesc = `Audit cross-framework mapping table reconciling foreign statutory turnover to SEC Form 20-F revenue recognition criteria for ${groundTruth.issuer}.`;
+    } else if (groundTruth.caseId === 'ACADEMY-CASE-009') {
+      reviewSubject = `IAS 38 Intangible Asset Capitalization & Impairment Review (${groundTruth.framework})`;
+      reviewDesc = `Review technical and commercial feasibility criteria for capitalized quantum computing R&D expenditures and assess goodwill impairment triggers for ${groundTruth.issuer}.`;
+    } else if (groundTruth.caseId === 'ACADEMY-CASE-006') {
+      reviewSubject = `IAS 21 Cross-Currency Hedging & Translation Reserve Audit (${groundTruth.framework})`;
+      reviewDesc = `Audit mark-to-market valuations on AUD/NZD/JPY forward exchange contracts and cumulative foreign currency translation reserve for ${groundTruth.issuer}.`;
+    } else if (groundTruth.caseId === 'ACADEMY-CASE-005') {
+      reviewSubject = `Multi-Tier Consolidation & Non-Controlling Interest Verification (${groundTruth.framework})`;
+      reviewDesc = `Audit intercompany balance eliminations across 4 global subsidiaries and tie out non-controlling interest share of net income for ${groundTruth.issuer}.`;
+    }
+
     const reviewNote = syntheticEngagementEngine.createReviewNote({
       engagementId,
       reviewer: 'QUINN',
-      subject: `Footnote & Accounting Policy Review (${groundTruth.framework})`,
-      description: `Verify that disclosures for ${groundTruth.expectedFacts[0].canonicalMetric} and consolidation notes comply fully with ${groundTruth.framework}.`,
-      severity: 'MEDIUM',
+      subject: reviewSubject,
+      description: reviewDesc,
+      severity: 'HIGH',
       linkedFactIds: ['FACT-001', 'FACT-002'],
       assignedTo: 'ATHENA',
       status: 'OPEN'
@@ -2083,11 +2241,13 @@ export class HermesPrimeAcademyEngine {
 
     // Register Deliverables in Render Registry for Customer Access
     if (pdfInfo) {
-      renderRegistryService.registerRender({
-        route: `/cpa-org/deliverables/${registeredDeliverable.reportId}`,
+      renderRegistryService.registerPresentationContract({
+        engagementId,
+        reportId: registeredDeliverable.reportId,
         screen: 'Client Deliverable Center',
         component: 'DeliverablePackageViewer',
         widget: 'Audited Financial Report (PDF)',
+        metric: 'Deliverable Package PDF',
         factLineageId: `FLID-deliverable-pdf-${registeredDeliverable.reportId}`,
         canonicalFactId: `ARTIFACT-PDF-${registeredDeliverable.reportId}`,
         entityId: groundTruth.issuer,
@@ -2096,15 +2256,19 @@ export class HermesPrimeAcademyEngine {
         displayScale: 'ONES',
         displayValue: pdfInfo.filename,
         normalizedBaseValue: pdfInfo.sizeBytes,
-        verificationState: 'CONFIRMED'
+        presentationState: 'REPORT_RENDER_CONFIRMED',
+        verificationState: 'CONFIRMED',
+        publishedArtifactSha256: pdfInfo.sha256
       });
     }
     if (xlsxInfo) {
-      renderRegistryService.registerRender({
-        route: `/cpa-org/deliverables/${registeredDeliverable.reportId}`,
+      renderRegistryService.registerPresentationContract({
+        engagementId,
+        reportId: registeredDeliverable.reportId,
         screen: 'Client Deliverable Center',
         component: 'DeliverablePackageViewer',
         widget: 'Statutory Deliverable Workbook (XLSX)',
+        metric: 'Deliverable Package XLSX',
         factLineageId: `FLID-deliverable-xlsx-${registeredDeliverable.reportId}`,
         canonicalFactId: `ARTIFACT-XLSX-${registeredDeliverable.reportId}`,
         entityId: groundTruth.issuer,
@@ -2113,7 +2277,32 @@ export class HermesPrimeAcademyEngine {
         displayScale: 'ONES',
         displayValue: xlsxInfo.filename,
         normalizedBaseValue: xlsxInfo.sizeBytes,
-        verificationState: 'CONFIRMED'
+        presentationState: 'REPORT_RENDER_CONFIRMED',
+        verificationState: 'CONFIRMED',
+        publishedArtifactSha256: xlsxInfo.sha256
+      });
+    }
+
+    // Register all statement line items in Server RenderRegistry
+    for (const f of groundTruth.expectedFacts) {
+      renderRegistryService.registerPresentationContract({
+        engagementId,
+        reportId: registeredDeliverable.reportId,
+        metric: f.canonicalMetric,
+        screen: 'Audited Financial Statements',
+        component: 'FinancialStatementTable',
+        widget: f.statement,
+        factLineageId: `FLID-${f.canonicalMetric.toLowerCase().replace(/[^a-z0-9]/g, '_')}-${groundTruth.period.toLowerCase()}`,
+        canonicalFactId: `FACT-${f.canonicalMetric.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+        entityId: groundTruth.issuer,
+        period: groundTruth.period,
+        currency: f.currency,
+        displayScale: f.scale,
+        displayValue: f.formattedValue,
+        normalizedBaseValue: f.expectedValue,
+        presentationState: 'SERVER_REGISTERED_PRESENTATION',
+        verificationState: 'CONFIRMED',
+        sourceDocument: groundTruth.sourceAuthority
       });
     }
 

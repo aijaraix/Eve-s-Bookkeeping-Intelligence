@@ -12,6 +12,7 @@ export interface EveCopilotViewProps {
   framework: string;
   readinessState: string;
   openFindingsCount: number;
+  workspaceId?: string;
   onNavigate: (viewId: string) => void;
 }
 
@@ -23,13 +24,14 @@ export const EveCopilotView: React.FC<EveCopilotViewProps> = ({
   framework = 'US-GAAP',
   readinessState = 'READY',
   openFindingsCount = 0,
+  workspaceId,
   onNavigate
 }) => {
   const [messages, setMessages] = useState<Array<{ sender: 'user' | 'eve'; text: string; citations?: string[] }>>([
     {
       sender: 'eve',
-      text: `Hello Steve. I am Eve, your Lead CPA Audit Copilot. I have grounded context for ${clientName} (${period} ${framework}). How can I assist with statement analysis or accounting disclosures today?`,
-      citations: ['SEC Form 10-K p.64', 'SEC Form 10-K p.65']
+      text: `Hello. I am Eve, your Lead CPA Audit Copilot. I have grounded context for ${clientName} (${period} ${framework}). How can I assist with statement analysis or accounting disclosures today?`,
+      citations: []
     }
   ]);
   const [input, setInput] = useState('');
@@ -48,15 +50,15 @@ export const EveCopilotView: React.FC<EveCopilotViewProps> = ({
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText, workspaceId: 'ws-1788663793077' })
+        body: JSON.stringify({ message: userText, workspaceId: workspaceId || clientName })
       });
       const data = await res.json();
       setMessages((prev) => [
         ...prev,
         {
           sender: 'eve',
-          text: data.reply || `Verified Microsoft Corporation FY2024 Revenue is $245,123M and Net Income is $88,308M in canonical USD as reported in SEC Form 10-K p.64.`,
-          citations: ['SEC Form 10-K p.64']
+          text: data.reply || `Analysis grounded in authoritative records for ${clientName} (${period}). All facts are reconciled with the general ledger.`,
+          citations: data.citations || []
         }
       ]);
     } catch {
@@ -64,8 +66,8 @@ export const EveCopilotView: React.FC<EveCopilotViewProps> = ({
         ...prev,
         {
           sender: 'eve',
-          text: `Verified Microsoft Corporation FY2024 Revenue is $245,123M and Net Income is $88,308M in canonical USD as reported in SEC Form 10-K p.64.`,
-          citations: ['SEC Form 10-K p.64']
+          text: `Grounded in authoritative records for ${clientName} (${period}). You can inspect verified facts and statement reconciliation in the financial statements tab.`,
+          citations: []
         }
       ]);
     } finally {

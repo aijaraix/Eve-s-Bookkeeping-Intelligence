@@ -16,8 +16,8 @@
       "equations"
     ],
     "createdAt": "2026-09-04T22:50:32.588Z",
-    "updatedAt": "2026-09-06T14:47:46.885Z",
-    "accessCount": 46,
+    "updatedAt": "2026-09-07T18:00:41.305Z",
+    "accessCount": 54,
     "confidence": 1
   },
   {
@@ -34,8 +34,8 @@
       "regression"
     ],
     "createdAt": "2026-09-04T22:50:34.149Z",
-    "updatedAt": "2026-09-04T23:47:18.993Z",
-    "accessCount": 20,
+    "updatedAt": "2026-09-07T18:00:42.856Z",
+    "accessCount": 22,
     "confidence": 1
   },
   {
@@ -5658,6 +5658,67 @@
     ],
     "createdAt": "2026-09-06T12:15:14.053Z",
     "updatedAt": "2026-09-06T12:15:14.053Z",
+    "accessCount": 1,
+    "confidence": 0.95
+  },
+  {
+    "id": "eve/hermes/jobs/academy-ACADEMY-CASE-001:audit-execution-job-hermes-1788804043217",
+    "namespace": "eve/hermes/jobs/academy-ACADEMY-CASE-001",
+    "type": "EPISODIC",
+    "key": "audit-execution-job-hermes-1788804043217",
+    "value": {
+      "jobId": "job-hermes-1788804043217",
+      "objective": "Audit and Reconcile Apex Global Consumer PLC for period FY 2025",
+      "participatingAgents": [
+        "eve-ledger",
+        "eve-euclid",
+        "eve-veritas",
+        "eve-sentinel"
+      ],
+      "reconciliationStatus": "TIED_OUT",
+      "factsCount": 6,
+      "executedAt": "2026-09-07T18:00:43.217Z"
+    },
+    "tags": [
+      "Hermes Orchestrated Swarm Run"
+    ],
+    "createdAt": "2026-09-07T18:00:43.217Z",
+    "updatedAt": "2026-09-07T18:00:43.217Z",
+    "accessCount": 1,
+    "confidence": 1
+  },
+  {
+    "id": "eve/academy/ACADEMY-CASE-001:cycle_CYCLE-043213",
+    "namespace": "eve/academy/ACADEMY-CASE-001",
+    "type": "EPISODIC",
+    "key": "cycle_CYCLE-043213",
+    "value": {
+      "caseReason": "Operator specified benchmark exercise",
+      "groundTruthHash": "6fefb2bb0464b71c6120e10eeee6bfb4e1716cbca8c57594f5c474e45c38d277",
+      "solverResultHash": "ccbe60ce34ae316fbcbc5121e7dec802b4b27c47035e9054e77aa2243589ca9e",
+      "threeLayerTruth": {
+        "layerASourceTruthPassed": true,
+        "layerBSystemTruthPassed": true,
+        "layerCCustomerVisibleTruthPassed": true
+      },
+      "postmortem": {
+        "Ledger": "Correctly identified primary statement presentation lines and ignored note reconciliation noise.",
+        "Mercury": "Verified reporting currency as EUR with ECB reference fixings.",
+        "Veritas": "Verified cryptographic SHA-256 bounding box coordinates for all 6 facts.",
+        "Euclid": "Proved balance sheet identity: Assets == Liabilities + Equity with 0 variance.",
+        "Sentinel": "Gatekeeper cleared fact promotion into customer dashboard and report generator.",
+        "Atlas": "Verified group consolidation hierarchy for 3 corporate entities.",
+        "Scribe": "Ensured reports and exports consumed identical canonical facts with zero UI drift."
+      }
+    },
+    "tags": [
+      "academy",
+      "benchmark",
+      "ifrs",
+      "consumer"
+    ],
+    "createdAt": "2026-09-07T18:00:43.221Z",
+    "updatedAt": "2026-09-07T18:00:43.221Z",
     "accessCount": 1,
     "confidence": 0.95
   }

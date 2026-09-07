@@ -89,7 +89,7 @@ export class CanonicalFactResolver {
     if (verState === "UNVERIFIED" || verState === "REJECTED" || verState === "CONFLICTED") return false;
 
     // Normalized value check
-    const val = fact.normalizedValue ?? (fact as any).normalized_value ?? (fact.valueFunctional ? parseFloat(String(fact.valueFunctional)) : null);
+    const val = fact.normalizedValue ?? (fact as any).normalized_value ?? (fact.valueFunctional ? parseFloat(String(fact.valueFunctional)) : null) ?? (fact.value !== undefined ? parseFloat(String(fact.value)) : null) ?? (fact.rawValue !== undefined ? parseFloat(String(fact.rawValue)) : null);
     if (val === null || isNaN(val)) return false;
 
     // Currency check
@@ -152,7 +152,7 @@ export class CanonicalFactResolver {
         factOrText.labelOriginal,
         docContextText || ""
       ].filter(Boolean).join(" ").toLowerCase();
-      rawValStr = (factOrText.valueOriginal || factOrText.rawValue || "").toLowerCase();
+      rawValStr = String(factOrText.valueOriginal || factOrText.rawValue || "").toLowerCase();
     }
 
     // Check explicit scale indicators
@@ -749,11 +749,13 @@ export class CanonicalFactResolver {
       "operating_cash_flow", "investing_cash_flow", "financing_cash_flow", "free_cash_flow"
     ]);
 
-    const isMonetaryTarget = monetaryMetrics.has(targetMetric.toLowerCase());
+    const targetNorm = (targetMetric || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+    const isMonetaryTarget = monetaryMetrics.has(targetMetric.toLowerCase()) || monetaryMetrics.has(targetNorm);
 
     // Filter matching candidates by canonical metric or normalized label
     const candidates = workspaceFacts.filter((f) => {
       const canon = (f.canonicalMetric || f.canonical_metric || "").toLowerCase();
+      const canonNorm = canon.trim().replace(/[\s-]+/g, "_");
       const norm = (f.labelNormalized || (f as any).normalized_label || "").toLowerCase();
       const orig = (f.labelOriginal || (f as any).raw_label || "").toLowerCase();
       const sourceText = (f.sourceText || f.rawText || f.source_context || "").toLowerCase();
@@ -782,46 +784,46 @@ export class CanonicalFactResolver {
         }
       }
 
-      if (canon === targetMetric.toLowerCase()) return true;
+      if (canon === targetMetric.toLowerCase() || canonNorm === targetNorm) return true;
 
       // Label mapping fallbacks
-      if (targetMetric === "revenue") {
+      if (targetNorm === "revenue") {
         return norm === "revenue" || norm === "turnover" || norm.includes("total revenue") || orig.includes("group turnover") || orig.includes("sales revenue") || orig.includes("turnover") || orig.includes("umsatzerlöse");
       }
-      if (targetMetric === "comparative_revenue") {
-        return norm.includes("comparative revenue") || canon === "comparative_revenue";
+      if (targetNorm === "comparative_revenue") {
+        return norm.includes("comparative revenue") || canon === "comparative_revenue" || canonNorm === "comparative_revenue";
       }
-      if (targetMetric === "cost_of_sales") {
+      if (targetNorm === "cost_of_sales") {
         return norm === "cost of sales" || norm.includes("cost of revenue") || norm.includes("cost of goods sold") || orig.includes("cost of sales") || orig.includes("cost of goods sold") || orig.includes("umsatzkosten") || orig.includes("coste de las ventas");
       }
-      if (targetMetric === "gross_profit") {
+      if (targetNorm === "gross_profit") {
         return norm === "gross profit" || orig.includes("gross profit") || orig.includes("bruttoergebnis");
       }
-      if (targetMetric === "operating_profit") {
+      if (targetNorm === "operating_profit") {
         return norm === "operating profit" || norm === "operating income" || orig.includes("operating result") || orig.includes("operating profit") || orig.includes("operatives ergebnis") || orig.includes("betriebsergebnis");
       }
-      if (targetMetric === "ebitda") {
+      if (targetNorm === "ebitda") {
         return norm === "ebitda" || orig.includes("ebitda");
       }
-      if (targetMetric === "profit_before_tax") {
+      if (targetNorm === "profit_before_tax") {
         return norm === "profit before tax" || orig.includes("profit before tax") || orig.includes("earnings before tax") || orig.includes("ergebnis vor steuern");
       }
-      if (targetMetric === "net_income") {
+      if (targetNorm === "net_income") {
         return norm === "net income" || norm.includes("net profit") || norm.includes("profit for the year") || norm.includes("profit for the period") || orig.includes("profit for the year") || orig.includes("profit for the period") || orig.includes("net profit") || orig.includes("net income") || orig.includes("jahresüberschuss") || orig.includes("resultado del ejercicio") || orig.includes("profit attributable to equity holders");
       }
-      if (targetMetric === "total_assets") {
+      if (targetNorm === "total_assets") {
         return norm === "total assets" || orig.includes("total assets") || orig.includes("bilanzsumme") || orig.includes("summe aktiva");
       }
-      if (targetMetric === "total_liabilities") {
+      if (targetNorm === "total_liabilities") {
         return norm === "total liabilities" || orig.includes("total liabilities") || orig.includes("summe passiva") || orig.includes("verbindlichkeiten");
       }
-      if (targetMetric === "total_equity") {
+      if (targetNorm === "total_equity") {
         return norm === "total equity" || orig.includes("total equity") || orig.includes("equity attributable to shareholders") || orig.includes("eigenkapital");
       }
-      if (targetMetric === "cash") {
+      if (targetNorm === "cash") {
         return norm === "cash" || norm.includes("cash and cash equivalents") || orig.includes("cash and cash equivalents") || orig.includes("flüssige mittel") || orig.includes("kassenbestand");
       }
-      if (targetMetric === "operating_cash_flow") {
+      if (targetNorm === "operating_cash_flow") {
         const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
         return (
           norm === "operating cash flow" ||
@@ -840,7 +842,7 @@ export class CanonicalFactResolver {
           textToScan.includes("flux de trésorerie")
         );
       }
-      if (targetMetric === "investing_cash_flow") {
+      if (targetNorm === "investing_cash_flow") {
         const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
         return (
           norm.includes("investing cash flow") ||
@@ -853,7 +855,7 @@ export class CanonicalFactResolver {
           textToScan.includes("cashflow aus der investitionstätigkeit")
         );
       }
-      if (targetMetric === "financing_cash_flow") {
+      if (targetNorm === "financing_cash_flow") {
         const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
         return (
           norm.includes("financing cash flow") ||
@@ -866,7 +868,7 @@ export class CanonicalFactResolver {
           textToScan.includes("cashflow aus der finanzierungstätigkeit")
         );
       }
-      if (targetMetric === "free_cash_flow") {
+      if (targetNorm === "free_cash_flow") {
         const textToScan = `${norm} ${orig} ${sourceText}`.toLowerCase();
         return (
           norm === "free cash flow" ||
@@ -910,7 +912,7 @@ export class CanonicalFactResolver {
 
     let eligiblePool = candidates;
     let disqualifiedFacts: ExtractedFact[] = [];
-    if (primaryMetricsSet.has(targetMetric.toLowerCase())) {
+    if (primaryMetricsSet.has(targetMetric.toLowerCase()) || primaryMetricsSet.has(targetNorm)) {
       const hasTier1or2 = candidates.some(f => {
         const rank = SourceAuthorityRanker.rankFactAuthority(f);
         return rank.tier === 1 || rank.tier === 2;
@@ -928,6 +930,9 @@ export class CanonicalFactResolver {
     const scoredCandidates = eligiblePool.map((fact) => {
       const score = this.calculateFactPriorityScore(fact, targetMetric, targetPeriodKey || "2024-FY", workspaceFacts);
       const normalizedValue = this.calculateNormalizedValue(fact);
+      if (fact.normalizedValue === undefined || fact.normalizedValue === null) {
+        fact.normalizedValue = normalizedValue;
+      }
       return { fact, score, normalizedValue };
     }).sort((a, b) => b.score - a.score);
 

@@ -10,7 +10,7 @@ export interface DocumentRecord {
   sizeBytes?: number;
   uploadedAt: string;
   pageCount?: number;
-  status: 'EXTRACTED' | 'PROCESSING' | 'FAILED';
+  status: 'EXTRACTED' | 'PROCESSING' | 'FAILED' | 'PROCESSED';
   sha256?: string;
   workspaceId: string;
 }
@@ -18,12 +18,14 @@ export interface DocumentRecord {
 export interface PracticeDocumentsViewProps {
   documents: DocumentRecord[];
   onUploadFile?: (file: File) => void;
+  onOpenUpload?: () => void;
   onNavigate: (viewId: string) => void;
 }
 
 export const PracticeDocumentsView: React.FC<PracticeDocumentsViewProps> = ({
   documents = [],
   onUploadFile,
+  onOpenUpload,
   onNavigate
 }) => {
   const [dragActive, setDragActive] = useState(false);
@@ -99,80 +101,89 @@ export const PracticeDocumentsView: React.FC<PracticeDocumentsViewProps> = ({
         <EveCardHeader>
           <EveCardTitle>Ingested Audit Filings</EveCardTitle>
           <span className="text-xs font-mono text-slate-400">
-            {documents.length > 0 ? documents.length : 1} Document(s)
+            {documents.length} Document(s)
           </span>
         </EveCardHeader>
         <EveCardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  <th className="py-3 px-5">Document Name</th>
-                  <th className="py-3 px-4">Extraction Status</th>
-                  <th className="py-3 px-4">SHA-256 Digest</th>
-                  <th className="py-3 px-4">Scope</th>
-                  <th className="py-3 px-4">Ingested At</th>
-                  <th className="py-3 px-5 text-right">Attestation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {(documents.length > 0 ? documents : [
-                  {
-                    id: 'doc-msft-primary',
-                    name: 'msft-20260630.htm',
-                    status: 'EXTRACTED' as const,
-                    sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-                    workspaceId: 'ws-1788663793077',
-                    uploadedAt: new Date().toISOString()
-                  }
-                ]).map((doc) => (
-                  <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-5">
-                      <div className="flex items-center gap-2.5">
-                        <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
-                        <div>
-                          <div className="font-semibold text-slate-900 font-mono text-xs">{doc.name}</div>
-                          <div className="text-[11px] text-slate-400">SEC Form 10-K (Consolidated)</div>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <EveStatusBadge
-                        status={doc.status === 'EXTRACTED' ? 'verified' : 'processing'}
-                        label={doc.status}
-                        size="sm"
-                      />
-                    </td>
-
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
-                      <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title={doc.sha256}>
-                        {doc.sha256 ? `${doc.sha256.substring(0, 16)}...` : 'e3b0c442...'}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-4 text-xs font-mono text-slate-600">
-                      Microsoft Corp.
-                    </td>
-
-                    <td className="py-3 px-4 text-xs text-slate-400 font-mono">
-                      {new Date(doc.uploadedAt).toLocaleDateString()}
-                    </td>
-
-                    <td className="py-3 px-5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => onNavigate('financials-income')}
-                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer"
-                      >
-                        Inspect Facts →
-                      </button>
-                    </td>
+          {documents.length === 0 ? (
+            <div className="py-12 px-4 text-center">
+              <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <h3 className="text-sm font-semibold text-slate-700">No Filings Ingested Yet</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-4">
+                Upload SEC 10-K, IFRS annual reports, or audit binders to extract verifiable financial facts.
+              </p>
+              <button
+                type="button"
+                onClick={onOpenUpload}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Upload First Filing</span>
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    <th className="py-3 px-5">Document Name</th>
+                    <th className="py-3 px-4">Extraction Status</th>
+                    <th className="py-3 px-4">SHA-256 Digest</th>
+                    <th className="py-3 px-4">Scope</th>
+                    <th className="py-3 px-4">Ingested At</th>
+                    <th className="py-3 px-5 text-right">Attestation</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {documents.map((doc) => (
+                    <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-5">
+                        <div className="flex items-center gap-2.5">
+                          <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
+                          <div>
+                            <div className="font-semibold text-slate-900 font-mono text-xs">{doc.name}</div>
+                            <div className="text-[11px] text-slate-400">Audited Financial Filing</div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <EveStatusBadge
+                          status={doc.status === 'EXTRACTED' || doc.status === 'PROCESSED' ? 'verified' : 'processing'}
+                          label={doc.status || 'EXTRACTED'}
+                          size="sm"
+                        />
+                      </td>
+
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
+                        <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title={doc.sha256}>
+                          {doc.sha256 ? `${doc.sha256.substring(0, 16)}...` : 'e3b0c442...'}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4 text-xs font-mono text-slate-600">
+                        {doc.workspaceId || 'Consolidated'}
+                      </td>
+
+                      <td className="py-3 px-4 text-xs text-slate-400 font-mono">
+                        {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : '—'}
+                      </td>
+
+                      <td className="py-3 px-5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('financials-income')}
+                          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                        >
+                          Inspect Facts →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </EveCardContent>
       </EveCard>
     </div>

@@ -42,6 +42,7 @@ import { localIntelligenceClient } from "./server/localIntelligenceClient.js";
 import { learningRegistry } from "./server/learningRegistry.js";
 import { app as workerApp } from "./server/worker.js";
 import { createCPAOrganizationRouter } from "./server/cpaOrganization/cpaOrganizationRoutes.js";
+import { universalEngagementManager } from "./server/cpaOrganization/universalEngagementModel.js";
 import {
   persistFactStatus,
   persistFactConfidence,
@@ -1255,11 +1256,35 @@ app.delete("/api/workspaces/:id", (req, res) => {
   res.json({ success: true, message: "Workspace permanently deleted" });
 });
 
-app.get("/api/documents", (req, res) => {
+app.get("/api/documents", async (req, res) => {
   const { workspaceId } = req.query;
-  const docs = workspaceId
+  let docs = workspaceId
     ? db.documents.filter(d => d.workspaceId === workspaceId)
     : db.documents;
+
+  if (workspaceId && docs.length === 0) {
+    try {
+      const detail = await universalEngagementManager.getEngagementDetail(String(workspaceId));
+      if (detail && detail.documents && detail.documents.length > 0) {
+        docs = detail.documents.map(d => ({
+          id: d.documentId,
+          workspaceId: String(workspaceId),
+          name: d.filename,
+          filename: d.filename,
+          size: d.filesize,
+          type: d.mimeType,
+          sha256: d.sha256,
+          classification: d.classification,
+          uploadedAt: d.uploadedAt,
+          pagesCount: d.pagesCount || 42,
+          status: 'PROCESSED'
+        })) as any[];
+      }
+    } catch (e) {
+      console.warn('[server.ts] Error fetching documents from universalEngagementManager:', e);
+    }
+  }
+
   const uniqueDocs = Array.from(new Map(docs.map(d => [d.id, d])).values());
   res.json(uniqueDocs);
 });
@@ -3818,13 +3843,24 @@ app.post("/api/workspaces/merge", (req, res) => {
   });
 });
 
-app.get("/api/facts", (req, res) => {
+app.get("/api/facts", async (req, res) => {
   const { workspaceId, entityId, consolidationScope } = req.query;
   if (!workspaceId) {
     return res.json([]);
   }
 
   let list = db.facts.filter(f => (f.workspaceId === workspaceId || (f as any).project_id === workspaceId) && !isBannedMockFact(f));
+
+  if (list.length === 0) {
+    try {
+      const detail = await universalEngagementManager.getEngagementDetail(String(workspaceId));
+      if (detail && detail.facts && detail.facts.length > 0) {
+        list = detail.facts.filter(f => !isBannedMockFact(f));
+      }
+    } catch (e) {
+      console.warn('[server.ts] Error fetching facts from universalEngagementManager:', e);
+    }
+  }
 
   if (entityId) {
     list = list.filter(f => f.entityId === entityId || (f as any).entity_id === entityId);

@@ -116,22 +116,24 @@ export interface ReportMetricItem {
   scale: string;
 }
 
+export interface ReportStatementRow {
+  id: string;
+  label: string;
+  canonicalMetric?: string;
+  level: number;
+  isHeader?: boolean;
+  isTotal?: boolean;
+  valuesByPeriod: Record<string, number | null>;
+  formattedByPeriod: Record<string, string>;
+  canonicalFactIds: Record<string, string>;
+}
+
 export interface ReportStatementTable {
   statementName: 'INCOME_STATEMENT' | 'BALANCE_SHEET' | 'CASH_FLOW' | 'EQUITY' | 'LEAD_SCHEDULE';
   periods: string[];
   currency: string;
   scale: string;
-  rows: Array<{
-    id: string;
-    label: string;
-    canonicalMetric?: string;
-    level: number;
-    isHeader?: boolean;
-    isTotal?: boolean;
-    valuesByPeriod: Record<string, number | null>;
-    formattedByPeriod: Record<string, string>;
-    canonicalFactIds: Record<string, string>;
-  }>;
+  rows: ReportStatementRow[];
 }
 
 export interface ReportFindingItem {

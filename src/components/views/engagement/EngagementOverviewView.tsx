@@ -6,8 +6,10 @@ import { EveCard, EveCardHeader, EveCardTitle, EveCardContent } from '../../desi
 import { EveStatusBadge } from '../../design-system/EveStatusBadge';
 import {
   BalanceSheetIdentityCheck,
-  SourceToPixelMetadata
+  SourceToPixelMetadata,
+  StatementLinePresentation
 } from '../../../types/presentationModels';
+import { formatFinancialValue } from '../../../adapters/presentationAdapters';
 import {
   Building2,
   CheckCircle2,
@@ -17,7 +19,8 @@ import {
   FileCheck2,
   ArrowRight,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  AlertCircle
 } from 'lucide-react';
 
 export interface EngagementOverviewViewProps {
@@ -31,6 +34,8 @@ export interface EngagementOverviewViewProps {
   factsCount: number;
   documentsCount: number;
   identityCheck: BalanceSheetIdentityCheck;
+  incomeStatementLines?: StatementLinePresentation[];
+  balanceSheetLines?: StatementLinePresentation[];
   onNavigate: (viewId: string) => void;
   onInspectFact: (metadata: SourceToPixelMetadata) => void;
 }
@@ -46,9 +51,43 @@ export const EngagementOverviewView: React.FC<EngagementOverviewViewProps> = ({
   factsCount,
   documentsCount,
   identityCheck,
+  incomeStatementLines = [],
+  balanceSheetLines = [],
   onNavigate,
   onInspectFact
 }) => {
+  // Find canonical lines from presentation models
+  const revLine = incomeStatementLines.find((l) => l.canonicalMetric === 'revenue');
+  const opIncLine = incomeStatementLines.find((l) => l.canonicalMetric === 'operating_income');
+  const netIncLine = incomeStatementLines.find((l) => l.canonicalMetric === 'net_income');
+  const totalAssetsLine = balanceSheetLines.find((l) => l.canonicalMetric === 'total_assets');
+
+  const getPrimaryVal = (line?: StatementLinePresentation) => {
+    if (!line || !line.values) return null;
+    const keys = Object.keys(line.values);
+    if (keys.length === 0) return null;
+    return line.values[keys[0]];
+  };
+
+  const revVal = getPrimaryVal(revLine);
+  const opIncVal = getPrimaryVal(opIncLine);
+  const netIncVal = getPrimaryVal(netIncLine);
+  const assetsVal = getPrimaryVal(totalAssetsLine);
+
+  const formatLineage = (line?: StatementLinePresentation): SourceToPixelMetadata | undefined => {
+    if (!line) return undefined;
+    return {
+      factLineageId: line.factLineageId || line.id,
+      canonicalMetric: line.canonicalMetric || 'financial_metric',
+      period: period || 'FY 2025',
+      currency: line.currency || currency,
+      scale: line.scale || 'Millions',
+      sourceDocName: line.sourceDocName,
+      sourcePage: line.sourcePage,
+      sourceRawValue: getPrimaryVal(line) ?? undefined
+    };
+  };
+
   return (
     <div className="space-y-0">
       {/* Persistent Engagement Context Header */}
@@ -81,134 +120,62 @@ export const EngagementOverviewView: React.FC<EngagementOverviewViewProps> = ({
           }
         />
 
-        {/* Financial KPI Highlights (Tremor Inspired with Lineage Attributes) */}
+        {/* Financial KPI Highlights (Data-driven from authoritative facts) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <EveKpiCard
             title="Total Revenue"
-            value="$245,123M"
-            currency="USD"
+            value={revVal !== null ? formatFinancialValue(revVal, currency) : '—'}
+            currency={currency}
             scale="In Millions"
-            delta={{ value: '+15.7%', direction: 'up', label: 'YoY' }}
-            status="verified"
-            subtext="SEC 10-K p.64"
-            lineage={{
-              factLineageId: 'fl-msft-rev-01',
-              canonicalMetric: 'revenue',
-              period: 'FY2024',
-              currency: 'USD',
-              scale: 'Millions',
-              sourceDocName: 'msft-20260630.htm',
-              sourcePage: 64,
-              sourceRawValue: 245123000000
+            status={revLine ? revLine.verificationStatus : 'unverified'}
+            subtext={revLine?.sourceDocName ? `${revLine.sourceDocName}${revLine.sourcePage ? ` p.${revLine.sourcePage}` : ''}` : 'No verified source fact'}
+            lineage={formatLineage(revLine)}
+            onInspect={() => {
+              const meta = formatLineage(revLine);
+              if (meta) onInspectFact(meta);
             }}
-            onInspect={() =>
-              onInspectFact({
-                factLineageId: 'fl-msft-rev-01',
-                canonicalMetric: 'revenue',
-                period: 'FY2024',
-                currency: 'USD',
-                scale: 'Millions',
-                sourceDocName: 'msft-20260630.htm',
-                sourcePage: 64,
-                sourceRawValue: 245123000000
-              })
-            }
           />
 
           <EveKpiCard
             title="Operating Income"
-            value="$109,433M"
-            currency="USD"
+            value={opIncVal !== null ? formatFinancialValue(opIncVal, currency) : '—'}
+            currency={currency}
             scale="In Millions"
-            delta={{ value: '+23.9%', direction: 'up', label: 'YoY' }}
-            status="verified"
-            subtext="SEC 10-K p.64"
-            lineage={{
-              factLineageId: 'fl-msft-opinc-01',
-              canonicalMetric: 'operating_income',
-              period: 'FY2024',
-              currency: 'USD',
-              scale: 'Millions',
-              sourceDocName: 'msft-20260630.htm',
-              sourcePage: 64,
-              sourceRawValue: 109433000000
+            status={opIncLine ? opIncLine.verificationStatus : 'unverified'}
+            subtext={opIncLine?.sourceDocName ? `${opIncLine.sourceDocName}${opIncLine.sourcePage ? ` p.${opIncLine.sourcePage}` : ''}` : 'No verified source fact'}
+            lineage={formatLineage(opIncLine)}
+            onInspect={() => {
+              const meta = formatLineage(opIncLine);
+              if (meta) onInspectFact(meta);
             }}
-            onInspect={() =>
-              onInspectFact({
-                factLineageId: 'fl-msft-opinc-01',
-                canonicalMetric: 'operating_income',
-                period: 'FY2024',
-                currency: 'USD',
-                scale: 'Millions',
-                sourceDocName: 'msft-20260630.htm',
-                sourcePage: 64,
-                sourceRawValue: 109433000000
-              })
-            }
           />
 
           <EveKpiCard
             title="Net Income"
-            value="$88,308M"
-            currency="USD"
+            value={netIncVal !== null ? formatFinancialValue(netIncVal, currency) : '—'}
+            currency={currency}
             scale="In Millions"
-            delta={{ value: '+21.8%', direction: 'up', label: 'YoY' }}
-            status="verified"
-            subtext="SEC 10-K p.64"
-            lineage={{
-              factLineageId: 'fl-msft-netinc-01',
-              canonicalMetric: 'net_income',
-              period: 'FY2024',
-              currency: 'USD',
-              scale: 'Millions',
-              sourceDocName: 'msft-20260630.htm',
-              sourcePage: 64,
-              sourceRawValue: 88308000000
+            status={netIncLine ? netIncLine.verificationStatus : 'unverified'}
+            subtext={netIncLine?.sourceDocName ? `${netIncLine.sourceDocName}${netIncLine.sourcePage ? ` p.${netIncLine.sourcePage}` : ''}` : 'No verified source fact'}
+            lineage={formatLineage(netIncLine)}
+            onInspect={() => {
+              const meta = formatLineage(netIncLine);
+              if (meta) onInspectFact(meta);
             }}
-            onInspect={() =>
-              onInspectFact({
-                factLineageId: 'fl-msft-netinc-01',
-                canonicalMetric: 'net_income',
-                period: 'FY2024',
-                currency: 'USD',
-                scale: 'Millions',
-                sourceDocName: 'msft-20260630.htm',
-                sourcePage: 64,
-                sourceRawValue: 88308000000
-              })
-            }
           />
 
           <EveKpiCard
             title="Total Assets"
-            value="$512,163M"
-            currency="USD"
+            value={assetsVal !== null ? formatFinancialValue(assetsVal, currency) : '—'}
+            currency={currency}
             scale="In Millions"
-            delta={{ value: '+24.3%', direction: 'up', label: 'YoY' }}
-            status="verified"
-            subtext="SEC 10-K p.65"
-            lineage={{
-              factLineageId: 'fl-msft-assets-01',
-              canonicalMetric: 'total_assets',
-              period: 'FY2024',
-              currency: 'USD',
-              scale: 'Millions',
-              sourceDocName: 'msft-20260630.htm',
-              sourcePage: 65,
-              sourceRawValue: 512163000000
+            status={totalAssetsLine ? totalAssetsLine.verificationStatus : 'unverified'}
+            subtext={totalAssetsLine?.sourceDocName ? `${totalAssetsLine.sourceDocName}${totalAssetsLine.sourcePage ? ` p.${totalAssetsLine.sourcePage}` : ''}` : 'No verified source fact'}
+            lineage={formatLineage(totalAssetsLine)}
+            onInspect={() => {
+              const meta = formatLineage(totalAssetsLine);
+              if (meta) onInspectFact(meta);
             }}
-            onInspect={() =>
-              onInspectFact({
-                factLineageId: 'fl-msft-assets-01',
-                canonicalMetric: 'total_assets',
-                period: 'FY2024',
-                currency: 'USD',
-                scale: 'Millions',
-                sourceDocName: 'msft-20260630.htm',
-                sourcePage: 65,
-                sourceRawValue: 512163000000
-              })
-            }
           />
         </div>
 
@@ -225,32 +192,72 @@ export const EngagementOverviewView: React.FC<EngagementOverviewViewProps> = ({
               </div>
             </div>
             <EveStatusBadge
-              status={identityCheck.gateState === 'PASS' ? 'clean' : 'review_required'}
-              label={identityCheck.gateState === 'PASS' ? 'Identity Passed (Zero Variance)' : 'Variance Detected'}
+              status={identityCheck?.gateState === 'PASS' ? 'clean' : identityCheck?.gateState === 'NOT_TESTABLE' ? 'pending' : 'review_required'}
+              label={
+                identityCheck?.gateState === 'PASS'
+                  ? 'Identity Passed (Zero Variance)'
+                  : identityCheck?.gateState === 'NOT_TESTABLE'
+                  ? 'Pending Extraction'
+                  : 'Variance Detected'
+              }
             />
           </EveCardHeader>
           <EveCardContent className="p-5">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center text-center font-mono">
               <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
                 <span className="text-xs font-sans text-slate-500 block mb-1">Total Assets (A)</span>
-                <span className="text-xl font-bold text-slate-900">$512,163M</span>
+                <span className="text-xl font-bold text-slate-900">
+                  {identityCheck?.totalAssets !== null && identityCheck?.totalAssets !== undefined
+                    ? formatFinancialValue(identityCheck.totalAssets, currency)
+                    : '—'}
+                </span>
               </div>
 
               <div className="text-xl font-bold text-slate-400 font-sans hidden md:block">=</div>
 
               <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
                 <span className="text-xs font-sans text-slate-500 block mb-1">Liabilities + Equity (L + E)</span>
-                <span className="text-xl font-bold text-slate-900">$512,163M</span>
+                <span className="text-xl font-bold text-slate-900">
+                  {identityCheck?.totalLiabilities !== null && identityCheck?.totalEquity !== null && identityCheck?.totalLiabilities !== undefined && identityCheck?.totalEquity !== undefined
+                    ? formatFinancialValue(identityCheck.totalLiabilities + identityCheck.totalEquity, currency)
+                    : '—'}
+                </span>
                 <span className="text-[10px] text-slate-400 block font-sans mt-0.5">
-                  $243,686M (L) + $268,477M (E)
+                  {identityCheck?.totalLiabilities !== null && identityCheck?.totalEquity !== null && identityCheck?.totalLiabilities !== undefined && identityCheck?.totalEquity !== undefined
+                    ? `${formatFinancialValue(identityCheck.totalLiabilities, currency)} (L) + ${formatFinancialValue(identityCheck.totalEquity, currency)} (E)`
+                    : 'Awaiting Operands'}
                 </span>
               </div>
 
-              <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800">
+              <div
+                className={`p-4 rounded-xl border ${
+                  identityCheck?.gateState === 'PASS'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : identityCheck?.gateState === 'NOT_TESTABLE'
+                    ? 'bg-slate-50 border-slate-200 text-slate-700'
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}
+              >
                 <span className="text-xs font-sans block mb-1 font-semibold">Variance</span>
-                <span className="text-xl font-bold">$0.00</span>
-                <span className="text-[10px] block font-sans mt-0.5 text-emerald-600 font-medium">
-                  Identity Reconciled
+                <span className="text-xl font-bold">
+                  {identityCheck?.gateState === 'NOT_TESTABLE'
+                    ? '—'
+                    : `$${Math.abs(identityCheck?.variance || 0).toFixed(2)}`}
+                </span>
+                <span
+                  className={`text-[10px] block font-sans mt-0.5 font-medium ${
+                    identityCheck?.gateState === 'PASS'
+                      ? 'text-emerald-600'
+                      : identityCheck?.gateState === 'NOT_TESTABLE'
+                      ? 'text-slate-500'
+                      : 'text-rose-600'
+                  }`}
+                >
+                  {identityCheck?.gateState === 'PASS'
+                    ? 'Identity Reconciled'
+                    : identityCheck?.gateState === 'NOT_TESTABLE'
+                    ? 'Missing Line Items'
+                    : 'Review Required'}
                 </span>
               </div>
             </div>

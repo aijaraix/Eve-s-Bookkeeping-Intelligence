@@ -45,11 +45,11 @@ import { AdvancedDiagnosticsView } from './components/views/admin/AdvancedDiagno
 import { UploadModal } from './components/UploadModal';
 
 function EveCpaStudioMain() {
-  const { workspaces, facts, documents, agents } = usePractice();
+  const { workspaces, facts, documents, agents, selectedCompanyId, setSelectedCompanyId } = usePractice();
 
   // Navigation State
   const [activeView, setActiveView] = useState('practice-home');
-  const [selectedClientId, setSelectedClientId] = useState('ws-1788663793077');
+  const [selectedClientId, setSelectedClientId] = useState('');
   const [presentationCurrency, setPresentationCurrency] = useState('USD');
 
   // Modals & Drawers State
@@ -58,33 +58,32 @@ function EveCpaStudioMain() {
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [selectedFactMetadata, setSelectedFactMetadata] = useState<SourceToPixelMetadata | null>(null);
 
-  // Derive Presentation Models via Adapters
-  const clientSummaries: PracticeClientSummary[] = adaptWorkspacesToClients(
-    workspaces.length > 0
-      ? workspaces
-      : [
-          {
-            id: 'ws-1788663793077',
-            name: 'msft-20260630',
-            legalName: 'Microsoft Corporation (Consolidated)',
-            jurisdiction: 'United States (Delaware)',
-            industry: 'Technology & Cloud Services',
-            period: 'FY2024',
-            currency: 'USD',
-            reportingStandard: 'US_GAAP'
-          }
-        ]
-  );
+  // Derive Presentation Models via Authoritative Adapters
+  const clientSummaries: PracticeClientSummary[] = adaptWorkspacesToClients(workspaces);
 
   const engagementSummaries: EngagementSummary[] = adaptWorkspacesToEngagements(
-    workspaces.length > 0 ? workspaces : [{ id: 'ws-1788663793077', name: 'msft-20260630', period: 'FY2024', currency: 'USD' }],
-    facts.length || 12,
-    documents.length || 1,
+    workspaces,
+    facts.length,
+    documents.length,
     0
   );
 
-  const activeClient = clientSummaries.find((c) => c.id === selectedClientId) || clientSummaries[0];
-  const activeEngagement = engagementSummaries.find((e) => e.clientId === selectedClientId) || engagementSummaries[0];
+  // Sync selected client with context or default to first authoritative client
+  useEffect(() => {
+    if (selectedCompanyId && selectedCompanyId !== selectedClientId) {
+      setSelectedClientId(selectedCompanyId);
+    } else if (!selectedClientId && clientSummaries.length > 0) {
+      setSelectedClientId(clientSummaries[0].id);
+    }
+  }, [selectedCompanyId, clientSummaries, selectedClientId]);
+
+  const handleSelectClient = (id: string) => {
+    setSelectedClientId(id);
+    setSelectedCompanyId(id);
+  };
+
+  const activeClient = clientSummaries.find((c) => c.id === selectedClientId) || clientSummaries[0] || null;
+  const activeEngagement = engagementSummaries.find((e) => e.clientId === selectedClientId) || engagementSummaries[0] || null;
 
   const incomeStatementLines: StatementLinePresentation[] = adaptFactsToIncomeStatement(facts);
   const { lines: balanceSheetLines, identityCheck } = adaptFactsToBalanceSheet(facts);
@@ -100,13 +99,21 @@ function EveCpaStudioMain() {
         ]
   );
 
-  // Command Palette Items
+  // Command Palette Items built dynamically from authoritative state
   const commandItems: CommandItem[] = [
-    { id: 'cmd-1', category: 'Clients', title: 'Microsoft Corporation', subtitle: 'Technology & Cloud • USD', action: () => { setSelectedClientId('ws-1788663793077'); setActiveView('engagement-overview'); } },
-    { id: 'cmd-2', category: 'Views', title: 'Income Statement Attestation', subtitle: 'Statements Overview', action: () => setActiveView('financials-income') },
-    { id: 'cmd-3', category: 'Views', title: 'Balance Sheet Identity Reconciler', subtitle: 'Euclid Identity Check', action: () => setActiveView('financials-balance') },
-    { id: 'cmd-4', category: 'Metrics', title: 'Total Revenue ($245,123M)', subtitle: 'Canonical USD • SEC 10-K p.64', action: () => { setSelectedFactMetadata({ canonicalMetric: 'revenue', period: 'FY2024', currency: 'USD', scale: 'Millions', sourceDocName: 'msft-20260630.htm', sourcePage: 64, sourceRawValue: 245123000000 }); } },
-    { id: 'cmd-5', category: 'Views', title: 'System Health & Forensics', subtitle: 'H.9.18 Worker Status', action: () => setActiveView('admin-health') }
+    ...clientSummaries.map((c) => ({
+      id: `cmd-client-${c.id}`,
+      category: 'Clients' as const,
+      title: c.name,
+      subtitle: `${c.industry} • ${c.reportingCurrency}`,
+      action: () => {
+        handleSelectClient(c.id);
+        setActiveView('engagement-overview');
+      }
+    })),
+    { id: 'cmd-2', category: 'Views' as const, title: 'Income Statement Attestation', subtitle: 'Statements Overview', action: () => setActiveView('financials-income') },
+    { id: 'cmd-3', category: 'Views' as const, title: 'Balance Sheet Identity Reconciler', subtitle: 'Euclid Identity Check', action: () => setActiveView('financials-balance') },
+    { id: 'cmd-4', category: 'Views' as const, title: 'System Health & Forensics', subtitle: 'Autonomous Worker Status', action: () => setActiveView('admin-health') }
   ];
 
   return (
@@ -115,7 +122,7 @@ function EveCpaStudioMain() {
       <AppSidebar
         activeView={activeView}
         onNavigate={setActiveView}
-        openFindingsCount={0}
+        openFindingsCount={activeEngagement?.openFindingsCount || 0}
         openReviewItemsCount={0}
       />
 
@@ -123,9 +130,9 @@ function EveCpaStudioMain() {
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* Header */}
         <AppHeader
-          activeClientName={activeClient?.name || 'Microsoft Corporation'}
-          activePeriod={activeClient?.latestPeriod || 'FY2024'}
-          activeCurrency={presentationCurrency}
+          activeClientName={activeClient?.name || 'No Engagement Selected'}
+          activePeriod={activeClient?.latestPeriod || '—'}
+          activeCurrency={activeClient?.reportingCurrency || presentationCurrency}
           onSelectCurrency={setPresentationCurrency}
           onOpenUpload={() => setIsUploadOpen(true)}
           onToggleCopilot={() => setIsCopilotOpen(!isCopilotOpen)}
@@ -140,11 +147,12 @@ function EveCpaStudioMain() {
             <PracticeHomeView
               clients={clientSummaries}
               engagements={engagementSummaries}
-              documentsCount={documents.length || 1}
-              openFindingsCount={0}
+              documentsCount={documents.length}
+              openFindingsCount={activeEngagement?.openFindingsCount || 0}
               onNavigate={setActiveView}
-              onSelectClient={setSelectedClientId}
+              onSelectClient={handleSelectClient}
               onOpenUpload={() => setIsUploadOpen(true)}
+              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
             />
           )}
 
@@ -152,7 +160,7 @@ function EveCpaStudioMain() {
             <PracticeClientsView
               clients={clientSummaries}
               selectedClientId={selectedClientId}
-              onSelectClient={setSelectedClientId}
+              onSelectClient={handleSelectClient}
               onNavigate={setActiveView}
               onOpenUpload={() => setIsUploadOpen(true)}
             />
@@ -163,7 +171,7 @@ function EveCpaStudioMain() {
               engagements={engagementSummaries}
               onSelectEngagement={(id) => {
                 const eng = engagementSummaries.find((e) => e.id === id);
-                if (eng) setSelectedClientId(eng.clientId);
+                if (eng) handleSelectClient(eng.clientId);
                 setActiveView('engagement-overview');
               }}
               onNavigate={setActiveView}
@@ -174,22 +182,25 @@ function EveCpaStudioMain() {
             <PracticeDocumentsView
               documents={documents as any}
               onNavigate={setActiveView}
+              onOpenUpload={() => setIsUploadOpen(true)}
             />
           )}
 
           {/* SECTION 2: ENGAGEMENT WORK */}
           {activeView === 'engagement-overview' && (
             <EngagementOverviewView
-              clientName={activeClient?.name || 'Microsoft Corporation'}
-              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
-              period={activeClient?.latestPeriod || 'FY2024'}
-              currency={presentationCurrency}
-              framework="US-GAAP"
-              readinessState="READY"
-              openFindingsCount={0}
-              factsCount={facts.length || 12}
-              documentsCount={documents.length || 1}
+              clientName={activeClient?.name || 'No Engagement Selected'}
+              engagementName={activeEngagement?.name || 'Attestation & Review'}
+              period={activeClient?.latestPeriod || '—'}
+              currency={activeClient?.reportingCurrency || presentationCurrency}
+              framework={activeEngagement?.framework || 'US-GAAP'}
+              readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
+              openFindingsCount={activeEngagement?.openFindingsCount || 0}
+              factsCount={facts.length}
+              documentsCount={documents.length}
               identityCheck={identityCheck}
+              incomeStatementLines={incomeStatementLines}
+              balanceSheetLines={balanceSheetLines}
               onNavigate={setActiveView}
               onInspectFact={(meta) => setSelectedFactMetadata(meta)}
             />
@@ -197,13 +208,13 @@ function EveCpaStudioMain() {
 
           {(activeView === 'financials-overview' || activeView === 'financials-income' || activeView === 'financials-cashflow' || activeView === 'financials-equity' || activeView === 'financials-notes') && (
             <FinancialIncomeStatementView
-              clientName={activeClient?.name || 'Microsoft Corporation'}
-              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
-              period={activeClient?.latestPeriod || 'FY2024'}
-              currency={presentationCurrency}
-              framework="US-GAAP"
-              readinessState="READY"
-              openFindingsCount={0}
+              clientName={activeClient?.name || 'No Engagement Selected'}
+              engagementName={activeEngagement?.name || 'Attestation & Review'}
+              period={activeClient?.latestPeriod || '—'}
+              currency={activeClient?.reportingCurrency || presentationCurrency}
+              framework={activeEngagement?.framework || 'US-GAAP'}
+              readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
+              openFindingsCount={activeEngagement?.openFindingsCount || 0}
               lines={incomeStatementLines}
               onNavigate={setActiveView}
               onInspectFact={(meta) => setSelectedFactMetadata(meta)}
@@ -212,13 +223,13 @@ function EveCpaStudioMain() {
 
           {activeView === 'financials-balance' && (
             <FinancialBalanceSheetView
-              clientName={activeClient?.name || 'Microsoft Corporation'}
-              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
-              period={activeClient?.latestPeriod || 'FY2024'}
-              currency={presentationCurrency}
-              framework="US-GAAP"
-              readinessState="READY"
-              openFindingsCount={0}
+              clientName={activeClient?.name || 'No Engagement Selected'}
+              engagementName={activeEngagement?.name || 'Attestation & Review'}
+              period={activeClient?.latestPeriod || '—'}
+              currency={activeClient?.reportingCurrency || presentationCurrency}
+              framework={activeEngagement?.framework || 'US-GAAP'}
+              readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
+              openFindingsCount={activeEngagement?.openFindingsCount || 0}
               lines={balanceSheetLines}
               identityCheck={identityCheck}
               onNavigate={setActiveView}
@@ -228,13 +239,13 @@ function EveCpaStudioMain() {
 
           {(activeView === 'analysis-ratios' || activeView === 'analysis-segments' || activeView === 'analysis-trends' || activeView === 'analysis-forecast') && (
             <AnalysisRatiosView
-              clientName={activeClient?.name || 'Microsoft Corporation'}
-              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
-              period={activeClient?.latestPeriod || 'FY2024'}
-              currency={presentationCurrency}
-              framework="US-GAAP"
-              readinessState="READY"
-              openFindingsCount={0}
+              clientName={activeClient?.name || 'No Engagement Selected'}
+              engagementName={activeEngagement?.name || 'Attestation & Review'}
+              period={activeClient?.latestPeriod || '—'}
+              currency={activeClient?.reportingCurrency || presentationCurrency}
+              framework={activeEngagement?.framework || 'US-GAAP'}
+              readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
+              openFindingsCount={activeEngagement?.openFindingsCount || 0}
               ratios={financialRatios}
               onNavigate={setActiveView}
               onInspectFact={(meta) => setSelectedFactMetadata(meta)}
@@ -243,13 +254,13 @@ function EveCpaStudioMain() {
 
           {(activeView === 'engagement-structure' || activeView === 'engagement-currencies' || activeView === 'engagement-evidence' || activeView === 'engagement-findings' || activeView === 'engagement-deliverables') && (
             <DeliverablesView
-              clientName={activeClient?.name || 'Microsoft Corporation'}
-              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
-              period={activeClient?.latestPeriod || 'FY2024'}
-              currency={presentationCurrency}
-              framework="US-GAAP"
-              readinessState="READY"
-              openFindingsCount={0}
+              clientName={activeClient?.name || 'No Engagement Selected'}
+              engagementName={activeEngagement?.name || 'Attestation & Review'}
+              period={activeClient?.latestPeriod || '—'}
+              currency={activeClient?.reportingCurrency || presentationCurrency}
+              framework={activeEngagement?.framework || 'US-GAAP'}
+              readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
+              openFindingsCount={activeEngagement?.openFindingsCount || 0}
               onNavigate={setActiveView}
             />
           )}
@@ -257,13 +268,14 @@ function EveCpaStudioMain() {
           {/* SECTION 3: EVE INTELLIGENCE */}
           {activeView === 'eve-copilot' && (
             <EveCopilotView
-              clientName={activeClient?.name || 'Microsoft Corporation'}
-              engagementName={activeEngagement?.name || 'FY2024 Statutory Audit'}
-              period={activeClient?.latestPeriod || 'FY2024'}
-              currency={presentationCurrency}
-              framework="US-GAAP"
-              readinessState="READY"
-              openFindingsCount={0}
+              clientName={activeClient?.name || 'No Engagement Selected'}
+              engagementName={activeEngagement?.name || 'Attestation & Review'}
+              period={activeClient?.latestPeriod || '—'}
+              currency={activeClient?.reportingCurrency || presentationCurrency}
+              framework={activeEngagement?.framework || 'US-GAAP'}
+              readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
+              openFindingsCount={activeEngagement?.openFindingsCount || 0}
+              workspaceId={activeClient?.id}
               onNavigate={setActiveView}
             />
           )}

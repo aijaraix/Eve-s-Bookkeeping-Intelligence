@@ -1,0 +1,28 @@
+{
+  "reportId": "REP-1788729606766",
+  "version": "v1.0",
+  "engagementId": "test-eng-1",
+  "clientName": "Corporate Client",
+  "title": "Corporate Client Financial Attestation Deliverable",
+  "period": "FY 2025",
+  "currency": "USD",
+  "generatedAt": "2026-09-06T21:20:06.844Z",
+  "euclidBalance": {
+    "assets": 142500000000,
+    "liabilities": 85200000000,
+    "equity": 57300000000,
+    "variance": 0
+  },
+  "facts": [
+    {
+      "canonicalMetric": "Revenue",
+      "label": "Revenue",
+      "value": 100,
+      "statement": "IS",
+      "sourceDoc": "10K",
+      "page": 1,
+      "verificationStatus": "CONFIRMED"
+    }
+  ],
+  "quinnSignoff": "CLEARED_CONCURRING_PARTNER"
+}

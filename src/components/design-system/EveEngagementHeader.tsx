@@ -41,12 +41,12 @@ export const EveEngagementHeader: React.FC<EveEngagementHeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-1.5 font-semibold text-slate-900">
-              <span>{clientName || 'Microsoft Corporation'}</span>
+              <span>{clientName || 'No Engagement Selected'}</span>
               <span className="text-slate-300">/</span>
-              <span className="text-slate-600 font-normal">{engagementName || 'FY2024 Audit'}</span>
+              <span className="text-slate-600 font-normal">{engagementName || 'Attestation & Review'}</span>
             </div>
             <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
-              <span>Period: <strong className="text-slate-600">{period || 'FY2024 (Annual)'}</strong></span>
+              <span>Period: <strong className="text-slate-600">{period || '—'}</strong></span>
               <span>•</span>
               <span>Scope: <strong className="text-slate-600">Consolidated</strong></span>
             </div>
