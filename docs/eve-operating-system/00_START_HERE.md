@@ -27,6 +27,7 @@ This documentation set consolidates the design decisions and operating rules dev
 15. `15_PILOT_READINESS_RELEASE_AND_ACCEPTANCE_GATES.md`
 16. `16_FORMAT_ADAPTER_TEST_MATRIX_AND_EXTRACTION_CONSERVATION.md`
 17. `17_CURRENT_REPOSITORY_GAP_REGISTER.md`
+18. `18_FAILURE_ATTRIBUTION_CAUSAL_CHAIN_AND_LEARNING_LOOP.md`
 
 ## Non-negotiable principles
 
@@ -42,11 +43,14 @@ This documentation set consolidates the design decisions and operating rules dev
 - Derived objects append meaning; they do not replace lower-level evidence.
 - Every durable contract must be versioned enough to interpret historical records later.
 - Every material stage transition must be idempotent and custody-reconciled.
+- Every material failure must retain causal attribution across originator, handoff owner, consumer, expected verifier, actual detector, recovery owner, and customer impact.
+- The detector of an error is not automatically the component that caused it; Eve must trace to the first causal failure.
 - Production authorization is default-deny and tenant-scoped; test security is not production security.
 - Persistence is not disaster recovery until restore has been proven.
 - If safe capacity and eligible useful work exist, the Academy should not remain idle without a documented reason.
 - Activity is not learning. Learning requires measured evidence and post-engagement evaluation.
 - Product verification begins at the actual Eve UI and traces inward to data, runtime, and code.
+- The objective is zero uncontained material customer-truth escapes, not zero recorded incidents.
 
 ## Permanent information hierarchy
 
@@ -72,3 +76,7 @@ Never promote an implementation claim into a runtime or product certification wi
 ## Current gap register
 
 `17_CURRENT_REPOSITORY_GAP_REGISTER.md` is the forward-looking risk list. It is intentionally conservative: each item must be reconciled against the live runtime before being marked closed.
+
+## Failure attribution and learning
+
+`18_FAILURE_ATTRIBUTION_CAUSAL_CHAIN_AND_LEARNING_LOOP.md` defines how Eve attributes failures to the correct causal stage, records producer/consumer/verifier/detector roles, measures customer impact, preserves incidents as durable evidence, and turns recurring failures into Academy curriculum or bounded capability requests.
