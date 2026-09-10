@@ -1405,6 +1405,7 @@ export class CPAAgentRegistry {
       throw new Error(`Swarm with ID '${params.swarmId}' not found.`);
     }
 
+    // Mark as legacy test-only simulation
     const startedAt = new Date().toISOString();
     swarm.status = 'ACTIVE';
     swarm.assignedWorkspaceId = params.workspaceId;
@@ -1418,22 +1419,30 @@ export class CPAAgentRegistry {
       status: 'VERIFIED' | 'PASS';
     }> = [];
 
-    // Simulate multi-agent coordinated DAG execution
+    // Execute multi-agent DAG with strict pre-execution authority verification
     for (const agentId of swarm.participatingAgentIds) {
       const agent = this.agents.get(agentId);
       if (!agent) continue;
 
+      // Pre-check authority for agent contribution
+      const auth = this.enforceAuthority(agent.agentId, {
+        actionType: 'CREATE_OBSERVATION'
+      });
+      if (!auth.authorized) {
+        throw new Error(`[UNAUTHORIZED_OPERATION]: Agent ${agent.agentId} denied action CREATE_OBSERVATION: ${auth.reason}`);
+      }
+
       let contribution = '';
       if (agent.role === 'CHIEF_ORCHESTRATOR') {
-        contribution = `Formed swarm DAG, allocated task streams, verified customer SLA and final sign-off.`;
+        contribution = `Formed swarm DAG, allocated task streams, coordinated SLA and delivery workflow.`;
       } else if (agent.role === 'FINANCIAL_STATEMENTS_LEAD') {
         contribution = `Mapped ${facts.length} facts to primary financial statement schedules with scale normalization.`;
       } else if (agent.role === 'MATHEMATICAL_RECONCILIATION_LEAD') {
-        contribution = `Verified fundamental accounting identities (BS Assets == L+E, Cash Flow roll-forward) with 0.00 variance.`;
+        contribution = `Verified fundamental accounting identities (BS Assets == L+E, Cash Flow roll-forward).`;
       } else if (agent.role === 'FORENSIC_ANOMALY_LEAD') {
         contribution = `Scanned digit distribution and verified absence of prohibited values or round-trip anomalies.`;
       } else if (agent.role === 'PROCESS_INTEGRITY_GATEKEEPER') {
-        contribution = `Enforced fail-closed verification gate; zero ungrounded facts approved for customer presentation.`;
+        contribution = `Enforced fail-closed verification gate; unverified facts blocked from customer presentation.`;
       } else if (agent.role === 'MULTI_CURRENCY_FX_LEAD') {
         contribution = `Verified subsidiary currency denominations against ECB central bank reference rates.`;
       } else {
@@ -1444,7 +1453,7 @@ export class CPAAgentRegistry {
         agentId: agent.agentId,
         role: agent.role,
         contribution,
-        status: 'VERIFIED'
+        status: 'PASS'
       });
 
       // Update agent runtime metrics
@@ -1465,16 +1474,19 @@ export class CPAAgentRegistry {
       completedAt: swarm.completedAt,
       durationMs: Date.now() - t0,
       auditFindings: [
-        'Fundamental balance sheet equation tied out with zero variance.',
+        'Fundamental balance sheet equation reconciled under specialist swarm.',
         'Primary financial statement schedules mapped without scale collision.',
-        'Cryptographic provenance validated across all primary canonical facts.'
+        'Cryptographic provenance validated across primary canonical facts.'
       ],
       reconciled: true,
-      auditSignOffReady: true,
+      auditSignOffReady: false,
       agentContributions
     };
   }
 
+  /**
+   * @deprecated LEGACY / TEST_ONLY simulated swarm path. Production routes must use HermesJobDispatchService.
+   */
   public executeHermesJob(params: {
     objective: string;
     workspaceId: string;
@@ -1509,9 +1521,9 @@ export class CPAAgentRegistry {
     unifiedDeliverable: {
       deliverableId: string;
       title: string;
-      reconciliationStatus: 'TIED_OUT' | 'DISCREPANCY';
+      reconciliationStatus: 'TIED_OUT' | 'DISCREPANCY' | 'PENDING_RECONCILIATION';
       provenanceIntegrity: 'CRYPTOGRAPHICALLY_VERIFIED' | 'UNVERIFIED';
-      auditOpinionReadiness: 'APPROVED_FOR_CPA_SIGN_OFF' | 'BLOCKED_BY_SENTINEL';
+      auditOpinionReadiness: 'APPROVED_FOR_CPA_SIGN_OFF' | 'BLOCKED_BY_SENTINEL' | 'READY_FOR_AUTHORIZED_HUMAN_REVIEW';
       auditorSignOffNote: string;
     };
     durationMs: number;
@@ -1523,6 +1535,15 @@ export class CPAAgentRegistry {
 
     // 1. Dynamic Agent Selection by Hermes
     const requiredAgentIds = ['eve-ledger', 'eve-euclid', 'eve-veritas', 'eve-sentinel'];
+
+    // Pre-execution authority checks for all participants
+    for (const agentId of requiredAgentIds) {
+      const auth = this.enforceAuthority(agentId, { actionType: 'CREATE_OBSERVATION' });
+      if (!auth.authorized) {
+        throw new Error(`[UNAUTHORIZED_OPERATION]: Agent ${agentId} is unauthorized: ${auth.reason}`);
+      }
+    }
+
     const selectedAgents = requiredAgentIds.map((id) => {
       const p = this.getAgent(id)!;
       return {
@@ -1608,7 +1629,15 @@ export class CPAAgentRegistry {
       }
     ];
 
-    // 5. Memory Persistence
+    // 5. Memory Persistence — Pre-enforce write authority for Hermes
+    const hermesWriteAuth = this.enforceAuthority('eve-hermes', {
+      actionType: 'WRITE',
+      writeType: 'audit_memory'
+    });
+    if (!hermesWriteAuth.authorized) {
+      throw new Error(`[UNAUTHORIZED_OPERATION]: Hermes write unauthorized: ${hermesWriteAuth.reason}`);
+    }
+
     const memoryKey = `audit-execution-${jobId}`;
     const factsCount = params.facts?.length || 18;
     persistentAgentMemory.writeMemory({
@@ -1664,12 +1693,29 @@ export class CPAAgentRegistry {
         title: `Independent CPA Assurance Memo — ${params.objective}`,
         reconciliationStatus: 'TIED_OUT',
         provenanceIntegrity: 'CRYPTOGRAPHICALLY_VERIFIED',
-        auditOpinionReadiness: 'APPROVED_FOR_CPA_SIGN_OFF',
+        auditOpinionReadiness: 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
         auditorSignOffNote:
-          'Audit procedures executed across 4 specialized autonomous agents with 100% mathematical tie-out and zero unresolved variances.'
+          'AI audit procedures executed across 4 specialized autonomous agents with mathematical tie-out and verified provenance; pending authorized human CPA review.'
       },
       durationMs: Date.now() - t0
     };
+  }
+
+  public executeAuthorizedAction<T>(
+    agentRoleOrId: string,
+    action: {
+      actionType: 'CREATE_OBSERVATION' | 'CREATE_ASSERTION' | 'VERIFY' | 'PROMOTE_CANONICAL' | 'BLOCK' | 'APPROVE_DELIVERY' | 'TOOL_CALL' | 'WRITE' | 'READ_INPUT';
+      inputClass?: string;
+      writeType?: string;
+      toolName?: string;
+    },
+    operation: () => T
+  ): T {
+    const auth = this.enforceAuthority(agentRoleOrId, action);
+    if (!auth.authorized) {
+      throw new Error(`[GOVERNANCE_REJECTION]: Operation rejected under fail-closed governance for '${agentRoleOrId}'. ${auth.reason}`);
+    }
+    return operation();
   }
 
   public enforceAuthority(
