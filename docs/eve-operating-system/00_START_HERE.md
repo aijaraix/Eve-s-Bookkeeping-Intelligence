@@ -28,6 +28,10 @@ This documentation set consolidates the design decisions and operating rules dev
 16. `16_FORMAT_ADAPTER_TEST_MATRIX_AND_EXTRACTION_CONSERVATION.md`
 17. `17_CURRENT_REPOSITORY_GAP_REGISTER.md`
 18. `18_FAILURE_ATTRIBUTION_CAUSAL_CHAIN_AND_LEARNING_LOOP.md`
+19. `19_PHYSICAL_EXECUTION_NO_SUBSTITUTE_PATH_AND_END_TO_END_PRODUCT_TRUTH.md`
+20. `20_PHYSICAL_ASSURANCE_ACADEMY_AND_PRODUCTION_ACCEPTANCE_GATES.md`
+
+Documents 19–20 are mandatory before modifying, certifying, or auditing production execution paths. They exist specifically to prevent a simulated/parallel implementation from being mistaken for the real Eve workflow.
 
 ## Non-negotiable principles
 
@@ -51,6 +55,13 @@ This documentation set consolidates the design decisions and operating rules dev
 - Activity is not learning. Learning requires measured evidence and post-engagement evaluation.
 - Product verification begins at the actual Eve UI and traces inward to data, runtime, and code.
 - The objective is zero uncontained material customer-truth escapes, not zero recorded incidents.
+- **Naming is not execution.** A production component/agent must have physical execution evidence.
+- **No substitute production path.** A controller may orchestrate production services but may not simulate or reimplement them and claim they ran.
+- **The source determines the extraction denominator.** Extractor output cannot define its own recall denominator.
+- **A generated trace is not a browser session.** `BROWSER_VERIFIED` requires actual browser execution evidence.
+- **A filesystem copy is not customer upload.** Customer-journey certification must exercise the production intake path.
+- **A success flag is not independent audit evidence.** Internal Audit and Minerva must independently examine eligible evidence.
+- **A learning record is not learning.** Learning requires a measurable later effect.
 
 ## Permanent information hierarchy
 
@@ -62,6 +73,8 @@ Every layer has a distinct purpose and must remain independently addressable.
 
 A large filing producing only a handful of correct headline metrics is **not** deep extraction. Completeness is measured against the source inventory and the information that survived the pipeline, not against a predetermined fact-count target.
 
+A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, or audit success shortcut is **not** production verification. Follow Documents 19–20 to prove the physical execution path.
+
 ## Audit proof levels
 
 Every claim should be labeled with the strongest proof actually established:
@@ -71,7 +84,7 @@ Every claim should be labeled with the strongest proof actually established:
 - `PRODUCT_VERIFIED`
 - `BROWSER_VERIFIED`
 
-Never promote an implementation claim into a runtime or product certification without evidence.
+Never promote an implementation claim into a runtime or product certification without evidence. Proof-level promotion must be fail-closed and evidence-backed.
 
 ## Current gap register
 
@@ -80,3 +93,9 @@ Never promote an implementation claim into a runtime or product certification wi
 ## Failure attribution and learning
 
 `18_FAILURE_ATTRIBUTION_CAUSAL_CHAIN_AND_LEARNING_LOOP.md` defines how Eve attributes failures to the correct causal stage, records producer/consumer/verifier/detector roles, measures customer impact, preserves incidents as durable evidence, and turns recurring failures into Academy curriculum or bounded capability requests.
+
+## Physical execution and assurance
+
+`19_PHYSICAL_EXECUTION_NO_SUBSTITUTE_PATH_AND_END_TO_END_PRODUCT_TRUTH.md` defines how real source acquisition, customer intake, extraction, agent execution, custody, UI, and reports must physically connect without substitute implementations.
+
+`20_PHYSICAL_ASSURANCE_ACADEMY_AND_PRODUCTION_ACCEPTANCE_GATES.md` defines the independent audit, Minerva, Academy, negative-test, observability, and production acceptance gates required to prove those physical paths actually executed.
