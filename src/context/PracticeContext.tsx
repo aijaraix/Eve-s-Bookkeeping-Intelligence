@@ -437,11 +437,12 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (Array.isArray(data.agents)) {
         setSwarmAgents(data.agents);
       } else {
+        // HTTP success is not agent success. Keep unmeasured if backend did not return agent records
         setSwarmAgents((prev) =>
           prev.map((a) => ({
             ...a,
-            status: 'completed',
-            lastExecution: 'Just now'
+            status: 'idle',
+            lastExecution: 'Execution detail not returned by server'
           }))
         );
       }

@@ -141,7 +141,7 @@ export class ProductionAutonomousCPAEngine {
       // 5. 5-Point Hash Continuity Verification
       console.log(`[Stage 5/11] Verifying 5-point cryptographic hash continuity...`);
       if (!browserResult.hashContinuityVerified || browserResult.sourceSha256 !== acquisition.actualSha256) {
-        throw new Error(`[ProductionAutonomousCPAEngine] Hash continuity breach: SEC=${acquisition.actualSha256}, Browser=${browserResult.browserUploadSha256}`);
+        throw new Error(`[ProductionAutonomousCPAEngine] Hash continuity breach: SEC=${acquisition.actualSha256}, Staged=${browserResult.stagingSha256}, Received=${browserResult.serverReceivedSha256}`);
       }
 
       // 6. Universal Document IR & Fact Ingestion (Authoritative Deep Extraction Pipeline)

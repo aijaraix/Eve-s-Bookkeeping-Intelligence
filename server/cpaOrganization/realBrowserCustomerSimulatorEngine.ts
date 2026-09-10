@@ -22,6 +22,8 @@ import crypto from 'crypto';
 import { execSync } from 'child_process';
 import puppeteer from 'puppeteer-core';
 
+export type BrowserJourneyProofLevel = 'LOCAL_BROWSER_VERIFIED' | 'PRODUCTION_BROWSER_VERIFIED';
+
 export interface BrowserStepProof {
   stepNumber: number;
   action: string;
@@ -35,19 +37,24 @@ export interface RealBrowserJourneyResult {
   journeyId: string;
   browserSessionId: string;
   browserVersion: string;
+  targetUrl: string;
+  environmentClassification: 'LOCAL_TEST' | 'PRODUCTION';
   clientName: string;
   ticker: string;
   engagementId: string;
   physicalSourcePath: string;
   stagingFilePath: string;
+  selectedFilename: string;
+  selectedFileSize: number;
   sourceSha256: string;
   stagingSha256: string;
-  browserUploadSha256: string;
+  serverReceivedSha256: string;
+  browserUploadSha256?: string;
   intakeSha256: string;
   hashContinuityVerified: boolean;
   intakeSessionId: string;
   steps: BrowserStepProof[];
-  proofLevel: 'BROWSER_VERIFIED';
+  proofLevel: BrowserJourneyProofLevel;
   startedAt: string;
   completedAt: string;
   durationMs: number;
@@ -137,6 +144,11 @@ export class RealBrowserCustomerSimulatorEngine {
     ticker: string;
     engagementId: string;
     physicalSourcePath: string;
+    routingMode?: 'NEW_ENGAGEMENT' | 'EXISTING_ENGAGEMENT';
+    engagementName?: string;
+    reportingStandard?: 'US_GAAP' | 'IFRS' | 'UK_FRS' | 'STATUTORY';
+    reportingCurrency?: string;
+    targetWorkspaceId?: string;
   }): Promise<RealBrowserJourneyResult> {
     const startedAt = new Date().toISOString();
     const startTime = Date.now();
@@ -201,34 +213,76 @@ export class RealBrowserCustomerSimulatorEngine {
       // Step 2: Navigate to Eve Application
       const tNav = Date.now();
       const baseUrl = this.getAppBaseUrl();
+      const isLocal = baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost');
+      const environmentClassification: 'LOCAL_TEST' | 'PRODUCTION' = isLocal ? 'LOCAL_TEST' : 'PRODUCTION';
+      const proofLevel: BrowserJourneyProofLevel = isLocal ? 'LOCAL_BROWSER_VERIFIED' : 'PRODUCTION_BROWSER_VERIFIED';
+
       const navResponse = await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
       if (!navResponse || !navResponse.ok()) {
         const navStatus = navResponse ? navResponse.status() : 'NO_RESPONSE';
         throw new Error(`[RealBrowserCustomerSimulator] Navigation to ${baseUrl} failed with HTTP status ${navStatus}`);
       }
       const title = await page.title();
-      recordStep(2, 'Navigate to Eve CPA Studio', baseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}"`, tNav);
+      recordStep(2, 'Navigate to Eve CPA Studio', baseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}" [${environmentClassification}]`, tNav);
 
-      // Step 3: Establish Client & Engagement in DOM UI
-      const tClient = Date.now();
-      recordStep(3, 'Select Client Workspace', `#client-${params.ticker.toLowerCase()}`, `Created/Selected workspace for ${params.clientName} (${params.ticker})`, tClient);
-
-      // Step 4: Click Real Product Header Button to Open Modal
+      // Step 3: Click Real Product Header Button to Open Modal
       const tHeader = Date.now();
       const headerBtn = await page.waitForSelector('#header-upload-intake-btn', { visible: true, timeout: 10000 });
       if (!headerBtn) {
         throw new Error(`[RealBrowserCustomerSimulator] Required product control '#header-upload-intake-btn' not found in DOM.`);
       }
       await headerBtn.click();
-      recordStep(4, 'Click Header Upload Intake Button', '#header-upload-intake-btn', 'Clicked #header-upload-intake-btn in real UI', tHeader);
+      recordStep(3, 'Click Header Upload Intake Button', '#header-upload-intake-btn', 'Clicked #header-upload-intake-btn in real UI', tHeader);
 
-      // Step 5: Wait for Real Product Modal Container
+      // Step 4: Wait for Real Product Modal Container
       const tModal = Date.now();
       const modalContainer = await page.waitForSelector('#upload-modal-container', { visible: true, timeout: 10000 });
       if (!modalContainer) {
         throw new Error(`[RealBrowserCustomerSimulator] Required product container '#upload-modal-container' not found in DOM.`);
       }
-      recordStep(5, 'Wait for Upload Modal Container', '#upload-modal-container', 'Modal container displayed and active in DOM', tModal);
+      recordStep(4, 'Wait for Upload Modal Container', '#upload-modal-container', 'Modal container displayed and active in DOM', tModal);
+
+      // Step 5: Physically interact with Engagement Routing UI
+      const tRouting = Date.now();
+      const useExisting = params.routingMode === 'EXISTING_ENGAGEMENT';
+      if (useExisting) {
+        await page.click('#routing-mode-existing-engagement');
+        if (params.targetWorkspaceId) {
+          await page.select('#existing-engagement-select', params.targetWorkspaceId);
+        }
+        recordStep(
+          5,
+          'Select Existing Engagement Workspace in UI',
+          '#existing-engagement-select',
+          `Selected workspace ${params.targetWorkspaceId || 'default'} via real UI controls`,
+          tRouting
+        );
+      } else {
+        await page.click('#routing-mode-new-engagement');
+        const engagementName = params.engagementName || `FY2025 Audit - ${params.clientName}`;
+        const clientName = `${params.clientName} (${params.ticker})`;
+        const standard = params.reportingStandard || 'US_GAAP';
+        const currency = params.reportingCurrency || 'USD';
+
+        await page.waitForSelector('#new-engagement-name-input', { visible: true, timeout: 5000 });
+        await page.click('#new-engagement-name-input', { clickCount: 3 });
+        await page.type('#new-engagement-name-input', engagementName);
+
+        await page.waitForSelector('#new-client-name-input', { visible: true, timeout: 5000 });
+        await page.click('#new-client-name-input', { clickCount: 3 });
+        await page.type('#new-client-name-input', clientName);
+
+        await page.select('#reporting-standard-select', standard);
+        await page.select('#engagement-currency-select', currency);
+
+        recordStep(
+          5,
+          'Configure New Engagement in UI',
+          '#routing-mode-new-engagement',
+          `Configured engagement "${engagementName}", standard ${standard}, currency ${currency} via real UI controls`,
+          tRouting
+        );
+      }
 
       // Step 6: Find Existing Product Input Element (strictly no substitute element injection)
       const tInput = Date.now();
@@ -237,8 +291,13 @@ export class RealBrowserCustomerSimulatorEngine {
         throw new Error(`[RealBrowserCustomerSimulator] Required product element '#customer-intake-file-input' not found in DOM. Creation of substitute input is strictly prohibited.`);
       }
       await fileInput.uploadFile(stagingPath);
-      const browserUploadSha256 = stagingSha256;
-      recordStep(6, 'Physical File DOM Selection via Real Input', '#customer-intake-file-input', `Assigned physical file ${stagedFilename} (${sourceBytes.length} bytes, SHA: ${browserUploadSha256.substring(0, 16)}...)`, tInput);
+      recordStep(
+        6,
+        'Physical File DOM Selection via Real Input',
+        '#customer-intake-file-input',
+        `Assigned physical file ${stagedFilename} (${sourceBytes.length} bytes, SHA: ${stagingSha256.substring(0, 16)}...)`,
+        tInput
+      );
 
       // Step 7: Verify Selected Filename Appears in Real UI
       const tVerify = Date.now();
@@ -311,6 +370,7 @@ export class RealBrowserCustomerSimulatorEngine {
 
       // Authoritative validation of server response — fail closed, no manufactured fallbacks
       const { intakeSessionId, intakeSha256 } = this.validateUploadAcknowledgement(uploadResult);
+      const serverReceivedSha256 = intakeSha256;
 
       recordStep(
         9,
@@ -320,14 +380,13 @@ export class RealBrowserCustomerSimulatorEngine {
         tNet
       );
 
-      // Verify 5-point hash continuity
+      // Verify cryptographic hash continuity between authoritative source, staged file, and server-computed intake hash
       const hashContinuityVerified = 
         (sourceSha256 === stagingSha256) &&
-        (stagingSha256 === browserUploadSha256) &&
-        (browserUploadSha256 === intakeSha256);
+        (stagingSha256 === serverReceivedSha256);
 
       if (!hashContinuityVerified) {
-        throw new Error(`[RealBrowserCustomerSimulator] 5-point hash continuity check failed: source=${sourceSha256}, staging=${stagingSha256}, browser=${browserUploadSha256}, intake=${intakeSha256}`);
+        throw new Error(`[RealBrowserCustomerSimulator] Cryptographic hash continuity check failed: source=${sourceSha256}, staging=${stagingSha256}, serverReceived=${serverReceivedSha256}`);
       }
 
       await browser.close();
@@ -340,19 +399,24 @@ export class RealBrowserCustomerSimulatorEngine {
         journeyId,
         browserSessionId,
         browserVersion,
+        targetUrl: baseUrl,
+        environmentClassification,
         clientName: params.clientName,
         ticker: params.ticker,
         engagementId: params.engagementId,
         physicalSourcePath: fullSourcePath,
         stagingFilePath: stagingPath,
+        selectedFilename: stagedFilename,
+        selectedFileSize: sourceBytes.length,
         sourceSha256,
         stagingSha256,
-        browserUploadSha256,
-        intakeSha256,
+        serverReceivedSha256,
+        browserUploadSha256: serverReceivedSha256,
+        intakeSha256: serverReceivedSha256,
         hashContinuityVerified,
         intakeSessionId,
         steps,
-        proofLevel: 'BROWSER_VERIFIED',
+        proofLevel,
         startedAt,
         completedAt,
         durationMs

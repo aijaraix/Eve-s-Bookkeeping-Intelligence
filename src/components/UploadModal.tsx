@@ -146,13 +146,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const addFiles = (list: FileList | File[]) => {
     const next = Array.from(list).filter(
       (f) =>
-        /\.(pdf|xlsx|xls|csv)$/i.test(f.name) ||
+        /\.(pdf|xlsx|xls|csv|htm|html)$/i.test(f.name) ||
         f.type.includes('pdf') ||
         f.type.includes('sheet') ||
-        f.type.includes('excel')
+        f.type.includes('excel') ||
+        f.type.includes('html') ||
+        f.type === 'text/html'
     );
     if (!next.length) {
-      setError('Please select valid PDF, XLSX, or CSV financial documents.');
+      setError('Please select valid PDF, XLSX, CSV, or SEC HTML/iXBRL financial documents.');
       return;
     }
     setSelectedFiles((prev) => [...prev, ...next]);
@@ -242,12 +244,23 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const hasRealUnits = typeof activeJob?.unitsTotal === 'number' && activeJob.unitsTotal > 0;
   const unitsTotal = hasRealUnits ? activeJob!.unitsTotal : null;
   const unitsCompleted = hasRealUnits ? (activeJob?.unitsCompleted ?? 0) : null;
-  const realPercentage = activeJob?.percentComplete ?? (stageIndex >= STAGES_ORDER.length - 1 ? 100 : Math.min(100, Math.round(((stageIndex + 1) / STAGES_ORDER.length) * 100)));
+  
+  // Real percentage: only when backend provides percentComplete or real units exist
+  const realPercentage: number | null =
+    typeof activeJob?.percentComplete === 'number'
+      ? activeJob.percentComplete
+      : hasRealUnits && unitsCompleted !== null && unitsTotal !== null && unitsTotal > 0
+      ? Math.min(100, Math.round((unitsCompleted / unitsTotal) * 100))
+      : null;
 
   const factsExtractedCount =
     activeJob?.result?.facts?.length ||
     activeIntake?.stagedFactsCount ||
     ((activeJob as any)?.progress?.factsNormalized ?? 0);
+
+  const verifiedFactsCount = (activeJob as any)?.result?.verifiedFactsCount ?? (activeJob as any)?.clearance?.verifiedFactsCount ?? null;
+  const hasVerifiedFacts = typeof verifiedFactsCount === 'number';
+  const isPromoted = activeJob?.status === 'COMPLETED' && Boolean((activeJob as any)?.promoted || (activeJob as any)?.result?.promoted);
 
   // Real agent execution state from backend job model or neutral waiting/pending
   const getAgentStatus = (agentRoleOrId: string): string => {
@@ -260,10 +273,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       );
       if (match?.status) return match.status.toUpperCase();
     }
-    if (phase === 'ANALYZING' && activeJob?.status === 'PROCESSING') {
-      return 'RUNNING';
-    }
-    return 'PENDING';
+    // Overall job activity must not imply every named agent is working
+    return phase === 'ANALYZING' ? 'WAITING' : 'PENDING';
   };
 
   const agentAlphaStatus = getAgentStatus('ledger');
@@ -278,6 +289,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const opticalProvenance = clearanceData?.opticalProvenance ?? 'PENDING AUDIT';
   const accountingIdentity = clearanceData?.accountingIdentity ?? 'NOT EVALUATED';
   const sentinelSignOff = clearanceData?.sentinelSignOff ?? 'PENDING HUMAN REVIEW';
+  const isCleared = gateStatus === 'CLEARED' || gateStatus === 'PASSED';
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -305,7 +317,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Multi-Agent Hermes Swarm • Forensic Fact Reconciliation • GAAP/IFRS Compliance
+                Multi-Agent Hermes Swarm • Forensic Fact Reconciliation • Accounting Framework Validation
               </p>
             </div>
           </div>
@@ -372,7 +384,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     data-testid="customer-intake-file-input"
                     ref={inputRef}
                     type="file"
-                    accept=".pdf,.xlsx,.xls,.csv,application/pdf"
+                    accept=".pdf,.xlsx,.xls,.csv,.htm,.html,application/pdf,text/html"
                     multiple
                     className="hidden"
                     onChange={(e) => {
@@ -380,7 +392,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       e.target.value = '';
                     }}
                   />
-                  <span className="text-[11px] text-slate-400">PDF, XLSX, XLS, CSV</span>
+                  <span className="text-[11px] text-slate-400">PDF, XLSX, XLS, CSV, HTM, HTML</span>
                 </div>
               </div>
 
@@ -440,6 +452,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
+                    id="routing-mode-new-engagement"
+                    data-testid="routing-mode-new-engagement"
                     onClick={() => setRoutingMode('NEW_ENGAGEMENT')}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       routingMode === 'NEW_ENGAGEMENT'
@@ -458,6 +472,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
                   <button
                     type="button"
+                    id="routing-mode-existing-engagement"
+                    data-testid="routing-mode-existing-engagement"
                     onClick={() => setRoutingMode('EXISTING_ENGAGEMENT')}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       routingMode === 'EXISTING_ENGAGEMENT'
@@ -485,6 +501,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         </label>
                         <input
                           type="text"
+                          id="new-engagement-name-input"
+                          data-testid="new-engagement-name-input"
                           placeholder="e.g. FY2025 Audit - Acme Corp"
                           value={newEngagementName}
                           onChange={(e) => setNewEngagementName(e.target.value)}
@@ -497,6 +515,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         </label>
                         <input
                           type="text"
+                          id="new-client-name-input"
+                          data-testid="new-client-name-input"
                           placeholder="Auto-detect from document or specify"
                           value={newClientName}
                           onChange={(e) => setNewClientName(e.target.value)}
@@ -511,6 +531,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                           Accounting Standard
                         </label>
                         <select
+                          id="reporting-standard-select"
+                          data-testid="reporting-standard-select"
                           value={reportingStandard}
                           onChange={(e) => setReportingStandard(e.target.value as any)}
                           className="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 cursor-pointer"
@@ -526,6 +548,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                           Reporting Currency
                         </label>
                         <select
+                          id="engagement-currency-select"
+                          data-testid="engagement-currency-select"
                           value={engagementCurrency}
                           onChange={(e) => setEngagementCurrency(e.target.value)}
                           className="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 cursor-pointer"
@@ -556,6 +580,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         Select Client Engagement Workspace
                       </label>
                       <select
+                        id="existing-engagement-select"
+                        data-testid="existing-engagement-select"
                         value={targetWorkspaceId}
                         onChange={(e) => setTargetWorkspaceId(e.target.value)}
                         className="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 cursor-pointer"
@@ -609,18 +635,28 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       <Clock className="w-3.5 h-3.5" />
                       {elapsedSeconds}s elapsed
                     </span>
-                    <span className="font-extrabold text-blue-400 text-sm">
-                      {realPercentage}%
-                    </span>
+                    {realPercentage !== null ? (
+                      <span className="font-extrabold text-blue-400 text-sm">
+                        {realPercentage}%
+                      </span>
+                    ) : (
+                      <span className="font-extrabold text-blue-400 text-xs uppercase tracking-wider">
+                        {currentStage.replace(/_/g, ' ')}
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 {/* Progress bar line */}
                 <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-blue-500 via-indigo-500 to-teal-400 h-full transition-all duration-500 rounded-full"
-                    style={{ width: `${realPercentage}%` }}
-                  />
+                  {realPercentage !== null ? (
+                    <div
+                      className="bg-gradient-to-r from-blue-500 via-indigo-500 to-teal-400 h-full transition-all duration-500 rounded-full"
+                      style={{ width: `${realPercentage}%` }}
+                    />
+                  ) : (
+                    <div className="bg-gradient-to-r from-blue-500 to-teal-400 h-full animate-pulse rounded-full w-full" />
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between text-xs text-slate-300 pt-1">
@@ -756,25 +792,43 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           {phase === 'COMPLETE' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               {/* Celebration Hero */}
-              <div className="bg-emerald-900 text-white p-6 rounded-2xl text-center space-y-3">
+              <div className="bg-slate-900 text-white p-6 rounded-2xl text-center space-y-3 border border-slate-800">
                 <div className="w-12 h-12 rounded-full bg-emerald-700/80 text-emerald-200 flex items-center justify-center mx-auto shadow-inner">
                   <CheckCircle2 className="w-7 h-7" />
                 </div>
-                <h3 className="text-base font-extrabold">
-                  AI Audit Analysis & Extraction Complete!
+                <h3 className="text-base font-extrabold text-white">
+                  Document Processing Complete
                 </h3>
-                <p className="text-xs text-emerald-200/90 max-w-md mx-auto">
-                  Documents have been successfully parsed, cross-checked for accounting discrepancies, and promoted to the practice audit repository.
+                <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+                  {isCleared
+                    ? 'Documents have been successfully parsed, reconciled against financial statements, and cleared through audit quality gates.'
+                    : 'Financial documents have been ingested and facts extracted. Forensic verification and repository promotion pending independent audit clearance.'}
                 </p>
+                <div className="flex items-center justify-center gap-2 pt-1 text-[11px] font-mono">
+                  <span className="px-2.5 py-1 rounded-md bg-blue-900/60 text-blue-300 border border-blue-700">
+                    Facts Extracted
+                  </span>
+                  <span className="px-2.5 py-1 rounded-md bg-amber-900/60 text-amber-300 border border-amber-700">
+                    {hasVerifiedFacts ? `${verifiedFactsCount} Facts Verified` : 'Verification Pending'}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                    {isPromoted ? 'Promoted' : 'Promotion Pending'}
+                  </span>
+                </div>
               </div>
 
               {/* Audit Ingestion Metrics */}
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Verified Facts</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Facts Extracted</div>
                   <div className="text-lg font-extrabold text-blue-600 font-mono mt-0.5">
                     {factsExtractedCount ?? 0}
                   </div>
+                  {hasVerifiedFacts && (
+                    <div className="text-[10px] font-bold text-emerald-600 font-mono mt-0.5">
+                      {verifiedFactsCount} Verified Facts
+                    </div>
+                  )}
                 </div>
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                   <div className="text-[10px] uppercase font-bold text-slate-400">Documents Ingested</div>
@@ -802,7 +856,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   <div>Mathematical Tie-Out: <span className="font-bold text-slate-800">{mathVariance}</span></div>
                   <div>Optical Provenance: <span className="font-bold text-slate-800">{opticalProvenance}</span></div>
                   <div>Accounting Identity: <span className="font-bold text-slate-800">{accountingIdentity}</span></div>
-                  <div>Sentinel Sign-Off: <span className="font-bold text-slate-700">{sentinelSignOff}</span></div>
+                  <div>Audit Verification: <span className="font-bold text-slate-700">{sentinelSignOff}</span></div>
                 </div>
               </div>
 
@@ -852,7 +906,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between shrink-0">
           <div className="text-[11px] text-slate-500 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-blue-600" />
-            <span>Fail-Closed CPA Integrity Guarantee</span>
+            <span>Fail-Closed Verification Controls</span>
           </div>
 
           <div className="flex items-center gap-2">
