@@ -23,6 +23,7 @@ import { runFailClosedTests } from "./server/tests/phaseFailClosed.test.js";
 import { runPhaseH95NullSafetyTests } from "./server/tests/phaseH95NullSafety.test.js";
 import { runPhaseH912BTests } from "./server/tests/phaseH912B.test.js";
 import { runPhaseH913TestSuite } from "./server/tests/phaseH913.test.js";
+import { runPhaseH944ConformanceTests } from "./server/tests/phaseH944Conformance.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -662,6 +663,15 @@ assert(
   h913Res.passed,
   `Phase H.9.13 Suite failed: ${h913Res.message}`,
   h913Res.message
+);
+
+console.log(`\n${colors.bold}[SUITE H.9.44: PRE-COMPANY 1 IMPLEMENTATION CONFORMANCE]${colors.reset}`);
+const h944Res = await runPhaseH944ConformanceTests();
+assert(
+  "Phase H.9.44 Implementation Conformance Suite (10/10 Passed)",
+  h944Res.failed === 0 && h944Res.passed === 10,
+  `Phase H.9.44 Suite failed (${h944Res.failed} failures)`,
+  "All 10/10 Phase H.9.44 Implementation Conformance regression tests passed cleanly."
 );
 
 

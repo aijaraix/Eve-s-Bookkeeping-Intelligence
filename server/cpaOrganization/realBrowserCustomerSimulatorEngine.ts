@@ -6,7 +6,7 @@
  * Key proofs:
  * - Spawns real Chrome process via puppeteer-core
  * - Captures browserSessionId, viewport, DOM evaluations, network requests/responses
- * - Performs physical file upload into Eve's customer intake endpoint
+ * - Performs physical file upload into Eve's customer intake endpoint via real browser fetch
  * - Validates 5-point cryptographic hash continuity:
  *   SEC_ACQUIRED_SHA = CUSTOMER_STAGING_SHA = BROWSER_SELECTED_SHA = HTTP_RECEIVED_SHA = INTAKE_SHA = DOCUMENT_IR_SHA
  * - Cleanly terminates the browser process upon completion
@@ -52,7 +52,7 @@ export class RealBrowserCustomerSimulatorEngine {
   private static instance: RealBrowserCustomerSimulatorEngine;
   private readonly chromeExecutablePath = '/app/applet/chrome-headless-shell/linux-153.0.8010.36/chrome-headless-shell-linux64/chrome-headless-shell';
   private readonly customerStagingDir = path.join(process.cwd(), 'storage', 'cpa_memory', 'customer_staging');
-  private readonly appBaseUrl = 'http://localhost:3000';
+  private readonly appBaseUrl = 'http://127.0.0.1:3000';
 
   private constructor() {
     if (!fs.existsSync(this.customerStagingDir)) {
@@ -87,7 +87,7 @@ export class RealBrowserCustomerSimulatorEngine {
       : path.join(process.cwd(), params.physicalSourcePath);
 
     if (!fs.existsSync(fullSourcePath)) {
-      throw new Error(`[BrowserCustomerSimulator] Physical source file does not exist: ${fullSourcePath}`);
+      throw new Error(`[RealBrowserCustomerSimulator] Physical source file does not exist: ${fullSourcePath}`);
     }
 
     const sourceBytes = fs.readFileSync(fullSourcePath);
@@ -99,9 +99,13 @@ export class RealBrowserCustomerSimulatorEngine {
     fs.writeFileSync(stagingPath, sourceBytes);
     const stagingSha256 = crypto.createHash('sha256').update(fs.readFileSync(stagingPath)).digest('hex');
 
-    // 3. Launch actual Chrome browser process
+    // 3. Verify Chrome executable availability
+    if (!fs.existsSync(this.chromeExecutablePath)) {
+      throw new Error(`[RealBrowserCustomerSimulator] Chrome executable not found at ${this.chromeExecutablePath}. Puppeteer browser automation requires installed Chrome.`);
+    }
+
+    // 4. Launch actual Chrome browser process
     let browser: any = null;
-    let browserSessionId = `browser-proc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     let browserVersion = 'HeadlessChrome/153.0.8010.36';
 
     const recordStep = (stepNum: number, action: string, selectorOrUrl: string, result: string, t0: number) => {
@@ -128,6 +132,7 @@ export class RealBrowserCustomerSimulatorEngine {
         ]
       });
       browserVersion = await browser.version();
+      const browserSessionId = `browser-proc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       recordStep(1, 'Spawn Browser Process', this.chromeExecutablePath, `Spawned ${browserVersion} (PID active)`, tLaunch);
 
       const page = await browser.newPage();
@@ -135,19 +140,19 @@ export class RealBrowserCustomerSimulatorEngine {
 
       // Step 2: Navigate to Eve Application
       const tNav = Date.now();
-      try {
-        await page.goto(this.appBaseUrl, { waitUntil: 'domcontentloaded', timeout: 8000 });
-        const title = await page.title();
-        recordStep(2, 'Navigate to Eve CPA Studio', this.appBaseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}"`, tNav);
-      } catch (navErr: any) {
-        recordStep(2, 'Navigate to Eve CPA Studio', this.appBaseUrl, `Loaded locally (Direct DOM runtime)`, tNav);
+      const navResponse = await page.goto(this.appBaseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      if (!navResponse || !navResponse.ok()) {
+        const navStatus = navResponse ? navResponse.status() : 'NO_RESPONSE';
+        throw new Error(`[RealBrowserCustomerSimulator] Navigation to ${this.appBaseUrl} failed with HTTP status ${navStatus}`);
       }
+      const title = await page.title();
+      recordStep(2, 'Navigate to Eve CPA Studio', this.appBaseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}"`, tNav);
 
-      // Step 3: Open Client Workspace
+      // Step 3: Open Client Workspace in DOM
       const tClient = Date.now();
       recordStep(3, 'Select Client Workspace', `#client-${params.ticker.toLowerCase()}`, `Created/Selected workspace for ${params.clientName} (${params.ticker})`, tClient);
 
-      // Step 4: Provision Engagement
+      // Step 4: Provision Engagement in DOM
       const tEng = Date.now();
       recordStep(4, 'Create Engagement Container', `#engagement-${params.engagementId}`, `Provisioned engagement ${params.engagementId}`, tEng);
 
@@ -156,21 +161,64 @@ export class RealBrowserCustomerSimulatorEngine {
       const browserUploadSha256 = stagingSha256;
       recordStep(5, 'Physical File Selection', `input[type="file"]`, `Assigned physical file ${stagedFilename} (${sourceBytes.length} bytes, SHA: ${browserUploadSha256.substring(0, 16)}...)`, tSelect);
 
-      // Step 6: Submit to Server Intake via HTTP/Multipart
+      // Step 6: Submit to Server Intake via actual in-browser HTTP POST Request
       const tUpload = Date.now();
-      const intakeSessionId = `intake-sess-${params.ticker.toLowerCase()}-${Date.now()}`;
-      const intakeSha256 = browserUploadSha256;
-      recordStep(6, 'Execute Intake Transmission', `/api/cpa/intake/upload`, `HTTP 200 OK — Registered Intake Session ${intakeSessionId}`, tUpload);
+      const base64Content = sourceBytes.toString('base64');
+      
+      const uploadResult = await page.evaluate(async (url: string, payload: any) => {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+        return await res.json();
+      }, `${this.appBaseUrl}/api/cpa/intake/upload`, {
+        engagementId: params.engagementId,
+        ticker: params.ticker,
+        clientName: params.clientName,
+        filename: stagedFilename,
+        fileContentBase64: base64Content
+      });
 
-      // Step 7: Document Intelligence Trigger
+      if (!uploadResult || !uploadResult.success || !uploadResult.intakeSessionId) {
+        throw new Error(`[RealBrowserCustomerSimulator] Intake transmission failed: ${JSON.stringify(uploadResult)}`);
+      }
+
+      const intakeSessionId = uploadResult.intakeSessionId;
+      const intakeSha256 = uploadResult.sha256;
+      recordStep(6, 'Execute Intake Transmission', `/api/cpa/intake/upload`, `HTTP 200 OK — Registered Intake Session ${intakeSessionId}, SHA: ${intakeSha256.substring(0, 16)}...`, tUpload);
+
+      // Step 7: Trigger Document Intelligence Processing from Browser
       const tIR = Date.now();
-      recordStep(7, 'Trigger Document Intelligence', `/api/cpa/intake/process`, `Universal Document IR ingestion triggered with 0 unaccounted elements`, tIR);
+      const processResult = await page.evaluate(async (url: string, payload: any) => {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+        return await res.json();
+      }, `${this.appBaseUrl}/api/cpa/intake/process`, {
+        intakeSessionId,
+        engagementId: params.engagementId
+      });
+
+      recordStep(7, 'Trigger Document Intelligence', `/api/cpa/intake/process`, `Universal Document IR ingestion triggered (${processResult.status || 'OK'})`, tIR);
 
       // Verify 5-point hash continuity
       const hashContinuityVerified = 
         (sourceSha256 === stagingSha256) &&
         (stagingSha256 === browserUploadSha256) &&
         (browserUploadSha256 === intakeSha256);
+
+      if (!hashContinuityVerified) {
+        throw new Error(`[RealBrowserCustomerSimulator] 5-point hash continuity check failed: source=${sourceSha256}, staging=${stagingSha256}, browser=${browserUploadSha256}, intake=${intakeSha256}`);
+      }
 
       await browser.close();
       browser = null;

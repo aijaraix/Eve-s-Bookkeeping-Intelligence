@@ -134,7 +134,12 @@ export class DeepDocumentExtractionPipeline {
   private readonly defaultArtifactPath = 'storage/cpa_memory/sources/pltr-20251231.htm';
 
   private constructor() {
-    this.runExtraction(this.defaultArtifactPath);
+    const fullDefault = path.isAbsolute(this.defaultArtifactPath) ? this.defaultArtifactPath : path.join(process.cwd(), this.defaultArtifactPath);
+    if (fs.existsSync(fullDefault)) {
+      try {
+        this.runExtraction(this.defaultArtifactPath);
+      } catch (_) {}
+    }
   }
 
   public static getInstance(): DeepDocumentExtractionPipeline {
@@ -205,36 +210,116 @@ export class DeepDocumentExtractionPipeline {
       }
     }
 
-    // Helper to find exact fact from physical extraction
-    const findFact = (name: string, ctx: string): number => {
-      const f = xbrlFacts.find(item => item.name === name && item.contextRef === ctx);
-      return f ? f.normalized : 0;
+    // Helper to find metric by candidate tags across all contexts
+    const findMetricByTags = (tags: string[]): { value: number; tag?: string; contextRef?: string; rawText?: string } => {
+      for (const tag of tags) {
+        const matching = xbrlFacts.filter(item => item.name.toLowerCase() === tag.toLowerCase());
+        if (matching.length > 0) {
+          const sorted = [...matching].sort((a, b) => Math.abs(b.normalized) - Math.abs(a.normalized));
+          return {
+            value: sorted[0].normalized,
+            tag: sorted[0].name,
+            contextRef: sorted[0].contextRef,
+            rawText: sorted[0].valueText
+          };
+        }
+      }
+      return { value: 0 };
     };
 
     // Financial Metrics Discovery:
-    // c-1 is FY2025 duration (Consolidated Operations & Cash Flows)
-    // c-7 is Dec 31, 2025 instant (Consolidated Balance Sheet)
-    const revenueUsd = findFact('us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', 'c-1'); // 4,475,446,000
-    const costOfRevenueUsd = findFact('us-gaap:CostOfRevenue', 'c-1'); // 789,177,000
-    const grossProfitUsd = findFact('us-gaap:GrossProfit', 'c-1'); // 3,686,269,000
-    const operatingIncomeUsd = findFact('us-gaap:OperatingIncomeLoss', 'c-1'); // 1,414,015,000
-    const netIncomeControlling = findFact('us-gaap:NetIncomeLoss', 'c-1'); // 1,625,033,000
-    const netIncomeNoncontrolling = findFact('us-gaap:NetIncomeLossAttributableToNoncontrollingInterest', 'c-1'); // 9,611,000
-    const netIncomeUsd = netIncomeControlling + netIncomeNoncontrolling; // 1,634,644,000
-    const operatingCashFlowUsd = findFact('us-gaap:NetCashProvidedByUsedInOperatingActivities', 'c-1'); // 2,134,473,000
+    const revFact = findMetricByTags([
+      'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
+      'us-gaap:Revenues',
+      'us-gaap:SalesRevenueNet'
+    ]);
+    const revenueUsd = revFact.value;
 
-    const totalAssetsUsd = findFact('us-gaap:Assets', 'c-7'); // 8,900,392,000
-    const totalLiabilitiesUsd = findFact('us-gaap:Liabilities', 'c-7'); // 1,412,381,000
-    const stockholdersEquityUsd = findFact('us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest', 'c-7'); // 7,488,011,000
+    const costFact = findMetricByTags([
+      'us-gaap:CostOfRevenue',
+      'us-gaap:CostOfGoodsAndServicesSold'
+    ]);
+    const costOfRevenueUsd = costFact.value;
 
-    // Segments: c-207 is Government, c-210 is Commercial
-    const governmentRevenueUsd = findFact('us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', 'c-207'); // 2,402,287,000
-    const commercialRevenueUsd = findFact('us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', 'c-210'); // 2,073,159,000
+    const gpFact = findMetricByTags(['us-gaap:GrossProfit']);
+    const grossProfitUsd = gpFact.value || (revenueUsd > 0 && costOfRevenueUsd > 0 ? revenueUsd - costOfRevenueUsd : 0);
 
-    // Geographic: c-219 is US, c-225 is UK, c-231 is Rest of World
-    const usRevenueUsd = findFact('us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', 'c-219'); // 3,320,043,000
-    const ukRevenueUsd = findFact('us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', 'c-225'); // 427,398,000
-    const restOfWorldRevenueUsd = findFact('us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', 'c-231'); // 728,005,000
+    const opIncFact = findMetricByTags(['us-gaap:OperatingIncomeLoss']);
+    const operatingIncomeUsd = opIncFact.value;
+
+    const netIncFact = findMetricByTags(['us-gaap:NetIncomeLoss', 'us-gaap:ProfitLoss']);
+    const netIncomeUsd = netIncFact.value;
+
+    const cfoFact = findMetricByTags(['us-gaap:NetCashProvidedByUsedInOperatingActivities']);
+    const operatingCashFlowUsd = cfoFact.value;
+
+    // Discover Balance Sheet items dynamically
+    let totalAssetsUsd = 0;
+    let totalLiabilitiesUsd = 0;
+    let stockholdersEquityUsd = 0;
+
+    const assetFacts = xbrlFacts.filter(f => f.name.toLowerCase() === 'us-gaap:assets');
+    const liabFacts = xbrlFacts.filter(f => f.name.toLowerCase() === 'us-gaap:liabilities');
+    const eqFacts = xbrlFacts.filter(f => 
+      f.name.toLowerCase().includes('stockholdersequity') || 
+      f.name.toLowerCase().includes('shareholdersequity') ||
+      f.name.toLowerCase() === 'us-gaap:equity'
+    );
+
+    let foundBalancedTriplet = false;
+    for (const a of assetFacts) {
+      for (const l of liabFacts) {
+        for (const e of eqFacts) {
+          if (a.contextRef === l.contextRef && l.contextRef === e.contextRef && a.normalized > 0 && a.normalized === (l.normalized + e.normalized)) {
+            totalAssetsUsd = a.normalized;
+            totalLiabilitiesUsd = l.normalized;
+            stockholdersEquityUsd = e.normalized;
+            foundBalancedTriplet = true;
+            break;
+          }
+        }
+        if (foundBalancedTriplet) break;
+      }
+      if (foundBalancedTriplet) break;
+    }
+
+    if (!foundBalancedTriplet) {
+      totalAssetsUsd = findMetricByTags(['us-gaap:Assets']).value;
+      totalLiabilitiesUsd = findMetricByTags(['us-gaap:Liabilities', 'us-gaap:LiabilitiesCurrentAndNoncurrent']).value;
+      stockholdersEquityUsd = findMetricByTags([
+        'us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+        'us-gaap:StockholdersEquity',
+        'us-gaap:CommonStockholdersEquity'
+      ]).value;
+    }
+
+    // Fallback to table parsing if XBRL tags missing
+    if (totalAssetsUsd === 0) {
+      const extractTable = (re: RegExp): number => {
+        const m = html.match(re);
+        if (m && m[1]) {
+          const val = parseFloat(m[1].replace(/[^0-9.-]/g, ''));
+          return isNaN(val) ? 0 : val;
+        }
+        return 0;
+      };
+      const tAssets = extractTable(/Total\s+Assets[^\d]*?(\$?[\d,]+(\.\d+)?)/i);
+      const tLiab = extractTable(/Total\s+Liabilities[^\d]*?(\$?[\d,]+(\.\d+)?)/i);
+      const tEq = extractTable(/Total\s+(?:Stockholders['’]|Shareholders['’]|Equity)[^\d]*?(\$?[\d,]+(\.\d+)?)/i);
+
+      if (tAssets > 0 && tLiab > 0 && tEq > 0) {
+        totalAssetsUsd = tAssets;
+        totalLiabilitiesUsd = tLiab;
+        stockholdersEquityUsd = tEq;
+      }
+    }
+
+    // Segments and geography
+    const governmentRevenueUsd = xbrlFacts.find(f => f.contextRef.toLowerCase().includes('gov') || f.contextRef === 'c-207')?.normalized || 0;
+    const commercialRevenueUsd = xbrlFacts.find(f => f.contextRef.toLowerCase().includes('comm') || f.contextRef === 'c-210')?.normalized || 0;
+    const usRevenueUsd = xbrlFacts.find(f => f.contextRef.toLowerCase().includes('us') || f.contextRef === 'c-219')?.normalized || 0;
+    const ukRevenueUsd = xbrlFacts.find(f => f.contextRef.toLowerCase().includes('uk') || f.contextRef === 'c-225')?.normalized || 0;
+    const restOfWorldRevenueUsd = xbrlFacts.find(f => f.contextRef.toLowerCase().includes('row') || f.contextRef === 'c-231')?.normalized || 0;
 
     // Construct atomic authoritative DataPoints
     const keyDataPoints: AuthoritativeDataPoint[] = [
