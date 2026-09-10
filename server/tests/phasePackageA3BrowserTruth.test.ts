@@ -203,7 +203,9 @@ export async function runPhasePackageA3BrowserTruthTests(): Promise<{ passed: nu
 
   // Test 7: RealBrowserCustomerSimulator classifies local vs production execution
   {
-    const recordsClassification = simulatorSource.includes("environmentClassification: 'LOCAL_TEST' | 'PRODUCTION'");
+    const recordsClassification = simulatorSource.includes("environmentClassification") &&
+                                  simulatorSource.includes("'LOCAL_TEST'") &&
+                                  simulatorSource.includes("'PRODUCTION'");
     const recordsProofLevel = simulatorSource.includes("LOCAL_BROWSER_VERIFIED") && simulatorSource.includes("PRODUCTION_BROWSER_VERIFIED");
     const handlesLocalhost = simulatorSource.includes("baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost')");
 

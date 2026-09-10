@@ -10,8 +10,8 @@
  * - Manipulates real DOM controls (opens UploadModal, assigns file via input[type="file"])
  * - Verifies staged file appears in the DOM
  * - Submits via UI trigger and captures authentic HTTP response
- * - Validates 5-point cryptographic hash continuity:
- *   SEC_ACQUIRED_SHA = CUSTOMER_STAGING_SHA = BROWSER_SELECTED_SHA = HTTP_RECEIVED_SHA = INTAKE_SHA
+ * - Validates cryptographic hash continuity across independently measured boundaries:
+ *   SOURCE_BYTES_SHA = STAGED_FILE_SHA = SERVER_RECEIVED_BYTES_SHA
  * - Does NOT trigger /api/cpa/intake/process — upload alone persists the customer-priority job
  * - Cleanly terminates browser process
  */
@@ -22,7 +22,19 @@ import crypto from 'crypto';
 import { execSync } from 'child_process';
 import puppeteer from 'puppeteer-core';
 
-export type BrowserJourneyProofLevel = 'LOCAL_BROWSER_VERIFIED' | 'PRODUCTION_BROWSER_VERIFIED';
+export type BrowserJourneyProofLevel =
+  | 'LOCAL_BROWSER_VERIFIED'
+  | 'STAGING_BROWSER_VERIFIED'
+  | 'PREVIEW_BROWSER_VERIFIED'
+  | 'NON_PRODUCTION_BROWSER_VERIFIED'
+  | 'PRODUCTION_BROWSER_VERIFIED';
+
+export type BrowserEnvironmentClassification =
+  | 'LOCAL_TEST'
+  | 'STAGING'
+  | 'PREVIEW'
+  | 'NON_PRODUCTION'
+  | 'PRODUCTION';
 
 export interface BrowserStepProof {
   stepNumber: number;
@@ -38,7 +50,7 @@ export interface RealBrowserJourneyResult {
   browserSessionId: string;
   browserVersion: string;
   targetUrl: string;
-  environmentClassification: 'LOCAL_TEST' | 'PRODUCTION';
+  environmentClassification: BrowserEnvironmentClassification;
   clientName: string;
   ticker: string;
   engagementId: string;
@@ -49,7 +61,6 @@ export interface RealBrowserJourneyResult {
   sourceSha256: string;
   stagingSha256: string;
   serverReceivedSha256: string;
-  browserUploadSha256?: string;
   intakeSha256: string;
   hashContinuityVerified: boolean;
   intakeSessionId: string;
@@ -66,6 +77,75 @@ export class RealBrowserCustomerSimulatorEngine {
 
   public getAppBaseUrl(): string {
     return process.env.EVE_APP_BASE_URL || 'http://127.0.0.1:3000';
+  }
+
+  /**
+   * Authoritative Environment Classification Guard
+   * Requires explicit configured environment authority:
+   * EVE_RUNTIME_ENV=production AND EVE_APP_BASE_URL=<declared production URL>
+   * before assigning PRODUCTION / PRODUCTION_BROWSER_VERIFIED.
+   * Arbitrary remote or staging URLs receive non-production proof states.
+   */
+  public classifyEnvironment(
+    baseUrl: string,
+    env: {
+      EVE_RUNTIME_ENV?: string;
+      EVE_APP_BASE_URL?: string;
+      EVE_APP_PRODUCTION_URL?: string;
+      EVE_PRODUCTION_BASE_URL?: string;
+    } = process.env
+  ): {
+    environmentClassification: BrowserEnvironmentClassification;
+    proofLevel: BrowserJourneyProofLevel;
+  } {
+    const isLocal = baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost');
+
+    if (isLocal) {
+      return {
+        environmentClassification: 'LOCAL_TEST',
+        proofLevel: 'LOCAL_BROWSER_VERIFIED'
+      };
+    }
+
+    const runtimeEnv = (env.EVE_RUNTIME_ENV || '').toLowerCase().trim();
+    const declaredProdUrl = (
+      env.EVE_APP_PRODUCTION_URL ||
+      env.EVE_PRODUCTION_BASE_URL ||
+      env.EVE_APP_BASE_URL ||
+      ''
+    ).trim();
+
+    const isExplicitProduction =
+      runtimeEnv === 'production' &&
+      Boolean(declaredProdUrl) &&
+      baseUrl.replace(/\/+$/, '') === declaredProdUrl.replace(/\/+$/, '');
+
+    if (isExplicitProduction) {
+      return {
+        environmentClassification: 'PRODUCTION',
+        proofLevel: 'PRODUCTION_BROWSER_VERIFIED'
+      };
+    }
+
+    const lowerUrl = baseUrl.toLowerCase();
+    if (lowerUrl.includes('staging')) {
+      return {
+        environmentClassification: 'STAGING',
+        proofLevel: 'STAGING_BROWSER_VERIFIED'
+      };
+    }
+
+    if (lowerUrl.includes('preview') || lowerUrl.includes('dev') || lowerUrl.includes('run.app')) {
+      return {
+        environmentClassification: 'PREVIEW',
+        proofLevel: 'PREVIEW_BROWSER_VERIFIED'
+      };
+    }
+
+    return {
+      environmentClassification: 'NON_PRODUCTION',
+      proofLevel: 'NON_PRODUCTION_BROWSER_VERIFIED'
+    };
   }
 
   private constructor() {
@@ -213,9 +293,7 @@ export class RealBrowserCustomerSimulatorEngine {
       // Step 2: Navigate to Eve Application
       const tNav = Date.now();
       const baseUrl = this.getAppBaseUrl();
-      const isLocal = baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost');
-      const environmentClassification: 'LOCAL_TEST' | 'PRODUCTION' = isLocal ? 'LOCAL_TEST' : 'PRODUCTION';
-      const proofLevel: BrowserJourneyProofLevel = isLocal ? 'LOCAL_BROWSER_VERIFIED' : 'PRODUCTION_BROWSER_VERIFIED';
+      const { environmentClassification, proofLevel } = this.classifyEnvironment(baseUrl);
 
       const navResponse = await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
       if (!navResponse || !navResponse.ok()) {
@@ -223,7 +301,7 @@ export class RealBrowserCustomerSimulatorEngine {
         throw new Error(`[RealBrowserCustomerSimulator] Navigation to ${baseUrl} failed with HTTP status ${navStatus}`);
       }
       const title = await page.title();
-      recordStep(2, 'Navigate to Eve CPA Studio', baseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}" [${environmentClassification}]`, tNav);
+      recordStep(2, 'Navigate to Eve CPA Studio', baseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}" [${environmentClassification} / ${proofLevel}]`, tNav);
 
       // Step 3: Click Real Product Header Button to Open Modal
       const tHeader = Date.now();
@@ -380,7 +458,8 @@ export class RealBrowserCustomerSimulatorEngine {
         tNet
       );
 
-      // Verify cryptographic hash continuity between authoritative source, staged file, and server-computed intake hash
+      // Verify cryptographic hash continuity across 3 independently measured boundaries:
+      // SOURCE_BYTES_SHA -> STAGED_FILE_SHA -> SERVER_RECEIVED_BYTES_SHA
       const hashContinuityVerified = 
         (sourceSha256 === stagingSha256) &&
         (stagingSha256 === serverReceivedSha256);
@@ -411,7 +490,6 @@ export class RealBrowserCustomerSimulatorEngine {
         sourceSha256,
         stagingSha256,
         serverReceivedSha256,
-        browserUploadSha256: serverReceivedSha256,
         intakeSha256: serverReceivedSha256,
         hashContinuityVerified,
         intakeSessionId,

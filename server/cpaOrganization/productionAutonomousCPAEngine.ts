@@ -12,7 +12,7 @@
  *   → Real SEC EDGAR Network Acquisition (Physical bytes persistence & SHA-256)
  *   → Synthetic Contamination & Authority Gate (Fail-closed)
  *   → Customer Simulator Real Browser Intake (Headless Chrome process)
- *   → 5-Point Cryptographic Hash Verification
+ *   → Cryptographic Hash Continuity Verification (Source → Staging → Server)
  *   → Universal Document IR & Fact Promotion
  *   → Hermes Specialist Swarm Dispatch (9 Specialist Agents)
  *   → Professional PBC Collaboration & Review Clearance
@@ -138,8 +138,8 @@ export class ProductionAutonomousCPAEngine {
         physicalSourcePath: acquisition.physicalFilePath
       });
 
-      // 5. 5-Point Hash Continuity Verification
-      console.log(`[Stage 5/11] Verifying 5-point cryptographic hash continuity...`);
+      // 5. Cryptographic Hash Continuity Verification (Source → Staging → Server)
+      console.log(`[Stage 5/11] Verifying cryptographic hash continuity across source, staging, and server boundaries...`);
       if (!browserResult.hashContinuityVerified || browserResult.sourceSha256 !== acquisition.actualSha256) {
         throw new Error(`[ProductionAutonomousCPAEngine] Hash continuity breach: SEC=${acquisition.actualSha256}, Staged=${browserResult.stagingSha256}, Received=${browserResult.serverReceivedSha256}`);
       }

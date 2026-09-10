@@ -309,11 +309,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     ? 'bg-slate-800 text-slate-300 border-slate-700'
                     : phase === 'ANALYZING'
                     ? 'bg-blue-900/60 text-blue-300 border-blue-700 animate-pulse'
-                    : 'bg-emerald-900/60 text-emerald-300 border-emerald-700'
+                    : isCleared && hasVerifiedFacts
+                    ? 'bg-emerald-900/60 text-emerald-300 border-emerald-700'
+                    : 'bg-blue-900/60 text-blue-300 border-blue-700'
                 }`}>
                   {phase === 'SETUP' && '1. Setup & Project Routing'}
                   {phase === 'ANALYZING' && '2. AI Swarm Active'}
-                  {phase === 'COMPLETE' && '3. Verified & Staged'}
+                  {phase === 'COMPLETE' && (isCleared && hasVerifiedFacts ? '3. Verified & Staged' : '3. Processing Complete')}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
@@ -775,7 +777,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <Activity className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-slate-900">Extracted Canonical Facts</div>
+                    <div className="text-xs font-bold text-slate-900">
+                      {isPromoted ? 'Canonical Facts' : 'Facts Extracted'}
+                    </div>
                     <div className="text-[11px] text-slate-500">Live streamed from parsed document coordinates</div>
                   </div>
                 </div>

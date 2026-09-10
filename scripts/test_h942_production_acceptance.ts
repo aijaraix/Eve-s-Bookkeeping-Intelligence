@@ -150,9 +150,9 @@ async function runH942AcceptanceSuite() {
   console.log(`  -> Journey Steps Completed: ${browserJourney.steps.length}`);
   console.log(`  -> Source SHA:  ${browserJourney.sourceSha256}`);
   console.log(`  -> Staging SHA: ${browserJourney.stagingSha256}`);
-  console.log(`  -> Browser SHA: ${browserJourney.browserUploadSha256}`);
+  console.log(`  -> Server SHA:  ${browserJourney.serverReceivedSha256}`);
   console.log(`  -> Intake SHA:  ${browserJourney.intakeSha256}`);
-  console.log(`  -> 5-Point Hash Continuity Verified: ${browserJourney.hashContinuityVerified}`);
+  console.log(`  -> Hash Continuity Verified: ${browserJourney.hashContinuityVerified}`);
 
   results.push({
     gateNumber: 4,

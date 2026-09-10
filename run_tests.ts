@@ -27,6 +27,7 @@ import { runPhaseH944ConformanceTests } from "./server/tests/phaseH944Conformanc
 import { runPhaseH945BehavioralTruthTests } from "./server/tests/phaseH945BehavioralTruth.test.js";
 import { runPhasePackageA2BrowserTruthTests } from "./server/tests/phasePackageA2BrowserTruth.test.js";
 import { runPhasePackageA3BrowserTruthTests } from "./server/tests/phasePackageA3BrowserTruth.test.js";
+import { runPhasePackageA4BrowserProofTests } from "./server/tests/phasePackageA4BrowserProof.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -702,6 +703,15 @@ assert(
   pkgA3Res.passed === 10 && pkgA3Res.failed === 0,
   `Package A3 Suite failed (${pkgA3Res.failed} failures)`,
   "All 10/10 Package A3 Browser & Customer UI Truth Closure tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE A4: BROWSER PROOF SEMANTICS CLEANUP (DOC 35)]${colors.reset}`);
+const pkgA4Res = await runPhasePackageA4BrowserProofTests();
+assert(
+  "Package A4 Browser Proof Semantics Cleanup Suite (6/6 Passed)",
+  pkgA4Res.passed === 6 && pkgA4Res.failed === 0,
+  `Package A4 Suite failed (${pkgA4Res.failed} failures)`,
+  "All 6/6 Package A4 Browser Proof Semantics Cleanup tests passed cleanly."
 );
 
 
