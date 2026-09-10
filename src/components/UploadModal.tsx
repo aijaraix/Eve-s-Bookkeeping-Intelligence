@@ -256,7 +256,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] font-mono">
+      <div id="upload-modal-container" data-testid="upload-modal-container" className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] font-mono">
         
         {/* Modal Top Header */}
         <div className="bg-[#0B132B] px-6 py-4 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
@@ -343,6 +343,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <span>Browse Local Files</span>
                   </button>
                   <input
+                    id="customer-intake-file-input"
+                    data-testid="customer-intake-file-input"
                     ref={inputRef}
                     type="file"
                     accept=".pdf,.xlsx,.xls,.csv,application/pdf"
@@ -835,6 +837,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   Cancel
                 </button>
                 <button
+                  id="start-analysis-button"
+                  data-testid="start-analysis-button"
                   type="button"
                   onClick={handleStartAnalysis}
                   disabled={!selectedFiles.length}

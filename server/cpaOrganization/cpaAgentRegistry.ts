@@ -423,20 +423,10 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.99,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 142,
-        successRate: 0.993,
-        escalationRate: 0.021,
-        learningCases: [
-          {
-            caseId: 'LC-HERMES-01',
-            timestamp: '2026-08-28T14:20:00Z',
-            context: 'Complex multi-currency group consolidation intake',
-            observedDefect: 'Sequential task execution caused unnecessary latency for independent currency conversion tasks',
-            rootCause: 'Linear delegation pipeline instead of parallel DAG swarm execution',
-            remedyApplied: 'Enabled dynamic swarm fan-out for independent entity extraction and currency normalization',
-            verifiedBy: 'SENTINEL'
-          }
-        ],
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
+        learningCases: [],
         failureHistory: [],
         version: '2.5.0',
         createdAt: now,
@@ -469,9 +459,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.98,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 98,
-        successRate: 0.990,
-        escalationRate: 0.035,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -505,20 +495,10 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.95,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 230,
-        successRate: 0.996,
-        escalationRate: 0.009,
-        learningCases: [
-          {
-            caseId: 'LC-LEDGER-01',
-            timestamp: '2026-08-30T10:15:00Z',
-            context: 'Unilever FY 2025 annual results table extraction',
-            observedDefect: 'Header year "2025" was parsed into row value slot on degraded table format',
-            rootCause: 'Header row bounding box overlap on non-standard column headers',
-            remedyApplied: 'Enforced Year-As-Value Protection Guard in deterministic parser',
-            verifiedBy: 'EUCLID'
-          }
-        ],
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
+        learningCases: [],
         failureHistory: [],
         version: '2.5.0',
         createdAt: now,
@@ -551,9 +531,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.94,
           regulatoryCompliance: 0.98
         },
-        jobsCompleted: 87,
-        successRate: 0.988,
-        escalationRate: 0.023,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -587,9 +567,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.93,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 165,
-        successRate: 0.994,
-        escalationRate: 0.012,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -623,9 +603,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.94,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 312,
-        successRate: 0.997,
-        escalationRate: 0.006,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -659,9 +639,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.95,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 275,
-        successRate: 0.996,
-        escalationRate: 0.008,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -695,9 +675,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.96,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 114,
-        successRate: 0.989,
-        escalationRate: 0.026,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -731,9 +711,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 1.00,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 153,
-        successRate: 0.993,
-        escalationRate: 0.015,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -767,9 +747,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.95,
           regulatoryCompliance: 0.98
         },
-        jobsCompleted: 78,
-        successRate: 0.987,
-        escalationRate: 0.029,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -803,9 +783,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.98,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 340,
-        successRate: 1.000,
-        escalationRate: 0.041,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -839,20 +819,10 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.97,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 62,
-        successRate: 0.984,
-        escalationRate: 0.038,
-        learningCases: [
-          {
-            caseId: 'LC-DARWIN-01',
-            timestamp: '2026-09-01T16:00:00Z',
-            context: 'Table scale detection failure on condensed interim notes',
-            observedDefect: 'Interim report expressed in thousands but lacking "in thousands" in primary header',
-            rootCause: 'Scale declaration was located in secondary footnote paragraph rather than column header',
-            remedyApplied: 'Updated table-scale-detection skill to inspect footnote paragraph references for scale declarations',
-            verifiedBy: 'MINERVA'
-          }
-        ],
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
+        learningCases: [],
         failureHistory: [],
         version: '2.5.0',
         createdAt: now,
@@ -885,9 +855,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.99,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 180,
-        successRate: 1.000,
-        escalationRate: 0.000,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -922,20 +892,10 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.97,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 94,
-        successRate: 0.989,
-        escalationRate: 0.032,
-        learningCases: [
-          {
-            caseId: 'LC-CLARA-01',
-            timestamp: '2026-09-02T11:15:00Z',
-            context: 'Missing office lease schedule for European subsidiary',
-            observedDefect: 'Client submitted a generic lease overview rather than the signed master lease contract and amortization schedule',
-            rootCause: 'Initial request wording was insufficiently specific regarding executed contract requirements',
-            remedyApplied: 'Standardized PBC request template to explicitly require executed signature pages and quantitative amortization schedules',
-            verifiedBy: 'SENTINEL'
-          }
-        ],
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
+        learningCases: [],
         failureHistory: [],
         version: '2.5.0',
         createdAt: now,
@@ -969,20 +929,10 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.99,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 112,
-        successRate: 0.995,
-        escalationRate: 0.018,
-        learningCases: [
-          {
-            caseId: 'LC-QUINN-01',
-            timestamp: '2026-09-03T09:40:00Z',
-            context: 'Concurring partner review on consolidated multi-currency balance sheet',
-            observedDefect: 'Preparer swarm omitted footnote disclosure regarding foreign currency translation reserve sensitivity',
-            rootCause: 'Focus was placed solely on statement face amounts rather than mandatory IFRS 7 / ASC 830 footnote disclosures',
-            remedyApplied: 'Issued Review Note RN-2026-041 returning workpaper to Athena and Mercury for sensitivity disclosure completion',
-            verifiedBy: 'HERMES'
-          }
-        ],
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
+        learningCases: [],
         failureHistory: [],
         version: '2.5.0',
         createdAt: now,
@@ -1015,9 +965,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.94,
           regulatoryCompliance: 0.95
         },
-        jobsCompleted: 45,
-        successRate: 0.980,
-        escalationRate: 0.040,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -1051,9 +1001,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.96,
           regulatoryCompliance: 0.98
         },
-        jobsCompleted: 38,
-        successRate: 0.990,
-        escalationRate: 0.020,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -1087,9 +1037,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.98,
           regulatoryCompliance: 1.00
         },
-        jobsCompleted: 52,
-        successRate: 0.995,
-        escalationRate: 0.010,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -1123,9 +1073,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 1.00,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 64,
-        successRate: 0.990,
-        escalationRate: 0.025,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -1159,9 +1109,9 @@ export class CPAAgentRegistry {
           reportSynthesis: 0.98,
           regulatoryCompliance: 0.99
         },
-        jobsCompleted: 41,
-        successRate: 0.985,
-        escalationRate: 0.030,
+        jobsCompleted: 0,
+        successRate: 0.0,
+        escalationRate: 0.0,
         learningCases: [],
         failureHistory: [],
         version: '2.5.0',
@@ -1720,6 +1670,55 @@ export class CPAAgentRegistry {
       },
       durationMs: Date.now() - t0
     };
+  }
+
+  public enforceAuthority(
+    agentRoleOrId: string,
+    action: {
+      actionType: 'CREATE_OBSERVATION' | 'CREATE_ASSERTION' | 'VERIFY' | 'PROMOTE_CANONICAL' | 'BLOCK' | 'APPROVE_DELIVERY' | 'TOOL_CALL' | 'WRITE' | 'READ_INPUT';
+      inputClass?: string;
+      writeType?: string;
+      toolName?: string;
+    }
+  ): { authorized: boolean; reason: string; requiredVerifier?: string } {
+    const agent = this.getAgent(agentRoleOrId);
+    const normalizedTarget = (agent?.agentId || agentRoleOrId).toLowerCase().replace(/^eve-/, '').replace(/[-_\s]/g, '');
+    const roleKey = Object.keys(CANONICAL_ROLE_AUTHORITY_MATRIX).find(
+      k => k.toLowerCase() === normalizedTarget || CANONICAL_ROLE_AUTHORITY_MATRIX[k].roleId.toLowerCase() === (agent?.agentId || agentRoleOrId).toLowerCase()
+    );
+    
+    if (!roleKey) {
+      return { authorized: false, reason: `No canonical authority record found for role/agent '${agentRoleOrId}'. Operation rejected under fail-closed governance.` };
+    }
+
+    const auth = CANONICAL_ROLE_AUTHORITY_MATRIX[roleKey];
+
+    if (action.actionType === 'PROMOTE_CANONICAL' && !auth.canPromoteCanonical) {
+      return { authorized: false, reason: `Role '${roleKey}' is not authorized to promote canonical facts. Only Sentinel is authorized.`, requiredVerifier: auth.requiredIndependentVerifier };
+    }
+    if (action.actionType === 'APPROVE_DELIVERY' && !auth.canApproveDelivery) {
+      return { authorized: false, reason: `Role '${roleKey}' is not authorized to approve final audit delivery. Concurring Partner Reviewer (QUINN) is required.`, requiredVerifier: auth.requiredIndependentVerifier };
+    }
+    if (action.actionType === 'VERIFY' && !auth.canVerify) {
+      return { authorized: false, reason: `Role '${roleKey}' is not authorized to independently verify accounting claims.`, requiredVerifier: auth.requiredIndependentVerifier };
+    }
+    if (action.actionType === 'TOOL_CALL' && action.toolName) {
+      if (auth.prohibitedActions.includes(action.toolName)) {
+        return { authorized: false, reason: `Tool '${action.toolName}' is in the prohibited actions list for '${roleKey}'.`, requiredVerifier: auth.requiredIndependentVerifier };
+      }
+    }
+    if (action.actionType === 'WRITE' && action.writeType) {
+      if (!auth.allowedWrites.includes(action.writeType) && !auth.allowedWrites.includes('*')) {
+        return { authorized: false, reason: `Write type '${action.writeType}' is not within allowedWrites for '${roleKey}'.`, requiredVerifier: auth.requiredIndependentVerifier };
+      }
+    }
+    if (action.actionType === 'READ_INPUT' && action.inputClass) {
+      if (!auth.allowedInputClasses.includes(action.inputClass) && !auth.allowedInputClasses.includes('*')) {
+        return { authorized: false, reason: `Input class '${action.inputClass}' is not within allowedInputClasses for '${roleKey}'.`, requiredVerifier: auth.requiredIndependentVerifier };
+      }
+    }
+
+    return { authorized: true, reason: `Authorized under CANONICAL_ROLE_AUTHORITY_MATRIX for role '${roleKey}'.`, requiredVerifier: auth.requiredIndependentVerifier };
   }
 }
 

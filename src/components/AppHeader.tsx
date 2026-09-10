@@ -207,6 +207,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
           {/* Primary Upload Intake Button */}
           <button
+            id="header-upload-intake-btn"
+            data-testid="header-upload-intake-btn"
             onClick={onOpenUpload}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
           >
