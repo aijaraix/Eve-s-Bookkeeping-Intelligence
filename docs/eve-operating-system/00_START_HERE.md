@@ -32,8 +32,14 @@ This documentation set consolidates the design decisions and operating rules dev
 20. `20_PHYSICAL_ASSURANCE_ACADEMY_AND_PRODUCTION_ACCEPTANCE_GATES.md`
 21. `21_SYSTEM_WIDE_EXECUTION_TOPOLOGY_SIDE_FLOW_AND_DUPLICATE_PATH_RECONCILIATION.md`
 22. `22_GEMINI_SYSTEM_WIDE_AUDIT_REPAIR_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md`
+23. `23_RUNTIME_AUTHORITY_DEPLOYMENT_AND_ENVIRONMENT_PARITY.md`
+24. `24_ZEABUR_SERVICE_TOPOLOGY_STORAGE_AND_SCHEDULER_OWNERSHIP.md`
+25. `25_EXTERNAL_RUNTIME_ASSURANCE_SENTINELX_AND_PHYSICAL_OBSERVABILITY.md`
+26. `26_DEPLOYMENT_PROMOTION_CUTOVER_ROLLBACK_AND_PHYSICAL_ATTESTATION.md`
+27. `27_CURRENT_ZEABUR_RUNTIME_GAP_REGISTER_AND_REMEDIATION_PLAN.md`
+28. `28_ZEABUR_RUNTIME_REPAIR_DEPLOY_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md`
 
-Documents 19–22 are mandatory before modifying, certifying, auditing, or reconciling production execution paths. They exist specifically to prevent a simulated, parallel, legacy, duplicate, cached, fallback, or presentation-only implementation from being mistaken for the real Eve workflow.
+Documents 19–28 are mandatory before modifying, certifying, auditing, reconciling, deploying, or externally attesting production execution paths. They exist specifically to prevent a simulated, parallel, legacy, duplicate, cached, fallback, preview-only, build-only, or presentation-only implementation from being mistaken for the real Eve production workflow.
 
 ## Non-negotiable principles
 
@@ -68,6 +74,15 @@ Documents 19–22 are mandatory before modifying, certifying, auditing, or recon
 - **Healthy/registered is not executing.** Agent and service telemetry must distinguish availability from actual work.
 - **Fallback resilience must not silently become higher-authority truth.** Every fallback has an explicit authority ceiling and verification requirement.
 - **Historical quarantine must be enforced at read boundaries, not merely hidden in the UI.**
+- **Every production claim is environment-specific.** Code or test results in one environment may not certify another environment.
+- **Build is not deployment.** GitHub/AI Studio/preview code is not production until the declared runtime physically runs the intended artifact.
+- **Every production service requires runtime identity.** Commit, build/artifact/image, config/schema, and running-instance identity must be reconcilable.
+- **One scheduling domain has one authoritative scheduler leader.** Health tickers and worker heartbeats cannot masquerade as dispatchers.
+- **A heartbeat intention is not a dispatch.** Actual work requires a job/execution ID and consumer acknowledgement.
+- **Separate persistent volumes require explicit handoffs.** Co-location on one server does not imply shared custody.
+- **Production runtime source must be traceable to immutable deployment artifacts.** Runtime source injection is not the desired final production deployment architecture.
+- **Secrets do not belong in process command-line arguments.** Use protected secret injection and redact external assurance evidence.
+- **SentinelX is independent external assurance.** It corroborates physical runtime behavior; it does not become Eve's accounting truth or silently mutate what it audits.
 
 ## Permanent information hierarchy
 
@@ -79,7 +94,7 @@ Every layer has a distinct purpose and must remain independently addressable.
 
 A large filing producing only a handful of correct headline metrics is **not** deep extraction. Completeness is measured against the source inventory and the information that survived the pipeline, not against a predetermined fact-count target.
 
-A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, audit success shortcut, duplicate canonical writer, legacy API, stale cache, or unbounded fallback is **not** production verification. Follow Documents 19–22 to prove and reconcile the physical execution path.
+A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, audit success shortcut, duplicate canonical writer, legacy API, stale cache, unbounded fallback, preview-only implementation, or undeployed GitHub code is **not** production verification. Follow Documents 19–28 to prove and reconcile the physical execution path.
 
 ## Audit proof levels
 
@@ -92,9 +107,13 @@ Every claim should be labeled with the strongest proof actually established:
 
 Never promote an implementation claim into a runtime or product certification without evidence. Proof-level promotion must be fail-closed and evidence-backed.
 
-## Current gap register
+Environment identity is part of proof. `BROWSER_VERIFIED` in one preview environment does not automatically verify a different production environment.
 
-`17_CURRENT_REPOSITORY_GAP_REGISTER.md` is the forward-looking risk list. It is intentionally conservative: each item must be reconciled against the live runtime before being marked closed.
+## Current gap registers
+
+`17_CURRENT_REPOSITORY_GAP_REGISTER.md` remains the general forward-looking repository risk list.
+
+`27_CURRENT_ZEABUR_RUNTIME_GAP_REGISTER_AND_REMEDIATION_PLAN.md` is the current physical Zeabur runtime gap register created from independent SentinelX observation. For physical Zeabur production readiness, Document 27 takes precedence over historical statements that those runtime gaps were already closed, until its gaps are physically verified as resolved.
 
 ## Failure attribution and learning
 
@@ -111,3 +130,17 @@ Never promote an implementation claim into a runtime or product certification wi
 `21_SYSTEM_WIDE_EXECUTION_TOPOLOGY_SIDE_FLOW_AND_DUPLICATE_PATH_RECONCILIATION.md` defines the permanent repository-wide audit/remediation standard for discovering legacy, duplicate, simulated, cached, fallback, orphaned, or detached side paths across extraction, canonicalization, agents, memory, Academy, audit, UI, reports, Q&A, identity, security, formats, schedulers, and specialty accounting.
 
 `22_GEMINI_SYSTEM_WIDE_AUDIT_REPAIR_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md` is the operating directive for Google/Gemini sessions performing that reconciliation. It requires observation-first physical proof, then safe generalized repair, negative bypass tests, post-repair physical verification, and a plain-language owner report rather than self-certification from names/status flags.
+
+## Runtime authority and Zeabur physical production
+
+`23_RUNTIME_AUTHORITY_DEPLOYMENT_AND_ENVIRONMENT_PARITY.md` defines environment identity, Runtime Authority Manifests, runtime fingerprints, and the prohibition on promoting AI Studio/preview/build evidence into production claims without physical deployment proof.
+
+`24_ZEABUR_SERVICE_TOPOLOGY_STORAGE_AND_SCHEDULER_OWNERSHIP.md` defines service/PVC ownership, exactly-one scheduler leadership, worker integrity, cross-service handoffs, timer classification, and service-health semantics for the Zeabur/K3s backend.
+
+`25_EXTERNAL_RUNTIME_ASSURANCE_SENTINELX_AND_PHYSICAL_OBSERVABILITY.md` defines SentinelX as a read-only-by-default external assurance plane used to independently corroborate processes, pods, images, storage, browser execution, jobs, scheduler activity, and deployment state.
+
+`26_DEPLOYMENT_PROMOTION_CUTOVER_ROLLBACK_AND_PHYSICAL_ATTESTATION.md` defines the required repository → build → artifact → deployment → running-instance → verification → rollback chain.
+
+`27_CURRENT_ZEABUR_RUNTIME_GAP_REGISTER_AND_REMEDIATION_PLAN.md` records the current physical Zeabur findings and exact closure evidence required for each gap.
+
+`28_ZEABUR_RUNTIME_REPAIR_DEPLOY_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md` instructs engineering agents how to repair those physical gaps, deploy into the real services, run negative bypass tests, obtain independent physical corroboration, and report gap-by-gap closure without another parallel architecture.
