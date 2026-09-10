@@ -30,8 +30,10 @@ This documentation set consolidates the design decisions and operating rules dev
 18. `18_FAILURE_ATTRIBUTION_CAUSAL_CHAIN_AND_LEARNING_LOOP.md`
 19. `19_PHYSICAL_EXECUTION_NO_SUBSTITUTE_PATH_AND_END_TO_END_PRODUCT_TRUTH.md`
 20. `20_PHYSICAL_ASSURANCE_ACADEMY_AND_PRODUCTION_ACCEPTANCE_GATES.md`
+21. `21_SYSTEM_WIDE_EXECUTION_TOPOLOGY_SIDE_FLOW_AND_DUPLICATE_PATH_RECONCILIATION.md`
+22. `22_GEMINI_SYSTEM_WIDE_AUDIT_REPAIR_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md`
 
-Documents 19–20 are mandatory before modifying, certifying, or auditing production execution paths. They exist specifically to prevent a simulated/parallel implementation from being mistaken for the real Eve workflow.
+Documents 19–22 are mandatory before modifying, certifying, auditing, or reconciling production execution paths. They exist specifically to prevent a simulated, parallel, legacy, duplicate, cached, fallback, or presentation-only implementation from being mistaken for the real Eve workflow.
 
 ## Non-negotiable principles
 
@@ -57,11 +59,15 @@ Documents 19–20 are mandatory before modifying, certifying, or auditing produc
 - The objective is zero uncontained material customer-truth escapes, not zero recorded incidents.
 - **Naming is not execution.** A production component/agent must have physical execution evidence.
 - **No substitute production path.** A controller may orchestrate production services but may not simulate or reimplement them and claim they ran.
+- **One conceptual production responsibility must not have multiple uncontrolled truth-producing implementations.** Duplicate writers and side flows must be reconciled.
 - **The source determines the extraction denominator.** Extractor output cannot define its own recall denominator.
 - **A generated trace is not a browser session.** `BROWSER_VERIFIED` requires actual browser execution evidence.
 - **A filesystem copy is not customer upload.** Customer-journey certification must exercise the production intake path.
 - **A success flag is not independent audit evidence.** Internal Audit and Minerva must independently examine eligible evidence.
 - **A learning record is not learning.** Learning requires a measurable later effect.
+- **Healthy/registered is not executing.** Agent and service telemetry must distinguish availability from actual work.
+- **Fallback resilience must not silently become higher-authority truth.** Every fallback has an explicit authority ceiling and verification requirement.
+- **Historical quarantine must be enforced at read boundaries, not merely hidden in the UI.**
 
 ## Permanent information hierarchy
 
@@ -73,7 +79,7 @@ Every layer has a distinct purpose and must remain independently addressable.
 
 A large filing producing only a handful of correct headline metrics is **not** deep extraction. Completeness is measured against the source inventory and the information that survived the pipeline, not against a predetermined fact-count target.
 
-A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, or audit success shortcut is **not** production verification. Follow Documents 19–20 to prove the physical execution path.
+A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, audit success shortcut, duplicate canonical writer, legacy API, stale cache, or unbounded fallback is **not** production verification. Follow Documents 19–22 to prove and reconcile the physical execution path.
 
 ## Audit proof levels
 
@@ -99,3 +105,9 @@ Never promote an implementation claim into a runtime or product certification wi
 `19_PHYSICAL_EXECUTION_NO_SUBSTITUTE_PATH_AND_END_TO_END_PRODUCT_TRUTH.md` defines how real source acquisition, customer intake, extraction, agent execution, custody, UI, and reports must physically connect without substitute implementations.
 
 `20_PHYSICAL_ASSURANCE_ACADEMY_AND_PRODUCTION_ACCEPTANCE_GATES.md` defines the independent audit, Minerva, Academy, negative-test, observability, and production acceptance gates required to prove those physical paths actually executed.
+
+## System-wide side-flow reconciliation
+
+`21_SYSTEM_WIDE_EXECUTION_TOPOLOGY_SIDE_FLOW_AND_DUPLICATE_PATH_RECONCILIATION.md` defines the permanent repository-wide audit/remediation standard for discovering legacy, duplicate, simulated, cached, fallback, orphaned, or detached side paths across extraction, canonicalization, agents, memory, Academy, audit, UI, reports, Q&A, identity, security, formats, schedulers, and specialty accounting.
+
+`22_GEMINI_SYSTEM_WIDE_AUDIT_REPAIR_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md` is the operating directive for Google/Gemini sessions performing that reconciliation. It requires observation-first physical proof, then safe generalized repair, negative bypass tests, post-repair physical verification, and a plain-language owner report rather than self-certification from names/status flags.
