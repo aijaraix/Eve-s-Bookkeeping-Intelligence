@@ -239,20 +239,45 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const currentStage = activeJob?.currentStage || activeIntake?.stage || 'FILE_ANALYSIS';
   const stageIndex = Math.max(0, STAGES_ORDER.indexOf(currentStage));
 
-  const unitsTotal = activeJob?.unitsTotal || selectedFiles.length * 5 || 5;
-  const unitsCompleted = activeJob?.unitsCompleted || Math.max(1, stageIndex + 1);
-  const realPercentage = Math.min(100, Math.round(((stageIndex + 1) / STAGES_ORDER.length) * 100));
+  const hasRealUnits = typeof activeJob?.unitsTotal === 'number' && activeJob.unitsTotal > 0;
+  const unitsTotal = hasRealUnits ? activeJob!.unitsTotal : null;
+  const unitsCompleted = hasRealUnits ? (activeJob?.unitsCompleted ?? 0) : null;
+  const realPercentage = activeJob?.percentComplete ?? (stageIndex >= STAGES_ORDER.length - 1 ? 100 : Math.min(100, Math.round(((stageIndex + 1) / STAGES_ORDER.length) * 100)));
 
   const factsExtractedCount =
     activeJob?.result?.facts?.length ||
     activeIntake?.stagedFactsCount ||
     ((activeJob as any)?.progress?.factsNormalized ?? 0);
 
-  // Honest agent status according to pipeline stage
-  const agentAlphaStatus = stageIndex >= 2 ? (stageIndex >= 4 ? 'COMPLETED' : 'ANALYZING') : 'WAITING';
-  const agentBetaStatus = stageIndex >= 3 ? (stageIndex >= 5 ? 'COMPLETED' : 'ANALYZING') : 'WAITING';
-  const agentGammaStatus = stageIndex >= 3 ? (stageIndex >= 5 ? 'COMPLETED' : 'ANALYZING') : 'WAITING';
-  const agentSynthesizerStatus = stageIndex >= 5 ? (stageIndex >= 6 ? 'COMPLETED' : 'RECONCILING') : 'WAITING';
+  // Real agent execution state from backend job model or neutral waiting/pending
+  const getAgentStatus = (agentRoleOrId: string): string => {
+    const jobAgents = (activeJob as any)?.agents || (activeJob as any)?.swarmAgents;
+    if (Array.isArray(jobAgents)) {
+      const match = jobAgents.find((a: any) =>
+        a.id?.toLowerCase() === agentRoleOrId.toLowerCase() ||
+        a.role?.toLowerCase()?.includes(agentRoleOrId.toLowerCase()) ||
+        a.name?.toLowerCase()?.includes(agentRoleOrId.toLowerCase())
+      );
+      if (match?.status) return match.status.toUpperCase();
+    }
+    if (phase === 'ANALYZING' && activeJob?.status === 'PROCESSING') {
+      return 'RUNNING';
+    }
+    return 'PENDING';
+  };
+
+  const agentAlphaStatus = getAgentStatus('ledger');
+  const agentBetaStatus = getAgentStatus('veritas');
+  const agentGammaStatus = getAgentStatus('euclid');
+  const agentSynthesizerStatus = getAgentStatus('sentinel');
+
+  const clearanceData = (lastCompletedJob as any)?.clearance || (activeJob as any)?.result?.clearance || (activeIntake as any)?.clearance;
+  const balanceIntegrity = clearanceData?.balanceIntegrity ?? 'PENDING REVIEW';
+  const gateStatus = clearanceData?.gateStatus ?? 'PENDING VERIFICATION';
+  const mathVariance = clearanceData?.variance !== undefined ? `${clearanceData.variance} Variance` : 'UNVERIFIED';
+  const opticalProvenance = clearanceData?.opticalProvenance ?? 'PENDING AUDIT';
+  const accountingIdentity = clearanceData?.accountingIdentity ?? 'NOT EVALUATED';
+  const sentinelSignOff = clearanceData?.sentinelSignOff ?? 'PENDING HUMAN REVIEW';
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -605,7 +630,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <span className="text-white font-mono">{currentStage.replace(/_/g, ' ')}</span>
                   </div>
                   <div className="text-slate-400">
-                    Units: <span className="text-white font-bold">{unitsCompleted}</span> / {unitsTotal}
+                    {unitsTotal !== null ? (
+                      <>Units: <span className="text-white font-bold">{unitsCompleted ?? 0}</span> / {unitsTotal}</>
+                    ) : (
+                      <>Files: <span className="text-white font-bold">{selectedFiles.length || 1}</span></>
+                    )}
                   </div>
                 </div>
               </div>
@@ -624,7 +653,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         agentAlphaStatus === 'COMPLETED'
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : agentAlphaStatus === 'ANALYZING'
+                          : agentAlphaStatus === 'RUNNING' || agentAlphaStatus === 'ANALYZING'
                           ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
                           : 'bg-slate-100 text-slate-500'
                       }`}>
@@ -634,7 +663,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <p className="text-[11px] text-slate-500">Financial Statements & Lead Schedules</p>
                     <div className="text-[11px] font-mono text-slate-700 flex justify-between pt-1 border-t border-slate-100">
                       <span>Statement Extraction:</span>
-                      <span className="font-bold text-blue-600">{agentAlphaStatus !== 'WAITING' ? 'Discovered' : 'Pending'}</span>
+                      <span className="font-bold text-blue-600">{agentAlphaStatus === 'COMPLETED' ? 'Extracted' : 'Pending'}</span>
                     </div>
                   </div>
 
@@ -645,7 +674,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         agentBetaStatus === 'COMPLETED'
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : agentBetaStatus === 'ANALYZING'
+                          : agentBetaStatus === 'RUNNING' || agentBetaStatus === 'ANALYZING'
                           ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
                           : 'bg-slate-100 text-slate-500'
                       }`}>
@@ -655,7 +684,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <p className="text-[11px] text-slate-500">Source Evidence & Bounding-Box Lineage</p>
                     <div className="text-[11px] font-mono text-slate-700 flex justify-between pt-1 border-t border-slate-100">
                       <span>Citations & Hashes:</span>
-                      <span className="font-bold text-blue-600">{agentBetaStatus !== 'WAITING' ? 'Verified' : 'Pending'}</span>
+                      <span className="font-bold text-blue-600">{agentBetaStatus === 'COMPLETED' ? 'Cited' : 'Pending'}</span>
                     </div>
                   </div>
 
@@ -666,7 +695,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         agentGammaStatus === 'COMPLETED'
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : agentGammaStatus === 'ANALYZING'
+                          : agentGammaStatus === 'RUNNING' || agentGammaStatus === 'ANALYZING'
                           ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
                           : 'bg-slate-100 text-slate-500'
                       }`}>
@@ -676,7 +705,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <p className="text-[11px] text-slate-500">Accounting Identities & Mathematical Tie-Out</p>
                     <div className="text-[11px] font-mono text-slate-700 flex justify-between pt-1 border-t border-slate-100">
                       <span>Identity Proofs:</span>
-                      <span className="font-bold text-blue-600">{agentGammaStatus !== 'WAITING' ? 'Tied Out' : 'Pending'}</span>
+                      <span className="font-bold text-blue-600">{agentGammaStatus === 'COMPLETED' ? 'Reconciled' : 'Pending'}</span>
                     </div>
                   </div>
 
@@ -687,7 +716,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         agentSynthesizerStatus === 'COMPLETED'
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : agentSynthesizerStatus === 'RECONCILING'
+                          : agentSynthesizerStatus === 'RUNNING' || agentSynthesizerStatus === 'RECONCILING'
                           ? 'bg-purple-50 text-purple-700 border border-purple-200 animate-pulse'
                           : 'bg-slate-100 text-slate-500'
                       }`}>
@@ -697,7 +726,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <p className="text-[11px] text-slate-500">Fail-Closed Gatekeeper & Sign-Off Readiness</p>
                     <div className="text-[11px] font-mono text-slate-700 flex justify-between pt-1 border-t border-slate-100">
                       <span>Gate Clearance:</span>
-                      <span className="font-bold text-purple-600">{agentSynthesizerStatus !== 'WAITING' ? 'Validated' : 'Pending'}</span>
+                      <span className="font-bold text-purple-600">{agentSynthesizerStatus === 'COMPLETED' ? 'Cleared' : 'Pending'}</span>
                     </div>
                   </div>
                 </div>
@@ -755,8 +784,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 </div>
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                   <div className="text-[10px] uppercase font-bold text-slate-400">Balance Integrity</div>
-                  <div className="text-lg font-extrabold text-emerald-600 font-mono mt-0.5">
-                    100% Valid
+                  <div className="text-xs font-extrabold text-slate-700 font-mono mt-1">
+                    {balanceIntegrity}
                   </div>
                 </div>
               </div>
@@ -765,15 +794,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2">
                 <div className="flex items-center justify-between font-bold text-slate-800">
                   <span>Audit Clearance Gate</span>
-                  <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded font-mono text-[10px]">
-                    PASSED • FAIL-CLOSED
+                  <span className="text-slate-700 bg-slate-100 px-2 py-0.5 rounded font-mono text-[10px]">
+                    {gateStatus}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 font-mono pt-1 border-t border-slate-200">
-                  <div>Mathematical Tie-Out: <span className="font-bold text-slate-800">0.00 Variance</span></div>
-                  <div>Optical Provenance: <span className="font-bold text-slate-800">100% Grounded</span></div>
-                  <div>Accounting Identity: <span className="font-bold text-slate-800">Assets = Liab + Eq</span></div>
-                  <div>Sentinel Sign-Off: <span className="font-bold text-emerald-600">Ready</span></div>
+                  <div>Mathematical Tie-Out: <span className="font-bold text-slate-800">{mathVariance}</span></div>
+                  <div>Optical Provenance: <span className="font-bold text-slate-800">{opticalProvenance}</span></div>
+                  <div>Accounting Identity: <span className="font-bold text-slate-800">{accountingIdentity}</span></div>
+                  <div>Sentinel Sign-Off: <span className="font-bold text-slate-700">{sentinelSignOff}</span></div>
                 </div>
               </div>
 

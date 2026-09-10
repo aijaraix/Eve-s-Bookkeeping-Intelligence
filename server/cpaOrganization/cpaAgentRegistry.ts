@@ -1632,7 +1632,7 @@ export class CPAAgentRegistry {
     // 5. Memory Persistence — Pre-enforce write authority for Hermes
     const hermesWriteAuth = this.enforceAuthority('eve-hermes', {
       actionType: 'WRITE',
-      writeType: 'audit_memory'
+      writeType: 'WORK_DISPATCH'
     });
     if (!hermesWriteAuth.authorized) {
       throw new Error(`[UNAUTHORIZED_OPERATION]: Hermes write unauthorized: ${hermesWriteAuth.reason}`);

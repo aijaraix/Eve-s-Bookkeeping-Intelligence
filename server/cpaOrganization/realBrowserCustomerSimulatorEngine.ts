@@ -56,7 +56,10 @@ export interface RealBrowserJourneyResult {
 export class RealBrowserCustomerSimulatorEngine {
   private static instance: RealBrowserCustomerSimulatorEngine;
   private readonly customerStagingDir = path.join(process.cwd(), 'storage', 'cpa_memory', 'customer_staging');
-  private readonly appBaseUrl = 'http://127.0.0.1:3000';
+
+  public getAppBaseUrl(): string {
+    return process.env.EVE_APP_BASE_URL || 'http://127.0.0.1:3000';
+  }
 
   private constructor() {
     if (!fs.existsSync(this.customerStagingDir)) {
@@ -102,6 +105,28 @@ export class RealBrowserCustomerSimulatorEngine {
     } catch (_) {}
 
     throw new Error('MISSING_BROWSER_EXECUTABLE: No valid Chrome or Chromium executable found in container environment.');
+  }
+
+  /**
+   * Authoritative validator for the server upload acknowledgement contract.
+   * Fails closed if intakeSessionId or authoritative hash is missing.
+   */
+  public validateUploadAcknowledgement(uploadResult: any): { intakeSessionId: string; intakeSha256: string } {
+    if (!uploadResult || typeof uploadResult !== 'object') {
+      throw new Error('[RealBrowserCustomerSimulator] Upload acknowledgement payload is invalid or empty.');
+    }
+    if (uploadResult.success === false) {
+      throw new Error(`[RealBrowserCustomerSimulator] Server upload explicitly rejected: ${uploadResult.error || 'Upload error'}`);
+    }
+    const intakeSessionId = uploadResult.intakeSessionId || uploadResult.intakeSession?.id;
+    if (!intakeSessionId) {
+      throw new Error('[RealBrowserCustomerSimulator] Server upload response missing required acknowledgement ID (intakeSessionId). Journey failed.');
+    }
+    const intakeSha256 = uploadResult.sha256 || uploadResult.documentHash || uploadResult.documents?.[0]?.sha256 || uploadResult.intakeSession?.files?.[0]?.sha256;
+    if (!intakeSha256) {
+      throw new Error('[RealBrowserCustomerSimulator] Server upload response missing authoritative intake SHA256. Journey failed.');
+    }
+    return { intakeSessionId, intakeSha256 };
   }
 
   /**
@@ -175,13 +200,14 @@ export class RealBrowserCustomerSimulatorEngine {
 
       // Step 2: Navigate to Eve Application
       const tNav = Date.now();
-      const navResponse = await page.goto(this.appBaseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const baseUrl = this.getAppBaseUrl();
+      const navResponse = await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
       if (!navResponse || !navResponse.ok()) {
         const navStatus = navResponse ? navResponse.status() : 'NO_RESPONSE';
-        throw new Error(`[RealBrowserCustomerSimulator] Navigation to ${this.appBaseUrl} failed with HTTP status ${navStatus}`);
+        throw new Error(`[RealBrowserCustomerSimulator] Navigation to ${baseUrl} failed with HTTP status ${navStatus}`);
       }
       const title = await page.title();
-      recordStep(2, 'Navigate to Eve CPA Studio', this.appBaseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}"`, tNav);
+      recordStep(2, 'Navigate to Eve CPA Studio', baseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}"`, tNav);
 
       // Step 3: Establish Client & Engagement in DOM UI
       const tClient = Date.now();
@@ -247,7 +273,7 @@ export class RealBrowserCustomerSimulatorEngine {
 
         const onResponse = async (response: any) => {
           const url = response.url();
-          if (url.includes('/api/documents/upload') || url.includes('/api/cpa/intake/upload') || url.includes('/upload')) {
+          if (url.includes('/api/documents/upload') && response.request().method() === 'POST') {
             try {
               const json = await response.json();
               observedResponseBody = json;
@@ -264,7 +290,7 @@ export class RealBrowserCustomerSimulatorEngine {
 
         page.on('request', (req: any) => {
           const url = req.url();
-          if (url.includes('/api/documents/upload') || url.includes('/api/cpa/intake/upload') || url.includes('/upload')) {
+          if (url.includes('/api/documents/upload') && req.method() === 'POST') {
             observedRequest = {
               url,
               method: req.method()
@@ -283,12 +309,8 @@ export class RealBrowserCustomerSimulatorEngine {
       const tNet = Date.now();
       const uploadResult = await networkPromise;
 
-      if (!uploadResult || (!uploadResult.success && !uploadResult.intakeSessionId && !uploadResult.queueJobId)) {
-        throw new Error(`[RealBrowserCustomerSimulator] Frontend network upload failed or unacknowledged: ${JSON.stringify(uploadResult)}`);
-      }
-
-      const intakeSessionId = uploadResult.intakeSessionId || uploadResult.intakeSession?.id || `intake-${Date.now()}`;
-      const intakeSha256 = uploadResult.sha256 || uploadResult.documentHash || uploadResult.documents?.[0]?.sha256 || browserUploadSha256;
+      // Authoritative validation of server response — fail closed, no manufactured fallbacks
+      const { intakeSessionId, intakeSha256 } = this.validateUploadAcknowledgement(uploadResult);
 
       recordStep(
         9,

@@ -17,7 +17,7 @@ import {
   FirmBranding,
   UserSession
 } from '../types';
-import { mockCompanies, mockFindings, mockSwarmAgents } from '../data/mockData';
+import { mockCompanies, mockFindings } from '../data/mockData';
 import {
   fetchWorkspaces,
   fetchFacts,
@@ -127,22 +127,91 @@ export interface PracticeContextType {
 }
 
 const defaultBranding: FirmBranding = {
-  firmName: "Eve's CPA & Advisory LLP",
-  partnerName: 'Managing Partner, CPA / CA',
-  licenseNumber: 'CPA-PCAOB-982410',
-  address: '100 Financial Center Blvd, Suite 4000, New York, NY 10005',
-  firmAddress: '100 Financial Center Blvd, Suite 4000, New York, NY 10005',
-  opinionType: 'Unqualified / Clean Opinion'
+  firmName: "Eve CPA Practice",
+  partnerName: '',
+  licenseNumber: '',
+  address: '',
+  firmAddress: '',
+  opinionType: 'Pending Review'
 };
 
 const defaultSession: UserSession = {
-  id: 'user-cpa-1',
-  email: 'stevestein4454@gmail.com',
-  name: 'Steve Stein, CPA',
-  role: 'CPA Lead Partner',
-  organization: 'Stein & Associates Audit LLP',
-  isAuthenticated: true
+  id: '',
+  email: '',
+  name: 'Unauthenticated User',
+  role: 'Viewer',
+  organization: '',
+  isAuthenticated: false
 };
+
+const initialSwarmAgents: SwarmAgentStatus[] = [
+  {
+    id: 'arithmetic_reconciler',
+    name: 'Arithmetic Reconciler',
+    role: 'Row sum validation, cross-statement matrix consistency, delta auditing',
+    status: 'idle',
+    confidence: 0,
+    checksCount: 0,
+    discrepanciesFound: 0,
+    lastExecution: 'Not executed',
+    avatar: 'Σ',
+  },
+  {
+    id: 'scale_verifier',
+    name: 'Scale & Magnitude Verifier',
+    role: 'Unit detection (thousands vs millions), restatement scalar normalization',
+    status: 'idle',
+    confidence: 0,
+    checksCount: 0,
+    discrepanciesFound: 0,
+    lastExecution: 'Not executed',
+    avatar: '10ⁿ',
+  },
+  {
+    id: 'currency_verifier',
+    name: 'Currency Provenance Verifier',
+    role: 'ISO currency symbol tracking, FX translation footnote alignment',
+    status: 'idle',
+    confidence: 0,
+    checksCount: 0,
+    discrepanciesFound: 0,
+    lastExecution: 'Not executed',
+    avatar: '€/$',
+  },
+  {
+    id: 'discrepancy_auditor',
+    name: 'Discrepancy Auditor',
+    role: 'Footnote-to-statement variance detection, retroactive restatements',
+    status: 'idle',
+    confidence: 0,
+    checksCount: 0,
+    discrepanciesFound: 0,
+    lastExecution: 'Not executed',
+    avatar: 'Δ',
+  },
+  {
+    id: 'note_auditor',
+    name: 'Footnote Disclosure Cross-Auditor',
+    role: 'Cross-checks note references against table data, verifies completeness',
+    status: 'idle',
+    confidence: 0,
+    checksCount: 0,
+    discrepanciesFound: 0,
+    lastExecution: 'Not executed',
+    avatar: '¶',
+  },
+  {
+    id: 'restatement_tracker',
+    name: 'Restatement & Prior Period Tracker',
+    role: 'Compares current prior-year columns to original filings, flags restatements',
+    status: 'idle',
+    confidence: 0,
+    checksCount: 0,
+    discrepanciesFound: 0,
+    lastExecution: 'Not executed',
+    avatar: '↺',
+  },
+];
 
 const PracticeContext = createContext<PracticeContextType | undefined>(undefined);
 
@@ -165,7 +234,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // Swarm & Queue
   const [swarmStatus, setSwarmStatus] = useState<any>(null);
-  const [swarmAgents, setSwarmAgents] = useState<SwarmAgentStatus[]>(mockSwarmAgents);
+  const [swarmAgents, setSwarmAgents] = useState<SwarmAgentStatus[]>(initialSwarmAgents);
   const [isSwarmRunning, setIsSwarmRunning] = useState(false);
   const [queueJobs, setQueueJobs] = useState<QueueJobStatus[]>([]);
   const [activeJob, setActiveJob] = useState<QueueJobStatus | null>(null);
@@ -307,7 +376,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
             scale: 'millions',
             fiscalYear: eng.period || 'FY 2025',
             auditStatus: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Clean Opinion' : 'Under Review',
-            verificationScore: eng.minervaOverallScore || 99.4
+            verificationScore: typeof eng.minervaOverallScore === 'number' ? eng.minervaOverallScore : 0
           }));
           combinedCompanies.push(...univMapped);
         }
@@ -356,26 +425,39 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
     setIsSwarmRunning(true);
     setSwarmAgents((prev) => prev.map((a) => ({ ...a, status: 'running' })));
     try {
-      await fetch('/api/swarm/run', {
+      const res = await fetch('/api/swarm/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId: selectedWorkspaceId })
       });
-      await loadWorkspaceData(selectedWorkspaceId);
-    } catch {
-      // offline simulation
-    } finally {
-      setTimeout(() => {
+      if (!res.ok) {
+        throw new Error(`Swarm run failed with status ${res.status}`);
+      }
+      const data = await res.json().catch(() => ({}));
+      if (Array.isArray(data.agents)) {
+        setSwarmAgents(data.agents);
+      } else {
         setSwarmAgents((prev) =>
           prev.map((a) => ({
             ...a,
             status: 'completed',
-            checksCount: a.checksCount + Math.floor(Math.random() * 15 + 5),
             lastExecution: 'Just now'
           }))
         );
-        setIsSwarmRunning(false);
-      }, 1000);
+      }
+      await loadWorkspaceData(selectedWorkspaceId);
+    } catch (err) {
+      console.warn('[PracticeContext] Swarm run failed:', err);
+      // Fail closed: do not manufacture checks or pretend completion on failure
+      setSwarmAgents((prev) =>
+        prev.map((a) => ({
+          ...a,
+          status: 'idle',
+          lastExecution: 'Execution failed / Unverified'
+        }))
+      );
+    } finally {
+      setIsSwarmRunning(false);
     }
   };
 

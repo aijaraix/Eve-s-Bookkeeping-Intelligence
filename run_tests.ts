@@ -25,6 +25,7 @@ import { runPhaseH912BTests } from "./server/tests/phaseH912B.test.js";
 import { runPhaseH913TestSuite } from "./server/tests/phaseH913.test.js";
 import { runPhaseH944ConformanceTests } from "./server/tests/phaseH944Conformance.test.js";
 import { runPhaseH945BehavioralTruthTests } from "./server/tests/phaseH945BehavioralTruth.test.js";
+import { runPhasePackageA2BrowserTruthTests } from "./server/tests/phasePackageA2BrowserTruth.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -682,6 +683,15 @@ assert(
   h945Res.passed === h945Res.total && h945Res.total === 10,
   `Phase H.9.45 Suite failed (${h945Res.total - h945Res.passed} failures)`,
   "All 10/10 Phase H.9.45 Behavioral Truth & Agent Authority tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE A2: BROWSER TRUTH & CUSTOMER UI VERIFICATION (DOC 35)]${colors.reset}`);
+const pkgA2Res = await runPhasePackageA2BrowserTruthTests();
+assert(
+  "Package A2 Browser Truth & UI Verification Suite (13/13 Passed)",
+  pkgA2Res.passed === 13 && pkgA2Res.failed === 0,
+  `Package A2 Suite failed (${pkgA2Res.failed} failures)`,
+  "All 13/13 Package A2 Browser Truth & UI Verification tests passed cleanly."
 );
 
 
