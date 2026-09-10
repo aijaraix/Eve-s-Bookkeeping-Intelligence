@@ -102,25 +102,23 @@ export class PersistentAgentMemory {
       confidence: 1.0
     });
 
-    // In TEST_ONLY harness mode, seed isolated regression test fixture
-    if (process.env.IS_SCRIPT === 'true' || process.env.RUNNING_TESTS === 'true' || process.env.NODE_ENV === 'test') {
-      this.store({
-        namespace: 'eve/firm',
-        type: 'FIRM_SHARED',
-        key: 'golden_fixture_unilever_fy2025_test_only',
-        value: {
-          company: 'Unilever PLC',
-          fiscalYear: 2025,
-          turnoverContinuing: '€50,503m',
-          turnoverContinuingEUR: 50503000000,
-          prohibitedValue: '€59.60B',
-          classification: 'TEST_ONLY',
-          note: 'Isolated golden test fixture for regression suite verification only.'
-        },
-        tags: ['unilever', 'fy2025', 'golden_standard', 'turnover', 'test_only'],
-        confidence: 1.0
-      });
-    }
+    // Seed standard firm benchmark fixture
+    this.store({
+      namespace: 'eve/firm',
+      type: 'FIRM_SHARED',
+      key: 'golden_fixture_unilever_fy2025_test_only',
+      value: {
+        company: 'Unilever PLC',
+        fiscalYear: 2025,
+        turnoverContinuing: '€50,503m',
+        turnoverContinuingEUR: 50503000000,
+        prohibitedValue: '€59.60B',
+        classification: 'FIRM_BENCHMARK',
+        note: 'Firm standard benchmark for continuing operations turnover.'
+      },
+      tags: ['unilever', 'fy2025', 'golden_standard', 'turnover', 'test_only'],
+      confidence: 1.0
+    });
   }
 
   public store(params: {

@@ -9,6 +9,10 @@
  *   fail-closed verification gate check, and provenance integrity scoring.
  */
 
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+
 export interface BenchmarkTestCase {
   id: string;
   category: 'GOLDEN_STANDARD' | 'MULTI_CURRENCY' | 'CONSOLIDATION' | 'ADVERSARIAL_OCR' | 'FAIL_CLOSED';
@@ -213,6 +217,81 @@ export class AcademyMinervaLab {
 
   public getBenchmarkById(id: string): BenchmarkTestCase | undefined {
     return this.sealedCorpus.find(c => c.id === id);
+  }
+
+  public evaluateAuthoritativePhysicalSource(filePath: string): {
+    passed: boolean;
+    certifiedStatus: string;
+    details: string[];
+    score: number;
+    fileSizeBytes?: number;
+    sha256?: string;
+  } {
+    const fullPath = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
+    if (!fs.existsSync(fullPath)) {
+      return {
+        passed: false,
+        certifiedStatus: 'REJECTED_SOURCE_NOT_FOUND',
+        details: [`File not found at path: ${fullPath}`],
+        score: 0
+      };
+    }
+
+    const fileBytes = fs.readFileSync(fullPath);
+    const size = fileBytes.length;
+    const sha256 = crypto.createHash('sha256').update(fileBytes).digest('hex');
+
+    // Reject files that are too small or obviously synthetic dummy files
+    if (size < 1000) {
+      return {
+        passed: false,
+        certifiedStatus: 'REJECTED_INSUFFICIENT_SIZE',
+        details: [`Physical source size ${size} bytes is below minimum authoritative filing threshold`],
+        score: 0,
+        fileSizeBytes: size,
+        sha256
+      };
+    }
+
+    const contentSnippet = fileBytes.toString('utf8', 0, Math.min(size, 2000000)).toLowerCase();
+    
+    // Check if file is synthetic padded dummy or lacks required financial statement markers
+    const hasFinancialMarkers = 
+      contentSnippet.includes('balance sheet') ||
+      contentSnippet.includes('statement of operations') ||
+      contentSnippet.includes('statements of income') ||
+      contentSnippet.includes('statement of financial position') ||
+      contentSnippet.includes('statement of cash flows') ||
+      contentSnippet.includes('ix:nonfraction') ||
+      contentSnippet.includes('xbrl');
+
+    const isSyntheticDummy = contentSnippet.includes('synthetic_dummy_marker') ||
+      (contentSnippet.includes('dummy') && !hasFinancialMarkers) ||
+      (size < 50000 && !hasFinancialMarkers);
+
+    if (isSyntheticDummy || !hasFinancialMarkers) {
+      return {
+        passed: false,
+        certifiedStatus: 'REJECTED_SYNTHETIC_OR_UNSTRUCTURED',
+        details: ['Source file lacks authentic financial statements, tables, or XBRL taxonomy elements'],
+        score: 0,
+        fileSizeBytes: size,
+        sha256
+      };
+    }
+
+    return {
+      passed: true,
+      certifiedStatus: 'CERTIFIED_PHYSICAL_SOURCE',
+      details: [
+        'Authoritative physical filing structure verified',
+        `Size: ${size} bytes`,
+        `SHA-256: ${sha256.slice(0, 16)}...`
+      ],
+      score: 100,
+      fileSizeBytes: size,
+      sha256
+    };
   }
 }
 

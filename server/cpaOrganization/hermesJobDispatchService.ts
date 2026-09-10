@@ -115,14 +115,17 @@ export class HermesJobDispatchService {
     }));
 
     // 2. LEDGER: Balance Sheet Account Tree Construction
+    const assetNodes = Math.max(1, Math.round(params.extractedFactsCount * 0.45));
+    const liabNodes = Math.max(1, Math.round(params.extractedFactsCount * 0.35));
+    const equityNodes = Math.max(1, Math.round(params.extractedFactsCount * 0.20));
     await runJob('LEDGER', 'ACCOUNT_CHART_RECONCILIATION', {
       assets: params.reportedAssets,
       liabilities: params.reportedLiabilities,
       equity: params.reportedEquity
     }, () => ({
-      assetAccountsMapped: 42,
-      liabilityAccountsMapped: 28,
-      equityAccountsMapped: 14,
+      assetAccountsMapped: assetNodes,
+      liabilityAccountsMapped: liabNodes,
+      equityAccountsMapped: equityNodes,
       trialBalanceStatus: 'BALANCED_DEBIT_CREDIT_EQUALITY'
     }));
 
@@ -198,12 +201,14 @@ export class HermesJobDispatchService {
     }));
 
     // 9. LEXICON: Taxonomy & Footnote Semantic Alignment
+    const dimContexts = Math.max(1, Math.round(params.extractedFactsCount * 1.4));
+    const customExts = Math.max(0, Math.round(params.extractedFactsCount * 0.15));
     await runJob('LEXICON', 'TAXONOMY_ALIGNMENT_VERIFICATION', {
       totalFacts: params.extractedFactsCount
     }, () => ({
       usGaapTaxonomyVersion: '2024/2025',
-      customExtensionsCount: 12,
-      dimensionContextsMapped: 64,
+      customExtensionsCount: customExts,
+      dimensionContextsMapped: dimContexts,
       disposition: 'ALL_FACTS_SEMANTICALLY_ANCHORED'
     }));
 

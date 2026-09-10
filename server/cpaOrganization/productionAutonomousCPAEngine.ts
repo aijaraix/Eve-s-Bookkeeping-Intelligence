@@ -154,10 +154,10 @@ export class ProductionAutonomousCPAEngine {
       const tablesCount = (htmlContent.match(/<table/gi) || []).length;
       const xbrlCount = (htmlContent.match(/<ix:nonFraction/gi) || []).length;
 
-      // Extract balance sheet values if present in XBRL, or derive standard verified structure
-      let reportedAssets = 8900000000;
-      let reportedLiabilities = 1412000000;
-      let reportedEquity = 7488000000;
+      // Extract balance sheet values authoritatively from document
+      let reportedAssets = 0;
+      let reportedLiabilities = 0;
+      let reportedEquity = 0;
 
       // Scan for actual XBRL balance sheet figures
       const assetsMatch = htmlContent.match(/name=["']us-gaap:Assets["'][^>]*>(.*?)<\/ix:nonFraction>/i);
@@ -175,6 +175,35 @@ export class ProductionAutonomousCPAEngine {
         }
       }
 
+      // Fallback to table extraction if IX tags missing
+      if (reportedAssets === 0) {
+        const extractMetricFromTable = (pattern: RegExp): number => {
+          const match = htmlContent.match(pattern);
+          if (match && match[1]) {
+            const num = parseFloat(match[1].replace(/[^0-9.-]/g, ''));
+            return isNaN(num) ? 0 : num;
+          }
+          return 0;
+        };
+        const tableAssets = extractMetricFromTable(/Total\s+Assets[^\d]*?(\$?[\d,]+(\.\d+)?)/i);
+        const tableLiab = extractMetricFromTable(/Total\s+Liabilities[^\d]*?(\$?[\d,]+(\.\d+)?)/i);
+        const tableEq = extractMetricFromTable(/Total\s+(?:Stockholders['’]|Shareholders['’]|Equity)[^\d]*?(\$?[\d,]+(\.\d+)?)/i);
+        
+        if (tableAssets > 0 && tableLiab > 0 && tableEq > 0 && Math.abs(tableAssets - (tableLiab + tableEq)) < 1) {
+          reportedAssets = tableAssets;
+          reportedLiabilities = tableLiab;
+          reportedEquity = tableEq;
+        } else if (tableAssets > 0 && tableLiab > 0) {
+          reportedAssets = tableAssets;
+          reportedLiabilities = tableLiab;
+          reportedEquity = tableAssets - tableLiab;
+        }
+      }
+
+      if (reportedAssets === 0) {
+        throw new Error(`[ProductionAutonomousCPAEngine] Fail-Closed: Unable to authoritatively extract verified balance sheet figures from physical filing ${acquisition.physicalFilePath}`);
+      }
+
       // 7. Real Hermes Multi-Agent Specialist Swarm
       console.log(`[Stage 7/11] Dispatching Hermes multi-agent specialist work contracts...`);
       const swarmSummary = await hermesJobDispatchService.executeCpaSpecialistSwarm({
@@ -187,7 +216,7 @@ export class ProductionAutonomousCPAEngine {
         reportedEquity,
         sourceFilePath: acquisition.physicalFilePath,
         sourceSha256: acquisition.actualSha256,
-        extractedFactsCount: Math.max(xbrlCount, 45)
+        extractedFactsCount: xbrlCount
       });
 
       // 8. Deliverable Package Generation
@@ -219,10 +248,10 @@ export class ProductionAutonomousCPAEngine {
         reportedAssets,
         reportedLiabilities,
         reportedStockholdersEquity: reportedEquity,
-        leafElementsDetected: Math.max(leafCount, 250),
-        totalTablesDetected: Math.max(tablesCount, 12),
-        totalXbrlFactsDetected: Math.max(xbrlCount, 45),
-        totalAtomicDataPointsDetected: Math.max(xbrlCount, 45)
+        leafElementsDetected: leafCount,
+        totalTablesDetected: tablesCount,
+        totalXbrlFactsDetected: xbrlCount,
+        totalAtomicDataPointsDetected: xbrlCount + leafCount
       });
 
       if (internalAuditReport.status !== 'INTERNAL_AUDIT_PASSED') {
@@ -255,8 +284,8 @@ export class ProductionAutonomousCPAEngine {
         browserSessionId: browserResult.browserSessionId,
         browserVersion: browserResult.browserVersion,
         hashContinuityVerified: true,
-        leafElementsCount: Math.max(leafCount, 250),
-        extractedFactsCount: Math.max(xbrlCount, 45),
+        leafElementsCount: leafCount,
+        extractedFactsCount: xbrlCount,
         reportedAssets,
         reportedLiabilities,
         reportedEquity,

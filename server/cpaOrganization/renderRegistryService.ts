@@ -394,9 +394,9 @@ export class RenderRegistryService {
   }
 
   public traceSourceToRender(factLineageId: string): ServerRenderEntry[] {
-    return Array.from(this.renders.values()).filter(
-      r => r.factLineageId === factLineageId || r.canonicalFactId === factLineageId
-    );
+    return Array.from(this.renders.values())
+      .filter(r => r.factLineageId === factLineageId || r.canonicalFactId === factLineageId)
+      .reverse();
   }
 
   public traceRenderToSource(renderId: string): {
