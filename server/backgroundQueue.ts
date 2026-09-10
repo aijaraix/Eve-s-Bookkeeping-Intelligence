@@ -78,10 +78,14 @@ export class BackgroundIngestionQueue {
     }
 
     if (!forceNow) {
-      return new Promise<void>((resolve) => {
+      return new Promise<void>((resolve, reject) => {
         saveDiskTimeout = setTimeout(async () => {
-          await this.performDiskSave();
-          resolve();
+          try {
+            await this.performDiskSave();
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
         }, 500);
       });
     }
@@ -89,56 +93,56 @@ export class BackgroundIngestionQueue {
     return this.performDiskSave();
   }
 
-  private async performDiskSave(): Promise<void> {
-    if (isSavingDisk) return;
-    isSavingDisk = true;
-    try {
-      const queueFile = getQueueFile();
-      const storageDir = path.dirname(queueFile);
-      if (!fs.existsSync(storageDir)) {
-        await fs.promises.mkdir(storageDir, { recursive: true });
+  public async performDiskSave(): Promise<void> {
+    const queueFile = getQueueFile();
+    const storageDir = path.dirname(queueFile);
+    if (!fs.existsSync(storageDir)) {
+      await fs.promises.mkdir(storageDir, { recursive: true });
+    }
+
+    const prepareJobForStorage = (job: QueueJob) => {
+      const { textData, ...jobCopy } = job;
+
+      const cleanUnits = jobCopy.processingUnits?.map(u => ({
+        ...u,
+        unit_text: undefined,
+        textData: typeof u.textData === 'string' && u.textData.length > 500
+          ? u.textData.substring(0, 500) + "... [truncated]"
+          : u.textData
+      }));
+
+      let cleanResult = jobCopy.result;
+      if (cleanResult) {
+        cleanResult = {
+          ...cleanResult,
+          agentLogs: cleanResult.agentLogs?.map(log => ({
+            ...log,
+            prompt: undefined,
+            response: undefined
+          }))
+        };
       }
 
-      const prepareJobForStorage = (job: QueueJob) => {
-        const { textData, ...jobCopy } = job;
-
-        const cleanUnits = jobCopy.processingUnits?.map(u => ({
-          ...u,
-          unit_text: undefined,
-          textData: typeof u.textData === 'string' && u.textData.length > 500
-            ? u.textData.substring(0, 500) + "... [truncated]"
-            : u.textData
-        }));
-
-        let cleanResult = jobCopy.result;
-        if (cleanResult) {
-          cleanResult = {
-            ...cleanResult,
-            agentLogs: cleanResult.agentLogs?.map(log => ({
-              ...log,
-              prompt: undefined,
-              response: undefined
-            }))
-          };
-        }
-
-        return {
-          ...jobCopy,
-          processingUnits: cleanUnits,
-          result: cleanResult
-        };
+      return {
+        ...jobCopy,
+        processingUnits: cleanUnits,
+        result: cleanResult
       };
+    };
 
-      const serializableJobs = Array.from(this.jobs.values()).map(prepareJobForStorage);
-      const jsonString = JSON.stringify(serializableJobs);
+    const serializableJobs = Array.from(this.jobs.values()).map(prepareJobForStorage);
+    const jsonString = JSON.stringify(serializableJobs, null, 2);
 
-      const tempFile = `${queueFile}.tmp`;
+    const tempFile = `${queueFile}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
+    try {
       await fs.promises.writeFile(tempFile, jsonString, "utf-8");
       await fs.promises.rename(tempFile, queueFile);
-    } catch (err) {
-      console.error("[Hermes Queue] Failed to save queue asynchronously to disk:", err);
-    } finally {
-      isSavingDisk = false;
+    } catch (err: any) {
+      try {
+        if (fs.existsSync(tempFile)) await fs.promises.unlink(tempFile);
+      } catch {}
+      console.error("[Hermes Queue] Failed to save queue to disk:", err);
+      throw new Error(`[Hermes Queue] Durable queue persistence failed: ${err?.message || err}`);
     }
   }
 
@@ -336,16 +340,18 @@ export class BackgroundIngestionQueue {
     sourceBlocks?: any[],
     intakeSessionId?: string,
     engineMode?: string,
-    documentHash?: string
+    documentHash?: string,
+    customerPriorityJobId?: string
   ): QueueJob {
     if (!workspaceId) {
       throw new Error("Mandatory workspaceId (projectId) missing for ingestion session. Workers cannot create orphan jobs.");
     }
 
     const existingJob = Array.from(this.jobs.values()).find(j =>
-      (j.workspaceId === workspaceId || (intakeSessionId && j.intakeSessionId === intakeSessionId)) &&
+      (j.id === customerPriorityJobId) ||
+      ((j.workspaceId === workspaceId || (intakeSessionId && j.intakeSessionId === intakeSessionId)) &&
       j.documentId === documentId &&
-      (j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "WAITING_FOR_LLM" || j.status === "RATE_LIMITED" || j.status === "STALLED" || j.status === "RECOVERING")
+      (j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "WAITING_FOR_LLM" || j.status === "RATE_LIMITED" || j.status === "STALLED" || j.status === "RECOVERING"))
     );
 
     if (existingJob) {
@@ -356,7 +362,7 @@ export class BackgroundIngestionQueue {
       return existingJob;
     }
 
-    const jobId = `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const jobId = customerPriorityJobId || `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const units: ProcessingUnit[] = [];
 
     const isPdf = (filePath || "").toLowerCase().endsWith(".pdf") || documentTitle.toLowerCase().endsWith(".pdf") || (pageManifests && pageManifests.length > 0);

@@ -31,21 +31,31 @@ export class IntakeService {
     }
   }
 
-  private saveToDiskAsync(): Promise<void> {
-    return new Promise((resolve) => {
+  public saveToDisk(): void {
+    const file = getIntakeSessionsFile();
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const list = Array.from(this.intakeSessions.values());
+    const tempFile = `${file}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
+    try {
+      const fd = fs.openSync(tempFile, 'w');
+      const data = JSON.stringify(list, null, 2);
+      fs.writeSync(fd, data);
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fs.renameSync(tempFile, file);
+    } catch (err: any) {
       try {
-        const file = getIntakeSessionsFile();
-        const dir = path.dirname(file);
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-        const list = Array.from(this.intakeSessions.values());
-        fs.writeFileSync(file, JSON.stringify(list, null, 2), 'utf-8');
-      } catch (err) {
-        console.error('[IntakeService] Failed to save intake sessions to disk:', err);
-      }
-      resolve();
-    });
+        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      } catch {}
+      throw new Error(`[IntakeService] Durable intake session persistence failed: ${err?.message || err}`);
+    }
+  }
+
+  public async saveToDiskAsync(): Promise<void> {
+    this.saveToDisk();
   }
 
   public createIntakeSession(params: {
@@ -102,7 +112,12 @@ export class IntakeService {
     };
 
     this.intakeSessions.set(intakeId, session);
-    this.saveToDiskAsync();
+    try {
+      this.saveToDisk();
+    } catch (saveErr) {
+      this.intakeSessions.delete(intakeId);
+      throw saveErr;
+    }
     console.log(`[IntakeService] Created Intake Session ${intakeId} with ${params.uploadedFiles.length} file(s).`);
     return session;
   }

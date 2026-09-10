@@ -43,6 +43,7 @@ import { learningRegistry } from "./server/learningRegistry.js";
 import { app as workerApp } from "./server/worker.js";
 import { createCPAOrganizationRouter } from "./server/cpaOrganization/cpaOrganizationRoutes.js";
 import { universalEngagementManager } from "./server/cpaOrganization/universalEngagementModel.js";
+import { informationCustodyEngine } from "./server/cpaOrganization/informationCustodyEngine.js";
 import {
   persistFactStatus,
   persistFactConfidence,
@@ -2879,12 +2880,14 @@ app.post("/api/documents/upload", (req, res) => {
         pagesTotal: preParsedDocs.reduce((acc, p) => acc + (p.canonicalDoc?.metadata?.pages || 1), 0)
       });
 
+      const customerPriorityJobId = `JOB-INTAKE-${intakeSession.id}`;
       const createdQueueJobs: any[] = [];
       preParsedDocs.forEach((p, idx) => {
         const docRec = newDocs[idx];
         if (docRec) {
           (docRec as any).engineMode = effectiveEngineMode;
           const docText = p.canonicalDoc?.markdown || (Array.isArray(p.canonicalDoc?.sections) ? p.canonicalDoc.sections.map((s: any) => s.text || '').join("\n") : '') || p.file.buffer?.toString("utf-8") || "";
+          const assignedJobId = idx === 0 ? customerPriorityJobId : `JOB-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
           const job = backgroundIngestionQueue.createJob(
             ws ? ws.id : intakeSession.id,
             docRec.id,
@@ -2896,17 +2899,38 @@ app.post("/api/documents/upload", (req, res) => {
             p.canonicalDoc?.sourceBlocks,
             intakeSession.id,
             effectiveEngineMode,
-            docRec.sha256
+            docRec.sha256,
+            assignedJobId
           );
           createdQueueJobs.push(job);
+
+          // Register DataCustodyEnvelope for physical document
+          try {
+            informationCustodyEngine.registerIntakeCustodyEnvelope({
+              documentId: docRec.id,
+              filename: docRec.filename,
+              sha256: docRec.sha256 || p.inspection?.hash || "",
+              filePath: docRec.filePath || "",
+              fileSizeBytes: docRec.size || 0,
+              intakeSessionId: intakeSession.id,
+              projectId: ws ? ws.id : intakeSession.id,
+              customerPriorityJobId: assignedJobId
+            });
+          } catch (custodyErr) {
+            console.error(`[Intake Custody] Failed to register custody envelope for doc ${docRec.id}:`, custodyErr);
+          }
         }
       });
+
+      // Synchronously verify and persist queue state to disk
+      await backgroundIngestionQueue.performDiskSave();
 
       saveStorage();
       return res.json({
         success: true,
         intakeSessionId: intakeSession.id,
-        queueJobId: createdQueueJobs[0]?.id || null,
+        customerPriorityJobId,
+        queueJobId: customerPriorityJobId,
         uploadIntent: uploadIntent || 'CREATE_NEW_INTAKE',
         targetProjectId: ws ? ws.id : null,
         documentIds: newDocs.map(d => d.id),

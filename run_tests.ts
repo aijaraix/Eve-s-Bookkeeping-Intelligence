@@ -28,6 +28,7 @@ import { runPhaseH945BehavioralTruthTests } from "./server/tests/phaseH945Behavi
 import { runPhasePackageA2BrowserTruthTests } from "./server/tests/phasePackageA2BrowserTruth.test.js";
 import { runPhasePackageA3BrowserTruthTests } from "./server/tests/phasePackageA3BrowserTruth.test.js";
 import { runPhasePackageA4BrowserProofTests } from "./server/tests/phasePackageA4BrowserProof.test.js";
+import { runPhasePackageB1TransactionalIntakeTests } from "./server/tests/phasePackageB1TransactionalIntake.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -712,6 +713,15 @@ assert(
   pkgA4Res.passed === 6 && pkgA4Res.failed === 0,
   `Package A4 Suite failed (${pkgA4Res.failed} failures)`,
   "All 6/6 Package A4 Browser Proof Semantics Cleanup tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B1: TRANSACTIONAL INTAKE & ONE DURABLE JOB IDENTITY (DOC 35)]${colors.reset}`);
+const pkgB1Res = await runPhasePackageB1TransactionalIntakeTests();
+assert(
+  "Package B1 Transactional Intake & One Durable Job Identity Suite (14/14 Passed)",
+  pkgB1Res.passed === 14 && pkgB1Res.failed === 0,
+  `Package B1 Suite failed (${pkgB1Res.failed} failures)`,
+  "All 14/14 Package B1 Transactional Intake & One Durable Job Identity tests passed cleanly."
 );
 
 

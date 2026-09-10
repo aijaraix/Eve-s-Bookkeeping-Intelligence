@@ -131,6 +131,7 @@ export interface UploadDocumentsResult {
   error?: string;
   intakeSessionId?: string;
   queueJobId?: string;
+  customerPriorityJobId?: string;
   workspace?: Workspace | null;
   documents?: DocumentRecord[];
   factsCount?: number;

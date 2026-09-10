@@ -493,6 +493,61 @@ export class InformationCustodyEngine {
   // 3. PUBLIC AUDIT & RECONCILIATION METHODS
   // =========================================================================
 
+  public registerCustodyEnvelope(envelope: DataCustodyEnvelope): DataCustodyEnvelope {
+    this.custodyEnvelopes.set(envelope.custodyId, envelope);
+    return envelope;
+  }
+
+  public registerIntakeCustodyEnvelope(params: {
+    documentId: string;
+    filename: string;
+    sha256: string;
+    filePath: string;
+    fileSizeBytes: number;
+    intakeSessionId: string;
+    projectId?: string;
+    engagementId?: string;
+    entityId?: string;
+    customerPriorityJobId?: string;
+  }): DataCustodyEnvelope {
+    const custodyId = `custody-${params.documentId}`;
+    const envelope: DataCustodyEnvelope = {
+      custodyId,
+      projectId: params.projectId || params.intakeSessionId,
+      engagementId: params.engagementId || params.projectId || params.intakeSessionId,
+      entityId: params.entityId || 'PENDING_ENTITY',
+      sourceArtifactId: params.documentId,
+      createdBy: 'INTAKE_SERVICE',
+      createdAt: new Date().toISOString(),
+      informationType: 'PHYSICAL_SOURCE_DOCUMENT',
+      classification: 'CUSTOMER',
+      contentHash: params.sha256,
+      currentState: 'PERSISTED',
+      currentOwner: 'INTAKE_SERVICE',
+      inputReferences: [params.filePath],
+      outputReferences: params.customerPriorityJobId ? [params.customerPriorityJobId] : [],
+      persistedLocation: params.filePath,
+      verificationState: 'VERIFIED',
+      nextExpectedStage: 'PARSING_DOCUMENT_IR',
+      disposition: 'PRESERVED_STRUCTURED_MATERIAL',
+      dispositionRationale: 'Authoritative physical source document received, verified against persisted disk bytes, and queued for processing.'
+    };
+    this.custodyEnvelopes.set(custodyId, envelope);
+    return envelope;
+  }
+
+  public getCustodyEnvelope(custodyId: string): DataCustodyEnvelope | undefined {
+    return this.custodyEnvelopes.get(custodyId);
+  }
+
+  public getCustodyEnvelopeByDocumentId(documentId: string): DataCustodyEnvelope | undefined {
+    return this.custodyEnvelopes.get(`custody-${documentId}`) || Array.from(this.custodyEnvelopes.values()).find(e => e.sourceArtifactId === documentId);
+  }
+
+  public getAllCustodyEnvelopes(): DataCustodyEnvelope[] {
+    return Array.from(this.custodyEnvelopes.values());
+  }
+
   public getCustodyLedgerSummary() {
     return {
       success: true,
