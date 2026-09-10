@@ -38,8 +38,14 @@ This documentation set consolidates the design decisions and operating rules dev
 26. `26_DEPLOYMENT_PROMOTION_CUTOVER_ROLLBACK_AND_PHYSICAL_ATTESTATION.md`
 27. `27_CURRENT_ZEABUR_RUNTIME_GAP_REGISTER_AND_REMEDIATION_PLAN.md`
 28. `28_ZEABUR_RUNTIME_REPAIR_DEPLOY_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md`
+29. `29_FIRST_ENGAGEMENT_SUPERVISED_RELEASE_AND_RESTART_FROM_ORIGIN_PROTOCOL.md`
+30. `30_EXTERNAL_OBSERVER_WATCH_ONLY_AND_NO_SHADOW_EXECUTION_PROTOCOL.md`
+31. `31_REAL_CUSTOMER_INITIATION_HEARTBEAT_AND_AUTONOMOUS_HANDOFF_CONTRACT.md`
+32. `32_REAL_AGENT_EXECUTION_AND_ANTI_PSEUDO_SWARM_STANDARD.md`
+33. `33_TEN_COMPANY_AUTONOMOUS_TRIAL_RELEASE_AND_ACCEPTANCE_PROTOCOL.md`
+34. `34_GEMINI_SUPERVISED_FIRST_COMPANY_FIX_RESTART_AND_RELEASE_NINE_DIRECTIVE.md`
 
-Documents 19–28 are mandatory before modifying, certifying, auditing, reconciling, deploying, or externally attesting production execution paths. They exist specifically to prevent a simulated, parallel, legacy, duplicate, cached, fallback, preview-only, build-only, or presentation-only implementation from being mistaken for the real Eve production workflow.
+Documents 19–34 are mandatory before modifying, certifying, auditing, reconciling, deploying, externally attesting, or running supervised/autonomous production trials. They exist specifically to prevent a simulated, parallel, legacy, duplicate, cached, fallback, preview-only, build-only, observer-assisted, pseudo-agent, or presentation-only implementation from being mistaken for the real Eve production workflow.
 
 ## Non-negotiable principles
 
@@ -83,6 +89,14 @@ Documents 19–28 are mandatory before modifying, certifying, auditing, reconcil
 - **Production runtime source must be traceable to immutable deployment artifacts.** Runtime source injection is not the desired final production deployment architecture.
 - **Secrets do not belong in process command-line arguments.** Use protected secret injection and redact external assurance evidence.
 - **SentinelX is independent external assurance.** It corroborates physical runtime behavior; it does not become Eve's accounting truth or silently mutate what it audits.
+- **The real product event starts customer work.** An observer or test harness may not bypass the customer intake event and directly invoke extraction as certification evidence.
+- **Observation is not execution.** Google/Gemini may watch a running engagement but may not become a shadow runtime that supplies missing facts, statuses, agent work, or reports.
+- **A named callback is not an agent execution.** Named CPA agents require durable role-specific execution evidence, real reasoning/tool activity where applicable, and persisted handoffs.
+- **Professional conclusions are never default constants.** Compliance, PBC clearance, audit approval, provenance, and quality conclusions must be evidence-derived.
+- **Proof begins unverified.** `BROWSER_VERIFIED`, `PRODUCT_VERIFIED`, audit pass states, and Minerva scores may not be pre-stamped at engagement creation.
+- **A material supervised-trial repair requires restart from origin.** Do not fix an active engagement midstream and continue it as if the entire run were clean.
+- **Blind means runtime-selected.** A preconfigured ten-company array may be an owner-defined cohort, but it is not blind autonomous discovery.
+- **Company 1 is the release gate.** The remaining autonomous cohort may run only after one complete clean supervised engagement proves the end-to-end production path under a single final deployed runtime.
 
 ## Permanent information hierarchy
 
@@ -94,7 +108,7 @@ Every layer has a distinct purpose and must remain independently addressable.
 
 A large filing producing only a handful of correct headline metrics is **not** deep extraction. Completeness is measured against the source inventory and the information that survived the pipeline, not against a predetermined fact-count target.
 
-A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, audit success shortcut, duplicate canonical writer, legacy API, stale cache, unbounded fallback, preview-only implementation, or undeployed GitHub code is **not** production verification. Follow Documents 19–28 to prove and reconcile the physical execution path.
+A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, audit success shortcut, duplicate canonical writer, legacy API, stale cache, unbounded fallback, preview-only implementation, undeployed GitHub code, observer-supplied output, hard-coded financial fallback, manufactured denominator floor, or pre-stamped proof state is **not** production verification. Follow Documents 19–34 to prove and reconcile the physical execution path.
 
 ## Audit proof levels
 
@@ -144,3 +158,17 @@ Environment identity is part of proof. `BROWSER_VERIFIED` in one preview environ
 `27_CURRENT_ZEABUR_RUNTIME_GAP_REGISTER_AND_REMEDIATION_PLAN.md` records the current physical Zeabur findings and exact closure evidence required for each gap.
 
 `28_ZEABUR_RUNTIME_REPAIR_DEPLOY_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md` instructs engineering agents how to repair those physical gaps, deploy into the real services, run negative bypass tests, obtain independent physical corroboration, and report gap-by-gap closure without another parallel architecture.
+
+## Supervised release, observer boundaries, real agents, and cohort proof
+
+`29_FIRST_ENGAGEMENT_SUPERVISED_RELEASE_AND_RESTART_FROM_ORIGIN_PROTOCOL.md` makes the first real company a supervised release gate. Google may watch and autonomously repair generalized defects, but every material repair invalidates that attempt and requires a new run from origin.
+
+`30_EXTERNAL_OBSERVER_WATCH_ONLY_AND_NO_SHADOW_EXECUTION_PROTOCOL.md` separates ENGINEERING, INITIATOR, WATCH_ONLY and REMEDIATION modes so an external engineering agent cannot silently complete Eve's missing production work.
+
+`31_REAL_CUSTOMER_INITIATION_HEARTBEAT_AND_AUTONOMOUS_HANDOFF_CONTRACT.md` defines the physical customer upload as the start of customer-priority work and clarifies that the 15-second heartbeat is a supervisory/recovery cadence, not an Academy cooldown or substitute for durable queue creation.
+
+`32_REAL_AGENT_EXECUTION_AND_ANTI_PSEUDO_SWARM_STANDARD.md` defines the evidence required before a named CPA role counts as an actual agent execution and prohibits hard-coded professional conclusions, fabricated PBC responses, and callback-based pseudo-swarms from being certified as real agents.
+
+`33_TEN_COMPANY_AUTONOMOUS_TRIAL_RELEASE_AND_ACCEPTANCE_PROTOCOL.md` defines Company 1 as the supervised release candidate and Companies 2–10 as the independent autonomous continuation after the clean-run gate.
+
+`34_GEMINI_SUPERVISED_FIRST_COMPANY_FIX_RESTART_AND_RELEASE_NINE_DIRECTIVE.md` is the next execution directive for Google/Gemini. It requires current production blockers to be removed before Company 1 starts, then enforces INITIATOR → WATCH_ONLY → REMEDIATION/RESTART loops until one clean end-to-end engagement passes and the remaining nine are released without Google executing the cohort.
