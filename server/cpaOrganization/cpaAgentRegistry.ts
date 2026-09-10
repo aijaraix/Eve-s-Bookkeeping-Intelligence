@@ -25,6 +25,227 @@ export interface CompetencyScores {
   regulatoryCompliance: number;
 }
 
+export type AgentRuntimeClassification =
+  | 'REAL_AI_AGENT'
+  | 'DETERMINISTIC_SPECIALIST_ENGINE'
+  | 'ORCHESTRATOR'
+  | 'HUMAN_REVIEW_REQUIRED'
+  | 'EXAMINER_ONLY'
+  | 'LEARNING_GOVERNANCE';
+
+export interface RoleAuthorityRecord {
+  roleId: string;
+  role: string;
+  runtimeType: AgentRuntimeClassification;
+  mandatoryOrConditional: 'MANDATORY' | 'CONDITIONAL';
+  allowedInputClasses: string[];
+  allowedWrites: string[];
+  allowedTools: string[];
+  prohibitedActions: string[];
+  canCreateObservations: boolean;
+  canCreateAssertions: boolean;
+  canVerify: boolean;
+  canPromoteCanonical: boolean;
+  canBlock: boolean;
+  canApproveDelivery: boolean;
+  requiredIndependentVerifier: string;
+  memoryNamespace: string;
+  version: string;
+}
+
+export const CANONICAL_ROLE_AUTHORITY_MATRIX: Record<string, RoleAuthorityRecord> = {
+  HERMES: {
+    roleId: 'eve-hermes',
+    role: 'Managing Orchestrator & Audit Partner',
+    runtimeType: 'REAL_AI_AGENT',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['ENGAGEMENT_MANIFEST', 'CUSTODY_ENVELOPE', 'SPECIALIST_OUTPUT'],
+    allowedWrites: ['ENGAGEMENT_SCOPE', 'WORK_DISPATCH', 'DELIVERABLE_PACKAGE'],
+    allowedTools: ['dispatchSwarm', 'synthesizeEngagement', 'coordinateSpecialists'],
+    prohibitedActions: ['selfPromoteCanonicalFact', 'bypassIndependentAudit', 'fabricateHumanSignature'],
+    canCreateObservations: true,
+    canCreateAssertions: true,
+    canVerify: false,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'QUINN_CONCURRING_PARTNER',
+    memoryNamespace: 'hermes/executive',
+    version: '3.5.0'
+  },
+  LEDGER: {
+    roleId: 'eve-ledger',
+    role: 'Financial Statement & General Ledger Specialist',
+    runtimeType: 'DETERMINISTIC_SPECIALIST_ENGINE',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['DOCUMENT_IR', 'DISCOVERED_ELEMENTS'],
+    allowedWrites: ['STATEMENT_STRUCTURE', 'ACCOUNT_CLASSIFICATIONS'],
+    allowedTools: ['classifyStatementStructure', 'mapAccountTaxonomy', 'normalizePeriods'],
+    prohibitedActions: ['fabricateAccountFloor', 'claimUndiscoveredAccounts', 'bypassMathValidation'],
+    canCreateObservations: true,
+    canCreateAssertions: true,
+    canVerify: true,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'EUCLID_MATHEMATICAL_ENGINE',
+    memoryNamespace: 'ledger/statements',
+    version: '3.5.0'
+  },
+  EUCLID: {
+    roleId: 'eve-euclid',
+    role: 'Deterministic Arithmetic Reconciler',
+    runtimeType: 'DETERMINISTIC_SPECIALIST_ENGINE',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['PROPOSED_FACTS', 'FINANCIAL_STATEMENTS', 'FOOTNOTE_SCHEDULES'],
+    allowedWrites: ['VARIANCE_REPORTS', 'ARITHMETIC_TIE_OUTS'],
+    allowedTools: ['verifyBalanceSheetIdentity', 'reconcileCashFlowRollforward', 'computeZeroVariance'],
+    prohibitedActions: ['deriveEquityFromResidual', 'allowNonZeroVariance', 'assumeScaleMultiplier'],
+    canCreateObservations: true,
+    canCreateAssertions: false,
+    canVerify: true,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'VERITAS_PROVENANCE_ENGINE',
+    memoryNamespace: 'euclid/arithmetic',
+    version: '3.5.0'
+  },
+  VERITAS: {
+    roleId: 'eve-veritas',
+    role: 'Cryptographic Provenance & Evidence Inspector',
+    runtimeType: 'DETERMINISTIC_SPECIALIST_ENGINE',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['RAW_SOURCE_BYTES', 'DOCUMENT_IR', 'PHYSICAL_COORDINATES'],
+    allowedWrites: ['PROVENANCE_HASH_CHAINS', 'SOURCE_CITATIONS'],
+    allowedTools: ['verifySha256Continuity', 'inspectPhysicalBoundingBox', 'validateHtmlCellLocation'],
+    prohibitedActions: ['acceptMissingHash', 'acceptSyntheticCitations', 'fabricateDocumentSha'],
+    canCreateObservations: true,
+    canCreateAssertions: false,
+    canVerify: true,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'SENTINEL_GATEKEEPER',
+    memoryNamespace: 'veritas/provenance',
+    version: '3.5.0'
+  },
+  ATHENA: {
+    roleId: 'eve-athena',
+    role: 'Technical Accounting Standards & Footnote Specialist',
+    runtimeType: 'REAL_AI_AGENT',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['DISCLOSURE_NOTES', 'ACCOUNTING_POLICIES', 'GAAP_IFRS_STANDARDS'],
+    allowedWrites: ['DISCLOSURE_ANALYSES', 'POLICY_MEMORANDA'],
+    allowedTools: ['analyzeDisclosureCompliance', 'evaluateLeaseStandard', 'evaluateRevenueStandard'],
+    prohibitedActions: ['certifyWithoutModel', 'claimZeroDefectsOnFailure', 'fabricateAccountingRuling'],
+    canCreateObservations: true,
+    canCreateAssertions: true,
+    canVerify: false,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'QUINN_CONCURRING_PARTNER',
+    memoryNamespace: 'athena/standards',
+    version: '3.5.0'
+  },
+  CLARA: {
+    roleId: 'eve-clara',
+    role: 'Client Coordination & PBC Requests Manager',
+    runtimeType: 'REAL_AI_AGENT',
+    mandatoryOrConditional: 'CONDITIONAL',
+    allowedInputClasses: ['UNRESOLVED_ELEMENTS', 'CLIENT_INQUIRIES', 'PBC_CHECKLISTS'],
+    allowedWrites: ['PBC_REQUEST_ITEMS', 'CLIENT_COMMUNICATION_LOGS'],
+    allowedTools: ['draftPbcRequest', 'trackPbcFulfillment', 'logClientInquiry'],
+    prohibitedActions: ['fabricateCustomerResponse', 'autoClearPbcWithoutClientAction', 'simulateSignoff'],
+    canCreateObservations: true,
+    canCreateAssertions: false,
+    canVerify: false,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'HERMES',
+    memoryNamespace: 'clara/client_pbc',
+    version: '3.5.0'
+  },
+  QUINN: {
+    roleId: 'eve-quinn',
+    role: 'Independent Engagement Reviewer (EQCR Partner)',
+    runtimeType: 'REAL_AI_AGENT',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['ENGAGEMENT_WORKPAPERS', 'DISCREPANCY_REGISTRY', 'AUDIT_FINDINGS'],
+    allowedWrites: ['CONCURRING_REVIEW_MEMORANDUM', 'SIGN_OFF_ELIGIBILITY'],
+    allowedTools: ['conductIndependentReview', 'verifyAuditTrailCompleteness', 'auditDiscrepancyResolution'],
+    prohibitedActions: ['selfApproveUnreviewedWork', 'autoSignWithoutHumanAction', 'bypassNegativeFindings'],
+    canCreateObservations: true,
+    canCreateAssertions: true,
+    canVerify: true,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: true,
+    requiredIndependentVerifier: 'EVE_INTERNAL_AUDIT',
+    memoryNamespace: 'quinn/review',
+    version: '3.5.0'
+  },
+  SENTINEL: {
+    roleId: 'eve-sentinel',
+    role: 'Final Gatekeeper & Promotion Arbiter',
+    runtimeType: 'DETERMINISTIC_SPECIALIST_ENGINE',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['ALL_GATE_RESULTS', 'PROMOTED_FACT_CANDIDATES'],
+    allowedWrites: ['CANONICAL_FACT_REGISTRY', 'CANONICAL_WINNERS'],
+    allowedTools: ['evaluateFiveGateThreshold', 'promoteCanonicalWinner', 'enforceFailClosedLockout'],
+    prohibitedActions: ['promoteOnIncompleteGates', 'allowProducerPromotion', 'bypassEuclidVariance'],
+    canCreateObservations: false,
+    canCreateAssertions: false,
+    canVerify: true,
+    canPromoteCanonical: true,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'EVE_INTERNAL_AUDIT',
+    memoryNamespace: 'sentinel/gatekeeper',
+    version: '3.5.0'
+  },
+  LEXICON: {
+    roleId: 'eve-lexicon',
+    role: 'Taxonomy & Multilingual Extraction Specialist',
+    runtimeType: 'REAL_AI_AGENT',
+    mandatoryOrConditional: 'CONDITIONAL',
+    allowedInputClasses: ['FOREIGN_LANGUAGE_FILINGS', 'XBRL_TAXONOMIES'],
+    allowedWrites: ['TAXONOMY_ALIGNMENT', 'TRANSLATED_CONCEPTS'],
+    allowedTools: ['alignXbrlConcept', 'translateForeignSchedule', 'mapGaapToIfrs'],
+    prohibitedActions: ['hallucinateTranslations', 'overrideDeterministicFx', 'fabricateTaxonomy'],
+    canCreateObservations: true,
+    canCreateAssertions: true,
+    canVerify: false,
+    canPromoteCanonical: false,
+    canBlock: false,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'LEDGER',
+    memoryNamespace: 'lexicon/taxonomy',
+    version: '3.5.0'
+  },
+  MINERVA: {
+    roleId: 'eve-minerva',
+    role: 'Academy Independent Examiner & Benchmark Authority',
+    runtimeType: 'EXAMINER_ONLY',
+    mandatoryOrConditional: 'MANDATORY',
+    allowedInputClasses: ['SOLVER_RESULT_PACKAGES', 'SEALED_GOLDEN_CORPUS'],
+    allowedWrites: ['EXAMINATION_GRADES', 'DEFECT_FINDINGS'],
+    allowedTools: ['gradeSolverExecution', 'validateLiveEngagement', 'evaluateFailClosedIntegrity'],
+    prohibitedActions: ['leakSealedAnswersToSolvers', 'autoPassMissingFacts', 'alterHoldoutBenchmarks'],
+    canCreateObservations: true,
+    canCreateAssertions: true,
+    canVerify: true,
+    canPromoteCanonical: false,
+    canBlock: true,
+    canApproveDelivery: false,
+    requiredIndependentVerifier: 'EXTERNAL_HUMAN_AUDITOR',
+    memoryNamespace: 'minerva/sealed_examiner_vault',
+    version: '3.5.0'
+  }
+};
+
 export interface LearningCase {
   caseId: string;
   timestamp: string;

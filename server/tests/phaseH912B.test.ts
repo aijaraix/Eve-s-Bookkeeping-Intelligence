@@ -116,10 +116,10 @@ export async function runPhaseH912BTests(): Promise<{ total: number; passed: num
 
   // Test 4: Persistent Hierarchical Memory Read/Write & Seeding
   try {
-    // Query firm-shared memory
-    const firmMem = persistentAgentMemory.query({ namespace: 'eve/firm', tag: 'unilever' });
-    const hasUnileverFixture = firmMem.some(
-      (m) => m.value?.turnoverContinuingEUR === 50503000000 || m.value?.turnoverContinuing === '€50,503m'
+    // Query firm-shared memory for firm accounting standards
+    const firmMem = persistentAgentMemory.query({ namespace: 'eve/firm', tag: 'equations' });
+    const hasFirmIdentities = firmMem.some(
+      (m) => m.value?.balanceSheet === 'Assets == Liabilities + Equity'
     );
 
     // Store episodic memory
@@ -135,9 +135,9 @@ export async function runPhaseH912BTests(): Promise<{ total: number; passed: num
     const retrieved = persistentAgentMemory.retrieve('eve/euclid', 'test_tie_out_case');
 
     assert(
-      hasUnileverFixture && retrieved !== null && retrieved.value?.status === 'PASSED',
+      hasFirmIdentities && retrieved !== null && retrieved.value?.status === 'PASSED',
       'Test 4: Persistent memory stores, seeds firm standard, and retrieves episodic entry',
-      `hasUnilever=${hasUnileverFixture}, retrieved=${!!retrieved}`
+      `hasFirmIdentities=${hasFirmIdentities}, retrieved=${!!retrieved}`
     );
   } catch (e: any) {
     assert(false, 'Test 4: Persistent memory store', e.message);

@@ -437,9 +437,8 @@ export class DeepDocumentIntelligenceEngine {
       fs.mkdirSync(this.storageDir, { recursive: true });
     }
     this.loadRecordsFromDisk();
-    setImmediate(() => {
-      this.seedDefaultAuthoritativeFiling();
-    });
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed default filings on boot.
   }
 
   private seedDefaultAuthoritativeFiling() {

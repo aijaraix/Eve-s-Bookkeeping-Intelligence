@@ -70,14 +70,14 @@ export class CPAModelRouter {
   private geminiClient: GoogleGenAI | null = null;
   private executionHistory: ModelExecutionRecord[] = [];
   private telemetry: RouterTelemetry = {
-    tier0DeterministicCount: 1842,
-    tier1LocalQwenCount: 420,
-    tier2FastCloudCount: 88,
-    tier3HeavyCloudCount: 14,
-    tier4HumanReviewCount: 6,
-    totalDecisions: 2370,
-    costSavedUsd: 142.50,
-    averageLatencyMs: 8.5
+    tier0DeterministicCount: 0,
+    tier1LocalQwenCount: 0,
+    tier2FastCloudCount: 0,
+    tier3HeavyCloudCount: 0,
+    tier4HumanReviewCount: 0,
+    totalDecisions: 0,
+    costSavedUsd: 0.0,
+    averageLatencyMs: 0.0
   };
 
   private constructor() {}
@@ -349,22 +349,22 @@ export class CPAModelRouter {
             }
           } catch (fbErr: any) {
             fallback = true;
-            fallbackReason = `Gemini call failed (${err.message}). Fallen back to autonomous CPA policy synthesis engine.`;
-            actualModel = 'Autonomous CPA Policy Synthesis Engine';
-            executionStatus = 'DETERMINISTIC_FALLBACK';
-            outputText = `[CLOUD_POLICY_SYNTHESIS]: Technical accounting policy for ${params.taskId} complies with applicable financial framework standards. Zero non-conforming disclosures identified.`;
+            fallbackReason = `Gemini call failed (${err.message}). Technical policy review cannot be certified.`;
+            actualModel = 'None (Model Unavailable)';
+            executionStatus = 'MODEL_UNAVAILABLE';
+            outputText = `[MODEL_UNAVAILABLE]: Cloud inference unavailable (${err.message}). Technical policy review for ${params.taskId} requires manual CPA inspection or cloud model availability; cannot certify zero non-conforming disclosures.`;
           }
         }
       } else {
         fallback = true;
-        fallbackReason = 'GEMINI_API_KEY unconfigured in environment. Employed local deterministic CPA rule synthesis.';
-        actualModel = 'Local Deterministic CPA Policy Engine';
-        executionStatus = 'DETERMINISTIC_FALLBACK';
-        outputText = `[OFFLINE_POLICY_SYNTHESIS]: Technical review confirmed note disclosures for ${params.taskId} satisfy reporting standard criteria.`;
+        fallbackReason = 'GEMINI_API_KEY unconfigured in environment.';
+        actualModel = 'None (Model Unconfigured)';
+        executionStatus = 'MODEL_UNAVAILABLE';
+        outputText = `[MODEL_UNAVAILABLE]: GEMINI_API_KEY is not configured in runtime environment. Note disclosure analysis for ${params.taskId} is BLOCKED awaiting model credentials or CPA review.`;
       }
     } else {
-      // Level 4: CPA Human Reviewer
-      outputText = `[CPA_HUMAN_MEMORANDUM]: Concurring partner technical memorandum recorded. Discrepancy cleared pursuant to audit standards.`;
+      // Level 4: CPA Human Reviewer — Strictly Pending until physical authorized human action
+      outputText = `[PENDING_AUTHORIZED_HUMAN_ACTION]: Concurring partner technical review is queued for authorized human CPA clearance. Discrepancy remains PENDING review pursuant to audit standards.`;
       actualModel = 'Human Certified Public Accountant (CPA Reviewer)';
       executionStatus = 'PRIMARY_MODEL_SUCCESS';
       costUsd = 0.0;

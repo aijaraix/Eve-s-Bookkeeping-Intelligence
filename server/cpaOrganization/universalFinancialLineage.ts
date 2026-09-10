@@ -188,7 +188,8 @@ export class UniversalFinancialLineageManager {
   private charts: Map<string, ChartContractRecord> = new Map();
 
   private constructor() {
-    this.seedAuthoritativeLineageData();
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed synthetic facts or derivations in constructor.
   }
 
   public static getInstance(): UniversalFinancialLineageManager {
@@ -199,9 +200,11 @@ export class UniversalFinancialLineageManager {
   }
 
   /**
-   * Seeds core canonical facts and derivations for common practice standards
+   * Explicitly seeds synthetic canonical facts and derivations for Academy Case 007
+   * when requested by test runners. Never runs automatically on production boot.
    */
-  private seedAuthoritativeLineageData(): void {
+  public seedSyntheticLineageFixture(classification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY'): void {
+    if (this.facts.has('FACT-VANGUARD-REV-2025')) return;
     // 1. Seed Core Canonical Facts for Vanguard Cybernetics Corp (Case 007)
     const seedFacts: CanonicalFactRecord[] = [
       {
@@ -547,6 +550,26 @@ export class UniversalFinancialLineageManager {
     };
 
     this.charts.set(revenueTrendChart.chartId, revenueTrendChart);
+  }
+
+  public registerCanonicalFact(fact: CanonicalFactRecord): void {
+    this.facts.set(fact.canonicalFactId, fact);
+  }
+
+  public registerDerivation(derivation: DerivationRecord): void {
+    this.derivations.set(derivation.derivationId, derivation);
+  }
+
+  public invalidateFactAndDerivations(factId: string, reason: string): void {
+    const fact = this.facts.get(factId);
+    if (fact) {
+      fact.verificationStatus = 'REJECTED';
+    }
+    for (const [id, deriv] of this.derivations.entries()) {
+      if (deriv.operands && deriv.operands.some(op => op.id === factId)) {
+        deriv.verificationStatus = 'REVIEW_REQUIRED';
+      }
+    }
   }
 
   public getFact(factId: string): CanonicalFactRecord | undefined {

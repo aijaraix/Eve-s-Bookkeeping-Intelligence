@@ -76,7 +76,8 @@ export class WorkConservingScheduler {
   private timer: NodeJS.Timeout | null = null;
 
   private constructor() {
-    this.seedBaselinePipeline();
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed tasks on boot.
     this.startSchedulerLoop();
   }
 
@@ -87,7 +88,11 @@ export class WorkConservingScheduler {
     return WorkConservingScheduler.instance;
   }
 
-  private seedBaselinePipeline() {
+  /**
+   * Explicitly seeds synthetic baseline pipeline tasks for Academy/Regression testing only.
+   */
+  public seedSyntheticBaselinePipeline(classification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY') {
+    if (this.tasks.size > 0) return;
     // Demonstration multi-stage pipeline showcasing parallel execution without serial bottlenecks
     const baselineTasks: WorkConservingTask[] = [
       {

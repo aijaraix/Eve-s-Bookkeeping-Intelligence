@@ -141,9 +141,8 @@ export class EntityResolutionEngine {
       fs.mkdirSync(this.storageDir, { recursive: true });
     }
     this.loadEntitiesFromDisk();
-    setImmediate(() => {
-      this.seedBaselineEntitiesAndCandidates();
-    });
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed synthetic entities on boot.
   }
 
   public static getInstance(): EntityResolutionEngine {
@@ -198,9 +197,10 @@ export class EntityResolutionEngine {
   }
 
   /**
-   * Seed baseline entities including the crucial cross-project isolation test cases (PART XV)
+   * Explicitly seeds synthetic baseline entities for Academy/Regression testing only.
+   * Never called automatically on production boot.
    */
-  private seedBaselineEntitiesAndCandidates() {
+  public seedSyntheticBaselineEntities(classification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY') {
     if (this.entities.size > 0) {
       return;
     }

@@ -300,9 +300,8 @@ export class UniversalDataGraphEngine {
       fs.mkdirSync(this.storageDir, { recursive: true });
     }
     this.loadGraphFromDisk();
-    setImmediate(() => {
-      this.seedPalantirUniversalGraph();
-    });
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed Palantir or synthetic data in constructor.
   }
 
   public static getInstance(): UniversalDataGraphEngine {
@@ -371,9 +370,10 @@ export class UniversalDataGraphEngine {
   }
 
   /**
-   * Seeds authoritative Palantir 10-K universal data points and relationships
+   * Explicitly seeds synthetic Palantir 10-K universal data points and relationships
+   * for Academy/Regression testing only. Never called automatically on production boot.
    */
-  private seedPalantirUniversalGraph() {
+  public seedSyntheticPalantirAcademyGraph(fixtureClassification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY') {
     if (this.dataPoints.has('dp-pltr-revolver-cap')) {
       return;
     }

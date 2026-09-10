@@ -24,6 +24,7 @@ import { runPhaseH95NullSafetyTests } from "./server/tests/phaseH95NullSafety.te
 import { runPhaseH912BTests } from "./server/tests/phaseH912B.test.js";
 import { runPhaseH913TestSuite } from "./server/tests/phaseH913.test.js";
 import { runPhaseH944ConformanceTests } from "./server/tests/phaseH944Conformance.test.js";
+import { runPhaseH945BehavioralTruthTests } from "./server/tests/phaseH945BehavioralTruth.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -672,6 +673,15 @@ assert(
   h944Res.failed === 0 && h944Res.passed === 10,
   `Phase H.9.44 Suite failed (${h944Res.failed} failures)`,
   "All 10/10 Phase H.9.44 Implementation Conformance regression tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE H.9.45: REPOSITORY-WIDE BEHAVIORAL TRUTH & AGENT AUTHORITY (DOC 35)]${colors.reset}`);
+const h945Res = await runPhaseH945BehavioralTruthTests();
+assert(
+  "Phase H.9.45 Behavioral Truth & Agent Authority Suite (10/10 Passed)",
+  h945Res.passed === h945Res.total && h945Res.total === 10,
+  `Phase H.9.45 Suite failed (${h945Res.total - h945Res.passed} failures)`,
+  "All 10/10 Phase H.9.45 Behavioral Truth & Agent Authority tests passed cleanly."
 );
 
 

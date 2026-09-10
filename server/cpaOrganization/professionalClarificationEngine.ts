@@ -107,9 +107,8 @@ export class ProfessionalClarificationEngine {
       fs.mkdirSync(this.storageDir, { recursive: true });
     }
     this.loadClarificationsFromDisk();
-    setImmediate(() => {
-      this.seedBaselineClarifications();
-    });
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed clarifications on boot.
   }
 
   public static getInstance(): ProfessionalClarificationEngine {
@@ -150,9 +149,10 @@ export class ProfessionalClarificationEngine {
   }
 
   /**
-   * Seeds authoritative demonstration clarifications (PART XVIII: Ask Rather Than Guess)
+   * Explicitly seeds synthetic demonstration clarifications for Academy/Regression testing only.
+   * Never called automatically on production boot.
    */
-  private seedBaselineClarifications() {
+  public seedSyntheticClarifications(classification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY') {
     if (this.requests.size > 0) {
       return;
     }

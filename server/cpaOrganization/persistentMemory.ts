@@ -68,6 +68,10 @@ export class PersistentAgentMemory {
         const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
         if (Array.isArray(data)) {
           for (const entry of data) {
+            // Examiner vs Solver Isolation (Doc 35): Do not load sealed benchmark answers into solver memory
+            if (entry.id?.includes('golden_fixture') || entry.tags?.includes('golden_standard')) {
+              continue;
+            }
             this.memoryStore.set(entry.id, entry);
           }
         }
@@ -88,7 +92,7 @@ export class PersistentAgentMemory {
   }
 
   private seedDefaultFirmMemory() {
-    // Seed general accounting equation rules and identities (deterministic GAAP/IFRS)
+    // Seed general accounting equation rules and identities (deterministic GAAP/IFRS taxonomy configuration)
     this.store({
       namespace: 'eve/firm',
       type: 'SEMANTIC',
@@ -102,23 +106,8 @@ export class PersistentAgentMemory {
       confidence: 1.0
     });
 
-    // Seed standard firm benchmark fixture
-    this.store({
-      namespace: 'eve/firm',
-      type: 'FIRM_SHARED',
-      key: 'golden_fixture_unilever_fy2025_test_only',
-      value: {
-        company: 'Unilever PLC',
-        fiscalYear: 2025,
-        turnoverContinuing: '€50,503m',
-        turnoverContinuingEUR: 50503000000,
-        prohibitedValue: '€59.60B',
-        classification: 'FIRM_BENCHMARK',
-        note: 'Firm standard benchmark for continuing operations turnover.'
-      },
-      tags: ['unilever', 'fy2025', 'golden_standard', 'turnover', 'test_only'],
-      confidence: 1.0
-    });
+    // Note (Doc 35 Section 3): Examiner sealed golden benchmarks are strictly forbidden in firm shared memory.
+    // Minerva sealed truth is isolated in AcademyMinervaLab (EXAMINER_VAULT != SOLVER_KNOWLEDGE).
   }
 
   public store(params: {

@@ -154,7 +154,8 @@ export class InformationCustodyEngine {
   private documentIRRegistry = new Map<string, DocumentIR>();
 
   private constructor() {
-    this.seedAuthoritativeCustodyLedger();
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed custody records in constructor.
   }
 
   public static getInstance(): InformationCustodyEngine {
@@ -164,7 +165,12 @@ export class InformationCustodyEngine {
     return InformationCustodyEngine.instance;
   }
 
-  private seedAuthoritativeCustodyLedger() {
+  /**
+   * Explicitly seeds synthetic custody fixtures for Academy/Regression testing only.
+   * Never called automatically on production boot.
+   */
+  public seedSyntheticCustodyFixture(classification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY') {
+    if (this.handoffRecords.length > 0) return;
     // 1. Transactional Handoffs for Palantir Technologies Form 10-K (FY 2025)
     // Demonstrates strict Information Conservation: Expected = Received = Dispositioned; Unaccounted = 0
     this.handoffRecords = [

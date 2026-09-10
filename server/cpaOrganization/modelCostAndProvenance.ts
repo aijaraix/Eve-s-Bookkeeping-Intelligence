@@ -47,7 +47,8 @@ export class ModelCostAndProvenanceGovernance {
   private executionRegistry: ModelToolExecutionRecord[] = [];
 
   private constructor() {
-    this.seedExecutionRecords();
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
+    // Do NOT auto-seed execution records in constructor.
   }
 
   public static getInstance(): ModelCostAndProvenanceGovernance {
@@ -57,7 +58,11 @@ export class ModelCostAndProvenanceGovernance {
     return ModelCostAndProvenanceGovernance.instance;
   }
 
-  private seedExecutionRecords() {
+  /**
+   * Explicitly seeds synthetic execution records for Academy/Regression testing only.
+   */
+  public seedSyntheticExecutionRecords(classification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY') {
+    if (this.executionRegistry.length > 0) return;
     this.executionRegistry = [
       {
         executionId: 'exec-det-ir-001',

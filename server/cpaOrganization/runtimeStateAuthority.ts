@@ -67,7 +67,7 @@ export class RuntimeStateAuthority {
   private constructor() {
     this.storageRoot = path.join(process.cwd(), 'storage');
     this.initializeInventory();
-    this.seedLifecycleRecords();
+    // Non-negotiable (Doc 35): Production starts empty of customer truth.
   }
 
   public static getInstance(): RuntimeStateAuthority {
@@ -238,7 +238,11 @@ export class RuntimeStateAuthority {
     ];
   }
 
-  private seedLifecycleRecords() {
+  /**
+   * Explicitly seeds synthetic temporary object lifecycle records for Academy/Regression testing only.
+   */
+  public seedSyntheticLifecycleRecords(classification: 'SYNTHETIC_ACADEMY' | 'REGRESSION' = 'SYNTHETIC_ACADEMY') {
+    if (this.temporaryLifecycles.size > 0) return;
     const records: TemporaryObjectLifecycleRecord[] = [
       {
         objectId: 'tmp-doc-upload-1788814889',
