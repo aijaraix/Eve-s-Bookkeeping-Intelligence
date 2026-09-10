@@ -164,10 +164,10 @@ export class ProductionAutonomousCPAEngine {
         );
       }
 
-      // Count actual discovered accounts and taxonomy concepts from extraction
-      const discoveredAssetAccounts = extractionResult.atomicDataPoints.filter(dp => dp.canonicalMetric.toLowerCase().includes('asset')).length || 1;
-      const discoveredLiabAccounts = extractionResult.atomicDataPoints.filter(dp => dp.canonicalMetric.toLowerCase().includes('liabilit')).length || 1;
-      const discoveredEquityAccounts = extractionResult.atomicDataPoints.filter(dp => dp.canonicalMetric.toLowerCase().includes('equity')).length || 1;
+      // Count actual discovered accounts and taxonomy concepts from extraction (no floor minimums)
+      const discoveredAssetAccounts = extractionResult.atomicDataPoints.filter(dp => dp.canonicalMetric.toLowerCase().includes('asset')).length;
+      const discoveredLiabAccounts = extractionResult.atomicDataPoints.filter(dp => dp.canonicalMetric.toLowerCase().includes('liabilit')).length;
+      const discoveredEquityAccounts = extractionResult.atomicDataPoints.filter(dp => dp.canonicalMetric.toLowerCase().includes('equity')).length;
 
       // 7. Real Hermes Multi-Agent Specialist Swarm (Durable Contracts)
       console.log(`[Stage 7/11] Dispatching Hermes multi-agent specialist work contracts...`);
@@ -181,16 +181,16 @@ export class ProductionAutonomousCPAEngine {
         reportedEquity,
         sourceFilePath: acquisition.physicalFilePath,
         sourceSha256: acquisition.actualSha256,
-        extractedFactsCount: extractionResult.atomicDataPoints.length || xbrlCount,
+        extractedFactsCount: extractionResult.atomicDataPoints.length,
         discoveredAccounts: {
           assetAccountsCount: discoveredAssetAccounts,
           liabilityAccountsCount: discoveredLiabAccounts,
           equityAccountsCount: discoveredEquityAccounts
         },
         taxonomyMetrics: {
-          uniqueConceptsCount: extractionResult.uniqueConceptsCount || xbrlCount,
-          customExtensionsCount: Math.min(xbrlCount, 5),
-          dimensionContextsCount: Math.max(1, extractionResult.atomicDataPoints.length)
+          uniqueConceptsCount: extractionResult.uniqueConceptsCount,
+          customExtensionsCount: 0,
+          dimensionContextsCount: extractionResult.atomicDataPoints.length
         },
         customerPbcUploaded: false,
         customerPbcFilesCount: 0
@@ -235,24 +235,26 @@ export class ProductionAutonomousCPAEngine {
         throw new Error(`[ProductionAutonomousCPAEngine] Internal Audit Gate Failed: ${internalAuditReport.scorecard.finalOpinion}`);
       }
 
-      // 10. Independent Minerva Sealed Exam (Genuine Evaluation)
+      // 10. Independent Minerva Sealed Exam & Live Engagement Validation (Genuine Evaluation)
       console.log(`[Stage 10/11] Evaluating physical source and solver output under Minerva Sealed Academy Lab...`);
       const minervaSourceEval = academyMinervaLab.evaluateAuthoritativePhysicalSource(acquisition.physicalFilePath);
       if (!minervaSourceEval.passed) {
         throw new Error(`[ProductionAutonomousCPAEngine] Minerva rejected physical source: ${minervaSourceEval.details.join('; ')}`);
       }
 
-      // Evaluate actual extraction and solver outputs against Minerva benchmark
-      const minervaExamReport = academyMinervaLab.runEvaluation({
+      // Evaluate actual extraction and solver outputs against Minerva live engagement validation
+      const minervaLiveReport = academyMinervaLab.evaluateLiveEngagement({
         facts: extractionResult.atomicDataPoints,
         assets: reportedAssets,
         liabilities: reportedLiabilities,
         equity: reportedEquity,
-        variance: swarmSummary.euclidVarianceUsd
+        variance: swarmSummary.euclidVarianceUsd,
+        physicalFilePath: acquisition.physicalFilePath,
+        physicalSha256: acquisition.actualSha256
       });
 
-      if (minervaExamReport.certifiedStatus !== 'CERTIFIED_CPA_READY') {
-        throw new Error(`[ProductionAutonomousCPAEngine] Minerva Exam Failed: status=${minervaExamReport.certifiedStatus}, accuracy=${minervaExamReport.accuracyRate}`);
+      if (minervaLiveReport.certifiedStatus !== 'CERTIFIED_CPA_READY') {
+        throw new Error(`[ProductionAutonomousCPAEngine] Minerva Live Validation Failed: status=${minervaLiveReport.certifiedStatus}`);
       }
 
       // 11. Academy Learning Handoff & Memory
@@ -275,7 +277,7 @@ export class ProductionAutonomousCPAEngine {
         browserVersion: browserResult.browserVersion,
         hashContinuityVerified: true,
         leafElementsCount: leafCount,
-        extractedFactsCount: extractionResult.atomicDataPoints.length || xbrlCount,
+        extractedFactsCount: extractionResult.atomicDataPoints.length,
         reportedAssets,
         reportedLiabilities,
         reportedEquity,
@@ -283,8 +285,8 @@ export class ProductionAutonomousCPAEngine {
         swarmExecution: swarmSummary,
         deliverablePackageId: deliverable.reportId,
         internalAuditReport,
-        minervaExamScore: Math.round(minervaExamReport.accuracyRate * 100),
-        minervaStatus: minervaExamReport.certifiedStatus,
+        minervaExamScore: minervaLiveReport.score,
+        minervaStatus: minervaLiveReport.certifiedStatus,
         status: 'ENGAGEMENT_CERTIFIED_CLOSED',
         startedAt,
         completedAt,

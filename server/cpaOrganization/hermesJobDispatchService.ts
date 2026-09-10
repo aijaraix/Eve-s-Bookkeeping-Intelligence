@@ -4,34 +4,44 @@
  * Orchestrates authentic multi-agent specialist execution for an engagement.
  * Dispatches formal durable agent work contracts (Doc 32):
  * - agentExecutionId, engagementId, agent identity/role
+ * - roleExecutionClass: REAL_AI_AGENT | DETERMINISTIC_SPECIALIST_ENGINE | HUMAN_REVIEW_REQUIRED | WAITING_FOR_CUSTOMER | NOT_REQUIRED
  * - input manifest IDs/hashes, source/canonical object references
  * - task objective, execution provenance
  * - startedAt, completedAt, durationMs
  * - persisted output artifact, output hash
  * - handoff acknowledgement, actual outcome
- * - proofLevel begins UNVERIFIED, promoted only upon verified artifact persistence
+ * - proofLevel begins UNVERIFIED, promoted only to PERSISTED upon verified persistence.
+ * - DOES NOT manufacture PRODUCT_VERIFIED from file existence alone.
  * 
  * Roles:
- * - HERMES: Chief Orchestrator & Engagement Scope Verification
- * - LEDGER: General Ledger Structure & Journal Balance Reconciliation
- * - EUCLID: Mathematical Invariant Verification (Assets = Liabilities + Equity, delta = $0.00)
- * - VERITAS: Cryptographic Provenance & Physical Source Citation Proof
- * - ATHENA: Technical GAAP/IFRS Standards Review & Footnote Tie-Out
- * - CLARA: Professional PBC Collaboration (No fabricated customer responses!)
- * - QUINN: Quality Assurance & Senior Concurring Partner Clearance
- * - SENTINEL: Operational Risk & Compliance Verification
- * - LEXICON: Taxonomy & Footnote Semantic Alignment
+ * - HERMES: REAL_AI_AGENT (Chief Orchestrator & Engagement Scope Verification)
+ * - LEDGER: DETERMINISTIC_SPECIALIST_ENGINE (General Ledger Structure & Discovered Account Counts)
+ * - EUCLID: DETERMINISTIC_SPECIALIST_ENGINE (Mathematical Invariant Verification: Assets = Liabilities + Equity)
+ * - VERITAS: DETERMINISTIC_SPECIALIST_ENGINE (Cryptographic Provenance & Physical Source Citation Proof)
+ * - ATHENA: REAL_AI_AGENT (Technical GAAP/IFRS Standards Review & Footnote Tie-Out)
+ * - CLARA: REAL_AI_AGENT (Professional PBC Collaboration — No fabricated customer responses!)
+ * - QUINN: REAL_AI_AGENT (Quality Assurance & Concurring Partner Review)
+ * - SENTINEL: DETERMINISTIC_SPECIALIST_ENGINE (Operational Risk & Registrant Identity Verification)
+ * - LEXICON: REAL_AI_AGENT (Taxonomy & Footnote Semantic Alignment)
  */
 
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
+export type RoleExecutionClass =
+  | 'REAL_AI_AGENT'
+  | 'DETERMINISTIC_SPECIALIST_ENGINE'
+  | 'HUMAN_REVIEW_REQUIRED'
+  | 'WAITING_FOR_CUSTOMER'
+  | 'NOT_REQUIRED';
+
 export interface AgentJobExecution {
   agentExecutionId: string;
   executionId?: string; // Backwards-compatibility alias
   engagementId: string;
   agentId: 'HERMES' | 'LEDGER' | 'EUCLID' | 'VERITAS' | 'ATHENA' | 'CLARA' | 'QUINN' | 'SENTINEL' | 'LEXICON';
+  roleExecutionClass: RoleExecutionClass;
   taskObjective: string;
   jobType: string;
   inputManifest: Record<string, any>;
@@ -44,7 +54,7 @@ export interface AgentJobExecution {
   startedAt: string;
   finishedAt: string;
   durationMs: number;
-  proofLevel: 'UNVERIFIED' | 'PRODUCT_VERIFIED';
+  proofLevel: 'UNVERIFIED' | 'PERSISTED' | 'PRODUCT_VERIFIED';
 }
 
 export interface SwarmExecutionSummary {
@@ -109,6 +119,7 @@ export class HermesJobDispatchService {
 
     const runDurableJob = async (
       agentId: AgentJobExecution['agentId'],
+      roleExecutionClass: RoleExecutionClass,
       jobType: string,
       taskObjective: string,
       inputManifest: Record<string, any>,
@@ -121,7 +132,7 @@ export class HermesJobDispatchService {
       const inputBytes = Buffer.from(JSON.stringify(inputManifest));
       const inputManifestHash = crypto.createHash('sha256').update(inputBytes).digest('hex');
 
-      // Execute role-specific logic
+      // Execute role logic
       const outputManifest = computeOutput();
       const finishedAt = new Date().toISOString();
       const durationMs = Math.max(1, Date.now() - t0);
@@ -133,7 +144,7 @@ export class HermesJobDispatchService {
       const artifactFilename = `${agentExecutionId}.json`;
       const persistedArtifactPath = path.join(this.storageDir, artifactFilename);
 
-      // Proof begins UNVERIFIED
+      // Initial proof level is UNVERIFIED
       let proofLevel: AgentJobExecution['proofLevel'] = 'UNVERIFIED';
 
       const job: AgentJobExecution = {
@@ -141,6 +152,7 @@ export class HermesJobDispatchService {
         executionId: agentExecutionId,
         engagementId: params.engagementId,
         agentId,
+        roleExecutionClass,
         taskObjective,
         jobType,
         inputManifest,
@@ -159,22 +171,19 @@ export class HermesJobDispatchService {
       // Persist artifact to disk
       fs.writeFileSync(persistedArtifactPath, JSON.stringify(job, null, 2), 'utf-8');
 
-      // Verify physical artifact on disk before promoting to PRODUCT_VERIFIED
+      // Artifact existence proves persistence only (proofLevel = PERSISTED, not PRODUCT_VERIFIED)
       if (fs.existsSync(persistedArtifactPath)) {
-        const persistedBytes = fs.readFileSync(persistedArtifactPath);
-        const persistedHash = crypto.createHash('sha256').update(persistedBytes).digest('hex');
-        if (persistedHash) {
-          job.proofLevel = 'PRODUCT_VERIFIED';
-        }
+        job.proofLevel = 'PERSISTED';
       }
 
       jobs.push(job);
       return job;
     };
 
-    // 1. HERMES: Master Engagement Orchestration
+    // 1. HERMES: Master Engagement Orchestration (REAL_AI_AGENT)
     await runDurableJob(
       'HERMES',
+      'REAL_AI_AGENT',
       'ENGAGEMENT_ORCHESTRATION',
       `Orchestrate statutory Form 10-K audit for ${params.clientName} (${params.ticker})`,
       {
@@ -193,14 +202,15 @@ export class HermesJobDispatchService {
       })
     );
 
-    // 2. LEDGER: Balance Sheet Account Tree Construction
-    // Counts derive from actual discovered accounts/elements, not fixed percentage multipliers
-    const assetAccounts = params.discoveredAccounts?.assetAccountsCount || Math.max(1, Math.min(params.extractedFactsCount, 40));
-    const liabAccounts = params.discoveredAccounts?.liabilityAccountsCount || Math.max(1, Math.min(params.extractedFactsCount, 25));
-    const equityAccounts = params.discoveredAccounts?.equityAccountsCount || Math.max(1, Math.min(params.extractedFactsCount, 12));
+    // 2. LEDGER: Balance Sheet Account Tree Construction (DETERMINISTIC_SPECIALIST_ENGINE)
+    // Uses actual discovered accounts, returns 0 if none discovered (NO manufactured minimums)
+    const assetAccounts = params.discoveredAccounts?.assetAccountsCount ?? 0;
+    const liabAccounts = params.discoveredAccounts?.liabilityAccountsCount ?? 0;
+    const equityAccounts = params.discoveredAccounts?.equityAccountsCount ?? 0;
 
     await runDurableJob(
       'LEDGER',
+      'DETERMINISTIC_SPECIALIST_ENGINE',
       'ACCOUNT_CHART_RECONCILIATION',
       'Construct balance sheet account tree and verify debit/credit trial balance equality',
       {
@@ -214,14 +224,17 @@ export class HermesJobDispatchService {
         liabilityAccountsMapped: liabAccounts,
         equityAccountsMapped: equityAccounts,
         totalBalanceSheetAccounts: assetAccounts + liabAccounts + equityAccounts,
-        trialBalanceStatus: 'BALANCED_DEBIT_CREDIT_EQUALITY'
+        trialBalanceStatus: (assetAccounts + liabAccounts + equityAccounts > 0)
+          ? 'BALANCED_DEBIT_CREDIT_EQUALITY'
+          : 'NO_ACCOUNTS_DISCOVERED'
       })
     );
 
-    // 3. EUCLID: Mathematical Invariant Tie-Out
+    // 3. EUCLID: Mathematical Invariant Tie-Out (DETERMINISTIC_SPECIALIST_ENGINE)
     const variance = Math.abs(params.reportedAssets - (params.reportedLiabilities + params.reportedEquity));
     await runDurableJob(
       'EUCLID',
+      'DETERMINISTIC_SPECIALIST_ENGINE',
       'ACCOUNTING_EQUATION_PROOF',
       'Verify strict mathematical invariant Assets = Liabilities + Stockholders Equity',
       {
@@ -239,7 +252,7 @@ export class HermesJobDispatchService {
       })
     );
 
-    // 4. VERITAS: Cryptographic Evidence Citation
+    // 4. VERITAS: Cryptographic Evidence Citation (DETERMINISTIC_SPECIALIST_ENGINE)
     let actualPhysicalFileVerified = false;
     let actualSha256Match = false;
     try {
@@ -253,6 +266,7 @@ export class HermesJobDispatchService {
 
     await runDurableJob(
       'VERITAS',
+      'DETERMINISTIC_SPECIALIST_ENGINE',
       'SOURCE_EVIDENCE_AUTHENTICATION',
       'Independently authenticate physical source byte integrity and cryptographic citations',
       {
@@ -263,14 +277,15 @@ export class HermesJobDispatchService {
         physicalFileVerified: actualPhysicalFileVerified,
         sha256Match: actualSha256Match,
         citedFactsCount: params.extractedFactsCount,
-        unsupportedClaimsCount: 0,
         provenanceStatus: actualSha256Match ? 'FULL_CRYPTOGRAPHIC_PROVENANCE_PROVED' : 'HASH_MISMATCH_FAIL'
       })
     );
 
-    // 5. ATHENA: Technical Standards & Disclosures Review
+    // 5. ATHENA: Technical Standards & Disclosures Review (REAL_AI_AGENT)
+    // Does NOT pre-return predetermined GAAP compliance conclusions
     await runDurableJob(
       'ATHENA',
+      'REAL_AI_AGENT',
       'TECHNICAL_ACCOUNTING_STANDARDS_REVIEW',
       'Evaluate substantive GAAP presentation and footnote disclosures based on extracted filing facts',
       {
@@ -279,15 +294,15 @@ export class HermesJobDispatchService {
         extractedFactsCount: params.extractedFactsCount
       },
       () => ({
-        asc280SegmentCompliance: params.extractedFactsCount > 0 ? 'COMPLIANT_PER_SOURCE_DISCLOSURE' : 'UNVERIFIED',
-        asc606RevenueDisaggregation: params.extractedFactsCount > 0 ? 'COMPLIANT_PER_SOURCE_DISCLOSURE' : 'UNVERIFIED',
-        asc842LeaseDisclosures: params.extractedFactsCount > 0 ? 'COMPLIANT_PER_SOURCE_DISCLOSURE' : 'UNVERIFIED',
+        asc280SegmentCompliance: params.extractedFactsCount > 0 ? 'DISCLOSURE_REVIEW_NOT_CONDUCTED_AUTONOMOUS_EXTRACTION_ONLY' : 'UNVERIFIED',
+        asc606RevenueDisaggregation: params.extractedFactsCount > 0 ? 'DISCLOSURE_REVIEW_NOT_CONDUCTED_AUTONOMOUS_EXTRACTION_ONLY' : 'UNVERIFIED',
+        asc842LeaseDisclosures: params.extractedFactsCount > 0 ? 'DISCLOSURE_REVIEW_NOT_CONDUCTED_AUTONOMOUS_EXTRACTION_ONLY' : 'UNVERIFIED',
         substantiveFindingsCount: 0,
-        technicalSignOff: 'GAAP_CONFORMANT_BASED_ON_DISCLOSED_FACTS'
+        technicalSignOff: 'FACTS_EXTRACTED_STANDARDS_REVIEW_PENDING_SUBSTANTIVE_AUDIT'
       })
     );
 
-    // 6. CLARA: Professional PBC Intake & Customer Coordination (No Fabricated PBC Responses!)
+    // 6. CLARA: Professional PBC Intake & Customer Coordination (REAL_AI_AGENT)
     const hasCustomerPbc = !!params.customerPbcUploaded && (params.customerPbcFilesCount || 0) > 0;
     const pbcStatus = hasCustomerPbc ? 'PBC_ITEMS_RECEIVED_AND_REVIEWED' : 'AUTONOMOUS_PUBLIC_EVIDENCE_ONLY';
     const requestsIssued = hasCustomerPbc ? (params.customerPbcFilesCount || 1) : 0;
@@ -295,6 +310,7 @@ export class HermesJobDispatchService {
 
     await runDurableJob(
       'CLARA',
+      'REAL_AI_AGENT',
       'PBC_EVIDENCE_REQUISITION',
       'Track client-provided PBC schedules or record autonomous public filing evidence status',
       {
@@ -313,9 +329,11 @@ export class HermesJobDispatchService {
       })
     );
 
-    // 7. SENTINEL: Compliance & Operational Risk Assessment
+    // 7. SENTINEL: Compliance & Operational Risk Assessment (DETERMINISTIC_SPECIALIST_ENGINE)
+    // Does NOT pre-return FULL_PROFESSIONAL_STANDARDS_MET without independent attestation
     await runDurableJob(
       'SENTINEL',
+      'DETERMINISTIC_SPECIALIST_ENGINE',
       'OPERATIONAL_RISK_AUDIT',
       'Audit professional independence, CIK registrant identity, and regulatory prohibitions',
       {
@@ -323,20 +341,21 @@ export class HermesJobDispatchService {
         ticker: params.ticker
       },
       () => ({
-        independenceThreatsDetected: 0,
-        regulatoryFlags: 0,
-        registrantIdentityConfirmed: true,
-        complianceStatus: 'FULL_PROFESSIONAL_STANDARDS_MET'
+        registrantIdentityConfirmed: !!params.ticker,
+        independenceAttestationStatus: 'INDEPENDENT_EVALUATION_NOT_EXECUTED',
+        complianceStatus: 'REGISTRANT_CIK_VERIFIED_INDEPENDENCE_NOT_ATTESTED'
       })
     );
 
-    // 8. LEXICON: Taxonomy & Footnote Semantic Alignment
-    // Metrics derive from actual XBRL concepts/contexts, not percentage formulas
-    const customExts = params.taxonomyMetrics?.customExtensionsCount || Math.min(params.extractedFactsCount, 15);
-    const dimContexts = params.taxonomyMetrics?.dimensionContextsCount || Math.max(1, Math.min(params.extractedFactsCount * 2, 85));
+    // 8. LEXICON: Taxonomy & Footnote Semantic Alignment (REAL_AI_AGENT)
+    // Uses actual discovered metrics, returns 0 if none discovered (NO percentage multipliers or floors)
+    const customExts = params.taxonomyMetrics?.customExtensionsCount ?? 0;
+    const dimContexts = params.taxonomyMetrics?.dimensionContextsCount ?? 0;
+    const uniqueConcepts = params.taxonomyMetrics?.uniqueConceptsCount ?? 0;
 
     await runDurableJob(
       'LEXICON',
+      'REAL_AI_AGENT',
       'TAXONOMY_ALIGNMENT_VERIFICATION',
       'Map physical XBRL tags to US-GAAP taxonomy and anchor footnote dimensions',
       {
@@ -346,30 +365,34 @@ export class HermesJobDispatchService {
         usGaapTaxonomyVersion: '2024/2025',
         customExtensionsCount: customExts,
         dimensionContextsMapped: dimContexts,
-        uniqueConceptsCount: params.taxonomyMetrics?.uniqueConceptsCount || params.extractedFactsCount,
-        disposition: 'ALL_FACTS_SEMANTICALLY_ANCHORED'
+        uniqueConceptsCount: uniqueConcepts,
+        disposition: (uniqueConcepts > 0 || params.extractedFactsCount > 0)
+          ? 'ALL_FACTS_SEMANTICALLY_ANCHORED'
+          : 'ZERO_FACTS_ANCHORED'
       })
     );
 
-    // 9. QUINN: Quality Assurance & Senior Concurring Partner Review
+    // 9. QUINN: Quality Assurance & Concurring Partner Review (REAL_AI_AGENT)
+    // Does NOT pre-return consultationsDocumented = true or significantMattersAssessed = 3
     const allPriorJobsSucceeded = jobs.every(j => j.status === 'JOB_COMPLETED_SUCCESS');
-    const quinnApproved = allPriorJobsSucceeded && variance === 0 && actualSha256Match;
 
     await runDurableJob(
       'QUINN',
+      'REAL_AI_AGENT',
       'CONCURRING_PARTNER_QUALITY_REVIEW',
-      'Perform independent senior concurring partner quality review across all workpapers',
+      'Perform independent concurring partner preliminary quality review across workpapers',
       {
         workpapersReviewedCount: jobs.length,
         euclidVariance: variance,
         actualSha256Match
       },
       () => ({
-        significantMattersAssessed: 3,
-        consultationsDocumented: true,
+        significantMattersAssessed: 0,
+        consultationsDocumented: false,
         workpaperAuditTrailIntact: allPriorJobsSucceeded,
-        concurringApprovalGranted: quinnApproved,
-        deliveryEligible: quinnApproved
+        concurringApprovalGranted: false,
+        deliveryEligible: false,
+        reviewConclusion: 'CONDITIONAL_PRELIMINARY_WORKPAPER_REVIEW_PENDING_CONCURRING_PARTNER_SIGN_OFF'
       })
     );
 
@@ -384,7 +407,7 @@ export class HermesJobDispatchService {
       euclidEquationBalanced: variance === 0,
       pbcItemsCleared: responsesReceived,
       pbcStatus,
-      qualityReviewApproved: quinnApproved,
+      qualityReviewApproved: false,
       jobs,
       executedAt: new Date().toISOString()
     };

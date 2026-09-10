@@ -1040,11 +1040,12 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  // 34. Physical Customer Intake Upload & Processing Endpoints
+  // 34. Physical Customer Intake Upload & Autonomous Queue Persistence
   router.post('/intake/upload', (req: Request, res: Response) => {
     try {
       const { engagementId, ticker, clientName, fileContentBase64, filename } = req.body || {};
       const intakeSessionId = `intake-sess-${(ticker || 'client').toLowerCase()}-${Date.now()}`;
+      const customerPriorityJobId = `job-prio-${(ticker || 'client').toLowerCase()}-${Date.now()}`;
       
       let sha256 = '';
       let bytesReceived = 0;
@@ -1056,9 +1057,37 @@ export function createCPAOrganizationRouter(): Router {
         sha256 = crypto.createHash('sha256').update(Buffer.from(JSON.stringify(req.body || {}))).digest('hex');
       }
 
+      const documentId = `doc-${sha256.substring(0, 12)}`;
+      const queueRecord = {
+        intakeSessionId,
+        documentId,
+        documentHash: sha256,
+        customerPriorityJobId,
+        queueState: 'CUSTOMER_PRIORITY_ENQUEUED',
+        engagementId: engagementId || null,
+        ticker: ticker || null,
+        clientName: clientName || null,
+        filename: filename || 'Authoritative_10K.htm',
+        bytesReceived,
+        enqueuedAt: new Date().toISOString()
+      };
+
+      // Persist queue state to storage/cpa_memory/intake_queue
+      try {
+        const queueDir = path.join(process.cwd(), 'storage', 'cpa_memory', 'intake_queue');
+        if (!fs.existsSync(queueDir)) {
+          fs.mkdirSync(queueDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(queueDir, `${customerPriorityJobId}.json`), JSON.stringify(queueRecord, null, 2));
+      } catch (_) {}
+
       res.json({
         success: true,
         intakeSessionId,
+        documentId,
+        documentHash: sha256,
+        customerPriorityJobId,
+        queueState: 'CUSTOMER_PRIORITY_ENQUEUED',
         engagementId: engagementId || null,
         ticker: ticker || null,
         clientName: clientName || null,
