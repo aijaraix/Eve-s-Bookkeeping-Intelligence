@@ -1,0 +1,27 @@
+========================================================================
+ANNUAL REPORT AND AUDITED FINANCIAL STATEMENTS — FY 2025
+ISSUER: Global Telecom Group plc
+REPORTING FRAMEWORK: IFRS
+FUNCTIONAL CURRENCY: GBP, EUR, USD
+AUTHORITY: London Stock Exchange Annual Report & PwC Statutory Audit Opinion
+TIMESTAMP: 2026-09-10T04:15:55.504Z
+========================================================================
+
+PART I: PRIMARY FINANCIAL STATEMENTS
+
+Line 1 | [INCOME_STATEMENT] | Revenue                          : £42.500B (Base: 42500000000 GBP) | Source Page: 1
+Line 2 | [INCOME_STATEMENT] | Operating Profit                 : £6.850B (Base: 6850000000 GBP) | Source Page: 1
+Line 3 | [BALANCE_SHEET] | Total Assets                     : £86.400B (Base: 86400000000 GBP) | Source Page: 3
+Line 4 | [BALANCE_SHEET] | Total Liabilities                : £54.200B (Base: 54200000000 GBP) | Source Page: 3
+Line 5 | [BALANCE_SHEET] | Total Equity                     : £32.200B (Base: 32200000000 GBP) | Source Page: 3
+Line 6 | [NOTE] | Spectrum Intangibles             : £1.200B (Base: 1200000000 GBP) | Source Page: 8
+Line 7 | [NOTE] | Tower Leases Right-of-Use        : £4.500B (Base: 4500000000 GBP) | Source Page: 9
+Line 8 | [NOTE] | Network PP&E                     : £18.400B (Base: 18400000000 GBP) | Source Page: 7
+
+PART II: GROUP CONSOLIDATION & RECONCILIATIONS
+
+Entities: Global Telecom Group plc, Global Telecom Deutschland GmbH, Global Telecom España S.A., Global Telecom US Inc.
+Reconciliation Identity: Assets == Liabilities + Equity (86.40B == 54.20B + 32.20B) [Variance: 0]
+
+========================================================================
+END OF CERTIFIED SOURCE DISCLOSURE

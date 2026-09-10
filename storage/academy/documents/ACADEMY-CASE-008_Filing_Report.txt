@@ -1,0 +1,24 @@
+========================================================================
+ANNUAL REPORT AND AUDITED FINANCIAL STATEMENTS — FY 2025
+ISSUER: BioSynthetica International Inc
+REPORTING FRAMEWORK: US_GAAP
+FUNCTIONAL CURRENCY: USD, GBP
+AUTHORITY: SEC Form 20-F F-Pages & Deloitte Independent Registered Public Accounting Firm Report
+TIMESTAMP: 2026-09-10T04:14:11.317Z
+========================================================================
+
+PART I: PRIMARY FINANCIAL STATEMENTS
+
+Line 1 | [INCOME_STATEMENT] | Revenue                          : $8.90B (Base: 8900000000 USD) | Source Page: 3
+Line 2 | [INCOME_STATEMENT] | Operating Profit                 : $1.95B (Base: 1950000000 USD) | Source Page: 3
+Line 3 | [BALANCE_SHEET] | Total Assets                     : $24.50B (Base: 24500000000 USD) | Source Page: 5
+Line 4 | [BALANCE_SHEET] | Total Liabilities                : $11.20B (Base: 11200000000 USD) | Source Page: 5
+Line 5 | [BALANCE_SHEET] | Total Equity                     : $13.30B (Base: 13300000000 USD) | Source Page: 5
+
+PART II: GROUP CONSOLIDATION & RECONCILIATIONS
+
+Entities: BioSynthetica International Inc, BioSynthetica UK Ltd
+Reconciliation Identity: Assets == Liabilities + Equity (24.50B == 11.20B + 13.30B) [Variance: 0]
+
+========================================================================
+END OF CERTIFIED SOURCE DISCLOSURE

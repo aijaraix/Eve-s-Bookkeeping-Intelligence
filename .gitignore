@@ -20,3 +20,23 @@ db.storage.json
 ai_cpa_storage.json
 server/tests/fixtures/tmp_*
 
+# Browser binaries & download caches
+chrome/
+chrome-headless-shell/
+chromedriver/
+
+# Generated Report Outputs & Delivery Artifacts
+storage/reports/*
+!storage/reports/.gitkeep
+
+# Mutable runtime states and memory stores
+storage/cpa_memory/*
+!storage/cpa_memory/.gitkeep
+!storage/cpa_memory/sources/
+storage/worker_jobs.json
+
+# Forensic evidence hierarchy (preserved on disk, excluded from source commit)
+storage/forensics/*
+!storage/forensics/.gitkeep
+
+
