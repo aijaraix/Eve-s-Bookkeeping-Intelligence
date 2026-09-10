@@ -44,8 +44,9 @@ This documentation set consolidates the design decisions and operating rules dev
 32. `32_REAL_AGENT_EXECUTION_AND_ANTI_PSEUDO_SWARM_STANDARD.md`
 33. `33_TEN_COMPANY_AUTONOMOUS_TRIAL_RELEASE_AND_ACCEPTANCE_PROTOCOL.md`
 34. `34_GEMINI_SUPERVISED_FIRST_COMPANY_FIX_RESTART_AND_RELEASE_NINE_DIRECTIVE.md`
+35. `35_REPOSITORY_WIDE_BEHAVIORAL_TRUTH_AGENT_AUTHORITY_SWARM_ACADEMY_AND_REPORTING_CONFORMANCE.md`
 
-Documents 19–34 are mandatory before modifying, certifying, auditing, reconciling, deploying, externally attesting, or running supervised/autonomous production trials. They exist specifically to prevent a simulated, parallel, legacy, duplicate, cached, fallback, preview-only, build-only, observer-assisted, pseudo-agent, or presentation-only implementation from being mistaken for the real Eve production workflow.
+Documents 19–35 are mandatory before modifying, certifying, auditing, reconciling, deploying, externally attesting, or running supervised/autonomous production trials. They exist specifically to prevent a simulated, parallel, legacy, duplicate, cached, fallback, preview-only, build-only, observer-assisted, pseudo-agent, seeded, examiner-leaking, fake-human, report-signoff, or presentation-only implementation from being mistaken for the real Eve production workflow.
 
 ## Non-negotiable principles
 
@@ -97,6 +98,17 @@ Documents 19–34 are mandatory before modifying, certifying, auditing, reconcil
 - **A material supervised-trial repair requires restart from origin.** Do not fix an active engagement midstream and continue it as if the entire run were clean.
 - **Blind means runtime-selected.** A preconfigured ten-company array may be an owner-defined cohort, but it is not blind autonomous discovery.
 - **Company 1 is the release gate.** The remaining autonomous cohort may run only after one complete clean supervised engagement proves the end-to-end production path under a single final deployed runtime.
+- **Operational meaning outranks structural resemblance.** A correct-looking interface, artifact, status, test name, agent name, browser process, or report does not prove the underlying behavior occurred.
+- **Production starts empty of customer-like truth.** Test/demo/Academy/forensic fixtures never auto-seed production-authority stores.
+- **Examiner truth is isolated from solver memory.** Minerva sealed answers may never be available through shared memory, generic APIs, retrieval indexes, or solver context.
+- **Fallback cannot increase authority.** Failed reasoning/tool paths must not return successful accounting/compliance/human-review conclusions unless the fallback genuinely performs equivalent verified work.
+- **AI may not fabricate human/customer/professional actions.** Human approvals, CPA signatures/licenses, customer responses, PBC replies, or concurring sign-offs require actual authorized action objects.
+- **Intake success is transactional.** A successful customer upload includes durable bytes, hash, scope, custody, document identity, and a real customer-priority queue job.
+- **There is one customer job identity end-to-end.** Upload, scheduler, worker, and completion records must reconcile to the same durable job.
+- **Completeness and `unaccounted=0` are calculated, not assigned.** Fixed preservation counts or default zero remainder are not evidence.
+- **UI missing data stays missing.** No customer-facing fixture fallback may fill an absent canonical fact.
+- **Reports do not manufacture evidence or sign-off.** Missing citation, page, scale, reviewer, or professional approval remains missing or blocks/qualifies the output.
+- **Academy cannot grade its own improvement by changing the holdout.** Learning requires an unchanged evaluation basis and later measurable effect.
 
 ## Permanent information hierarchy
 
@@ -108,7 +120,7 @@ Every layer has a distinct purpose and must remain independently addressable.
 
 A large filing producing only a handful of correct headline metrics is **not** deep extraction. Completeness is measured against the source inventory and the information that survived the pipeline, not against a predetermined fact-count target.
 
-A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, audit success shortcut, duplicate canonical writer, legacy API, stale cache, unbounded fallback, preview-only implementation, undeployed GitHub code, observer-supplied output, hard-coded financial fallback, manufactured denominator floor, or pre-stamped proof state is **not** production verification. Follow Documents 19–34 to prove and reconcile the physical execution path.
+A production workflow that returns the correct-looking output through a fixture, generated source, simulated browser, monolithic pseudo-swarm, detached UI summary, audit success shortcut, duplicate canonical writer, legacy API, stale cache, unbounded fallback, preview-only implementation, undeployed GitHub code, observer-supplied output, hard-coded financial fallback, manufactured denominator floor, pre-stamped proof state, seeded production truth, examiner leakage, fake human action, or fabricated report sign-off is **not** production verification. Follow Documents 19–35 to prove and reconcile the physical execution path.
 
 ## Audit proof levels
 
@@ -171,4 +183,8 @@ Environment identity is part of proof. `BROWSER_VERIFIED` in one preview environ
 
 `33_TEN_COMPANY_AUTONOMOUS_TRIAL_RELEASE_AND_ACCEPTANCE_PROTOCOL.md` defines Company 1 as the supervised release candidate and Companies 2–10 as the independent autonomous continuation after the clean-run gate.
 
-`34_GEMINI_SUPERVISED_FIRST_COMPANY_FIX_RESTART_AND_RELEASE_NINE_DIRECTIVE.md` is the next execution directive for Google/Gemini. It requires current production blockers to be removed before Company 1 starts, then enforces INITIATOR → WATCH_ONLY → REMEDIATION/RESTART loops until one clean end-to-end engagement passes and the remaining nine are released without Google executing the cohort.
+`34_GEMINI_SUPERVISED_FIRST_COMPANY_FIX_RESTART_AND_RELEASE_NINE_DIRECTIVE.md` defines the supervised Company 1 fix/restart/release-nine execution sequence.
+
+## Repository-wide behavioral truth and authority closure
+
+`35_REPOSITORY_WIDE_BEHAVIORAL_TRUTH_AGENT_AUTHORITY_SWARM_ACADEMY_AND_REPORTING_CONFORMANCE.md` closes the remaining interpretation loopholes across production seeds, examiner/solver isolation, agent authority, swarm DAG communication, proof-state promotion, model fallback authority, fake-human actions, skill certification, transactional intake, one-customer-queue identity, crash-safe persistence, legacy side-flow isolation, entity/project/period placement, calculated completeness, real browser UI behavior, UI/report truth, professional sign-off, Internal Audit, Minerva, Academy holdouts/learning, tenant security, observability, invalidation propagation, and behavioral negative testing. It is mandatory before Company 1 release.
