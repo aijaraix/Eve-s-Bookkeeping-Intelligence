@@ -135,9 +135,11 @@ export class PersistentAgentMemory {
     const classification = params.classification || 
       (params.tags?.includes('EXAMINER_SEALED') || params.tags?.includes('golden_standard') ? 'EXAMINER_SEALED' : 'PUBLIC_REFERENCE');
 
-    // Authority verification (Requirement 10): Header or parameter x-agent-id cannot spoof examiner or unauthorized namespace
+    // Authority verification: Header or parameter x-agent-id cannot spoof examiner or unauthorized namespace
     const callerPrincipal = params.authContext?.authenticatedPrincipalId || null;
-    const isExaminer = params.authContext?.isExaminerService || callerPrincipal === 'MINERVA_EXAMINER_SERVICE' || callerPrincipal === 'SYSTEM_EXAMINER';
+    const callerRole = (params.authContext as any)?.authorityRole || '';
+    const callerClaims = (params.authContext as any)?.claims || [];
+    const isExaminer = params.authContext?.isExaminerService === true || callerRole === 'EXAMINER_SEALED_READ' || callerClaims.includes('EXAMINER_SEALED_READ');
 
     // Rule 1: Examiner Sealed Isolation (Doc 35 Requirements 1, 2, 3 & 18)
     const isSolverNamespace = !params.namespace.startsWith('eve/examiner') && !params.namespace.startsWith('eve/minerva');
@@ -207,11 +209,13 @@ export class PersistentAgentMemory {
     });
   }
 
-  public retrieve(namespace: string, key: string, requesterAgentId?: string, authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean }): MemoryEntry | null {
+  public retrieve(namespace: string, key: string, requesterAgentId?: string, authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean; authorityRole?: string; claims?: string[] }): MemoryEntry | null {
     const id = `${namespace}:${key}`;
     const entry = this.memoryStore.get(id);
     if (entry) {
-      const isExaminer = authContext?.isExaminerService || authContext?.authenticatedPrincipalId === 'MINERVA_EXAMINER_SERVICE' || authContext?.authenticatedPrincipalId === 'SYSTEM_EXAMINER';
+      const callerRole = authContext?.authorityRole || '';
+      const callerClaims = authContext?.claims || [];
+      const isExaminer = authContext?.isExaminerService === true || callerRole === 'EXAMINER_SEALED_READ' || callerClaims.includes('EXAMINER_SEALED_READ');
       if (entry.classification === 'EXAMINER_SEALED' && !isExaminer) {
         return null; // Deny access to solver contexts and unauthenticated callers
       }
@@ -227,10 +231,12 @@ export class PersistentAgentMemory {
     tag?: string;
     searchTerm?: string;
     requesterAgentId?: string;
-    authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean };
+    authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean; authorityRole?: string; claims?: string[] };
   }): MemoryEntry[] {
     let results = Array.from(this.memoryStore.values());
-    const isExaminer = params.authContext?.isExaminerService || params.authContext?.authenticatedPrincipalId === 'MINERVA_EXAMINER_SERVICE' || params.authContext?.authenticatedPrincipalId === 'SYSTEM_EXAMINER';
+    const callerRole = params.authContext?.authorityRole || '';
+    const callerClaims = params.authContext?.claims || [];
+    const isExaminer = params.authContext?.isExaminerService === true || callerRole === 'EXAMINER_SEALED_READ' || callerClaims.includes('EXAMINER_SEALED_READ');
 
     if (!isExaminer) {
       results = results.filter(e => e.classification !== 'EXAMINER_SEALED' && !e.tags.includes('EXAMINER_SEALED'));

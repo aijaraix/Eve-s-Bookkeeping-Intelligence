@@ -4,7 +4,7 @@ ISSUER: Meridian Global Holdings SE
 REPORTING FRAMEWORK: IFRS
 FUNCTIONAL CURRENCY: EUR, USD, GBP, SGD
 AUTHORITY: KPMG Statutory Audit & Group Consolidation Certificate Page 55
-TIMESTAMP: 2026-09-11T22:02:27.569Z
+TIMESTAMP: 2026-09-11T22:14:00.475Z
 ========================================================================
 
 PART I: PRIMARY FINANCIAL STATEMENTS

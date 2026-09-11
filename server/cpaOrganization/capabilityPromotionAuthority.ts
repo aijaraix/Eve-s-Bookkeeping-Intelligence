@@ -40,6 +40,19 @@ export interface CapabilityVersionRecord {
   updatedAt: string;
 }
 
+export interface CapabilityRollbackRecord {
+  rollbackEventId: string;
+  authenticatedPrincipalId: string;
+  authorityRole: string;
+  skillId: string;
+  fromVersion: string;
+  toVersion: string;
+  reason: string;
+  timestamp: string;
+  persistedReceipt: string;
+  status: 'ROLLED_BACK';
+}
+
 export class CapabilityPromotionAuthority {
   private static instance: CapabilityPromotionAuthority | null = null;
   private promotionLedger: CapabilityVersionRecord[] = [];
@@ -206,33 +219,30 @@ export class CapabilityPromotionAuthority {
 
   /**
    * Promotes a candidate version to active production.
-   * Requirement 8 & 9: Requires authenticated promotion authority context.
+   * Requirement 8: Requires authenticated Promotion Authority credentials (authorityRole === 'CAPABILITY_PROMOTION_AUTHORITY').
+   * Identity strings alone are not authority proof.
    * Atomically persists state change to disk before modifying in-memory active versions.
    */
   public promoteCandidate(params: {
     skillId: string;
     candidateVersion: string;
-    authContext?: { authenticatedPrincipalId: string | null; isPromotionAuthority?: boolean } | string;
+    authContext?: { authenticatedPrincipalId: string | null; isPromotionAuthority?: boolean; authorityRole?: string; claims?: string[] } | string;
     approvedBy?: string;
   }): CapabilityVersionRecord {
     let approvedBy = params.approvedBy || '';
     let isAuthority = false;
 
     if (typeof params.authContext === 'object' && params.authContext !== null) {
-      if (params.authContext.isPromotionAuthority || params.authContext.authenticatedPrincipalId === 'CHIEF_CPA_OFFICER' || params.authContext.authenticatedPrincipalId === 'PROMOTION_AUTHORITY_COMMITTEE') {
+      const role = params.authContext.authorityRole || '';
+      const claims = params.authContext.claims || [];
+      if (params.authContext.isPromotionAuthority === true || role === 'CAPABILITY_PROMOTION_AUTHORITY' || claims.includes('CAPABILITY_PROMOTION_AUTHORITY')) {
         isAuthority = true;
         approvedBy = params.authContext.authenticatedPrincipalId || approvedBy;
-      }
-    } else if (typeof params.authContext === 'string') {
-      const norm = params.authContext.toUpperCase();
-      if (norm === 'CHIEF_CPA_OFFICER' || norm === 'PROMOTION_AUTHORITY_COMMITTEE') {
-        isAuthority = true;
-        approvedBy = norm;
       }
     }
 
     if (!isAuthority) {
-      throw new Error(`UNAUTHORIZED_PROMOTION_AUTHORITY: Caller lacks authenticated Promotion Authority credentials.`);
+      throw new Error(`UNAUTHORIZED_PROMOTION_AUTHORITY: Caller lacks authenticated Promotion Authority credentials (requires CAPABILITY_PROMOTION_AUTHORITY role).`);
     }
 
     const record = this.promotionLedger.find(
@@ -291,10 +301,45 @@ export class CapabilityPromotionAuthority {
 
   /**
    * Rolls back an active capability version to a previous certified version.
+   * Requirement 7: Requires authenticated Promotion Authority. Removes synthetic testResults.
+   * Returns a real audit record.
    */
-  public rollbackCapability(skillId: string, targetVersion?: string): CapabilityVersionRecord {
+  public rollbackCapability(
+    params: {
+      skillId: string;
+      targetVersion?: string;
+      reason?: string;
+      authContext?: { authenticatedPrincipalId: string | null; isPromotionAuthority?: boolean; authorityRole?: string; claims?: string[] } | string;
+    } | string,
+    maybeTargetVersion?: string,
+    maybeReason?: string,
+    maybeAuthContext?: { authenticatedPrincipalId: string | null; isPromotionAuthority?: boolean; authorityRole?: string; claims?: string[] } | string
+  ): CapabilityRollbackRecord {
+    const skillId = typeof params === 'string' ? params : params.skillId;
+    const targetVersion = typeof params === 'string' ? maybeTargetVersion : params.targetVersion;
+    const reason = typeof params === 'string' ? (maybeReason || 'Administrative rollback') : (params.reason || 'Administrative rollback');
+    const authContext = typeof params === 'string' ? maybeAuthContext : (typeof params === 'object' && params !== null ? params.authContext : undefined);
+
+    let principalId = '';
+    let role = '';
+    let isAuthority = false;
+
+    if (typeof authContext === 'object' && authContext !== null) {
+      principalId = authContext.authenticatedPrincipalId || '';
+      role = authContext.authorityRole || '';
+      const claims = authContext.claims || [];
+      if (authContext.isPromotionAuthority === true || role === 'CAPABILITY_PROMOTION_AUTHORITY' || claims.includes('CAPABILITY_PROMOTION_AUTHORITY')) {
+        isAuthority = true;
+      }
+    }
+
+    if (!isAuthority) {
+      throw new Error(`UNAUTHORIZED_PROMOTION_AUTHORITY: Capability rollback requires authenticated Promotion Authority credentials (requires CAPABILITY_PROMOTION_AUTHORITY role).`);
+    }
+
     const currentActive = this.promotionLedger.find(r => r.skillId === skillId && r.status === 'PROMOTED_ACTIVE');
     const rollbackTo = targetVersion || currentActive?.previousVersion || '1.0.0';
+    const fromVersion = currentActive?.candidateVersion || 'UNKNOWN';
 
     if (currentActive) {
       currentActive.status = 'ROLLED_BACK';
@@ -313,20 +358,23 @@ export class CapabilityPromotionAuthority {
     this.saveToDisk();
     this.activeVersions.set(skillId, rollbackTo);
 
-    return {
+    const rollbackEventId = `RB-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const timestamp = new Date().toISOString();
+
+    const rollbackRecord: CapabilityRollbackRecord = {
+      rollbackEventId,
+      authenticatedPrincipalId: principalId,
+      authorityRole: role || 'CAPABILITY_PROMOTION_AUTHORITY',
       skillId,
-      candidateVersion: rollbackTo,
-      previousVersion: currentActive?.candidateVersion || 'UNKNOWN',
-      proposedBy: 'SYSTEM_ROLLBACK',
-      approvedBy: 'EMERGENCY_ROLLBACK_GATE',
-      changeReason: `Rollback triggered from ${currentActive?.candidateVersion || 'current'} to target ${rollbackTo}`,
-      learningCaseIds: [],
-      testResults: { passed: true, score: 1.0, totalCases: 1 },
-      status: 'PROMOTED_ACTIVE',
-      promotedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      fromVersion,
+      toVersion: rollbackTo,
+      reason,
+      timestamp,
+      persistedReceipt: `RECEIPT-${rollbackEventId}`,
+      status: 'ROLLED_BACK'
     };
+
+    return rollbackRecord;
   }
 
   public getActiveVersion(skillId: string): string {

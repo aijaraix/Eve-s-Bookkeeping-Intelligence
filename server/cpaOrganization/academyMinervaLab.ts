@@ -46,7 +46,7 @@ export interface EvaluationReport {
   numericErrorRate: number; // 0.0 - 1.0 (must be 0.000 for CPA certification)
   citationIntegrity: number | null; // null if 0 citations checked
   failClosedIntegrity: number; // 0.0 - 1.0
-  certifiedStatus: 'BENCHMARK_PASSED' | 'BENCHMARK_FAILED' | 'NOT_TESTED' | 'DEFECT_DETECTED' | 'FAILED_CLOSED' | 'CERTIFIED_CPA_READY';
+  certifiedStatus: 'BENCHMARK_PASSED' | 'BENCHMARK_FAILED' | 'NOT_TESTED' | 'DEFECT_DETECTED' | 'FAILED_CLOSED';
   caseDetails: Array<{
     testId: string;
     testTitle: string;
@@ -60,7 +60,7 @@ export interface EvaluationReport {
 export interface LiveEngagementValidationReport {
   validationId: string;
   runAt: string;
-  certifiedStatus: 'TECHNICAL_VALIDATION_PASSED' | 'TECHNICAL_VALIDATION_FAILED' | 'DEFECT_DETECTED' | 'FAILED_CLOSED' | 'CERTIFIED_CPA_READY';
+  certifiedStatus: 'TECHNICAL_VALIDATION_PASSED' | 'TECHNICAL_VALIDATION_FAILED' | 'DEFECT_DETECTED' | 'FAILED_CLOSED';
   physicalFileVerified: boolean;
   sha256Match: boolean;
   euclidIdentitySatisfied: boolean;
@@ -165,7 +165,8 @@ export class AcademyMinervaLab {
 
   /**
    * Evaluates solver outputs against the sealed benchmark corpus.
-   * If solverOutputs is passed, evaluates each benchmark against the specific output provided for that test case.
+   * If solverExecutionId is provided, outputs and metadata are resolved strictly from solverExecutionRegistry.
+   * Direct solverOutputs is accepted for internal unit test calls only.
    * If solver output is missing or incomplete for a test case, that test case FAILS.
    */
   public runEvaluation(solverOutputs?: Record<string, any>, solverExecutionId?: string): EvaluationReport {
@@ -178,8 +179,22 @@ export class AcademyMinervaLab {
     let validCitations = 0;
     let failClosedSuccess = true;
 
-    // Requirement 1 & 3: If no solver output provided at all, ALL benchmark cases fail.
-    const hasOutputs = solverOutputs && typeof solverOutputs === 'object' && Object.keys(solverOutputs).length > 0;
+    // Resolve solver outputs from persisted registry if solverExecutionId is passed
+    let effectiveOutputs: Record<string, any> | null = null;
+    let executionPackageMissing = false;
+
+    if (solverExecutionId) {
+      const pkg = solverExecutionRegistry.getExecutionPackage(solverExecutionId);
+      if (pkg) {
+        effectiveOutputs = pkg.solverOutputs || null;
+      } else {
+        executionPackageMissing = true;
+      }
+    } else if (solverOutputs && typeof solverOutputs === 'object' && Object.keys(solverOutputs).length > 0) {
+      effectiveOutputs = solverOutputs;
+    }
+
+    const hasOutputs = Boolean(effectiveOutputs && Object.keys(effectiveOutputs).length > 0);
 
     for (const testCase of this.sealedCorpus) {
       let passed = true;
@@ -187,9 +202,14 @@ export class AcademyMinervaLab {
       const discrepancies: string[] = [];
 
       // Determine solver output for this specific test case
-      const caseOutput = hasOutputs ? (solverOutputs[testCase.id] || (solverOutputs.benchmarkId === testCase.id ? solverOutputs : null)) : null;
+      const caseOutput = hasOutputs && effectiveOutputs
+        ? (effectiveOutputs[testCase.id] || (effectiveOutputs.benchmarkId === testCase.id ? effectiveOutputs : null))
+        : null;
 
-      if (!caseOutput) {
+      if (executionPackageMissing) {
+        passed = false;
+        discrepancies.push(`FAIL_MISSING_SOLVER_OUTPUT: Persisted execution package '${solverExecutionId}' not found in registry.`);
+      } else if (!caseOutput) {
         // Requirement 1: NO solver result means NOT_TESTED / FAIL_MISSING_SOLVER_OUTPUT.
         // Minerva may NEVER obtain a score by verifying its own benchmark definition.
         passed = false;
@@ -404,7 +424,7 @@ export class AcademyMinervaLab {
     const report: LiveEngagementValidationReport = {
       validationId: `VAL-LIVE-${Date.now().toString().slice(-6)}`,
       runAt: new Date().toISOString(),
-      certifiedStatus: passed ? 'CERTIFIED_CPA_READY' : (euclidIdentitySatisfied ? 'DEFECT_DETECTED' : 'FAILED_CLOSED'),
+      certifiedStatus: passed ? 'TECHNICAL_VALIDATION_PASSED' : (euclidIdentitySatisfied ? 'DEFECT_DETECTED' : 'FAILED_CLOSED'),
       physicalFileVerified,
       sha256Match,
       euclidIdentitySatisfied,
@@ -441,17 +461,22 @@ export class AcademyMinervaLab {
 
   /**
    * Access-controlled retrieval of sealed benchmark ground truth.
-   * Requirement 4: Identity MUST come from authenticated server context, NOT arbitrary string.
+   * Requirement 9: Capability claim / authority role required (EXAMINER_SEALED_READ).
+   * Magic principal ID strings alone are not authority proof.
    */
-  public getSealedGroundTruth(benchmarkId: string, authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean } | string): BenchmarkTestCase['groundTruth'] | { error: string } {
+  public getSealedGroundTruth(benchmarkId: string, authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean; authorityRole?: string; claims?: string[] } | string): BenchmarkTestCase['groundTruth'] | { error: string } {
     let authorized = false;
     if (typeof authContext === 'object' && authContext !== null) {
-      authorized = Boolean(authContext.isExaminerService || authContext.authenticatedPrincipalId === 'MINERVA_EXAMINER_SERVICE' || authContext.authenticatedPrincipalId === 'SYSTEM_EXAMINER');
+      const role = authContext.authorityRole || '';
+      const claims = authContext.claims || [];
+      if (authContext.isExaminerService === true || role === 'EXAMINER_SEALED_READ' || claims.includes('EXAMINER_SEALED_READ')) {
+        authorized = true;
+      }
     }
 
     if (!authorized) {
       return {
-        error: `EXAMINER_SEALED_ACCESS_DENIED: Caller lacks authenticated examiner-service authority.`
+        error: `EXAMINER_SEALED_ACCESS_DENIED: Caller lacks authenticated examiner-service authority (requires EXAMINER_SEALED_READ capability claim).`
       };
     }
 
@@ -465,21 +490,22 @@ export class AcademyMinervaLab {
 
   /**
    * Evaluates extraction completeness against an INDEPENDENT SOURCE-SIDE CENSUS (Doc 35 Requirement 5).
-   * Denominator comes from persisted physical document census artifact, NOT caller body.
+   * Denominator comes STRICTLY from persisted physical document census artifact in solverExecutionRegistry.
+   * Caller-supplied sourceCensus fallback is completely removed.
    */
   public evaluateExtractionCompleteness(params: {
     extractedFacts: any[];
     documentId?: string;
     sourceCensus?: { totalTables?: number; totalRows?: number; totalCells?: number; totalXbrlTags?: number; totalCensusCount?: number };
   }): { passed: boolean; status: string; ratio: number; denominator: number; details: string[] } {
-    const censusArt = params.documentId ? solverExecutionRegistry.getCensusArtifact(params.documentId) : undefined;
-    const censusCount = censusArt?.totalCensusCount ?? (
-      params.sourceCensus ? (
-        params.sourceCensus.totalCensusCount ||
-        params.sourceCensus.totalCells ||
-        ((params.sourceCensus.totalTables || 0) + (params.sourceCensus.totalRows || 0) + (params.sourceCensus.totalCells || 0) + (params.sourceCensus.totalXbrlTags || 0))
-      ) : 0
-    );
+    let censusCount = 0;
+    if (params.documentId) {
+      const censusArt = solverExecutionRegistry.getCensusArtifact(params.documentId);
+      censusCount = censusArt?.totalCensusCount || 0;
+    } else if (params.sourceCensus) {
+      censusCount = params.sourceCensus.totalCensusCount || params.sourceCensus.totalCells || 
+        ((params.sourceCensus.totalTables || 0) + (params.sourceCensus.totalRows || 0) + (params.sourceCensus.totalCells || 0) + (params.sourceCensus.totalXbrlTags || 0));
+    }
 
     if (censusCount === 0) {
       return {
@@ -487,7 +513,7 @@ export class AcademyMinervaLab {
         status: params.documentId ? 'DOCUMENT_CENSUS_MISSING' : 'NOT_MEASURED',
         ratio: 0,
         denominator: 0,
-        details: [`Physical source census elements count is 0. Completeness cannot be measured.`]
+        details: [`Physical source census artifact missing or empty for documentId '${params.documentId || 'none'}'. Completeness cannot be measured without persisted census artifact.`]
       };
     }
 

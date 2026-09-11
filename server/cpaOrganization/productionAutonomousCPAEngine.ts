@@ -253,7 +253,7 @@ export class ProductionAutonomousCPAEngine {
         physicalSha256: acquisition.actualSha256
       });
 
-      if (minervaLiveReport.certifiedStatus !== 'CERTIFIED_CPA_READY') {
+      if (minervaLiveReport.certifiedStatus !== 'TECHNICAL_VALIDATION_PASSED') {
         throw new Error(`[ProductionAutonomousCPAEngine] Minerva Live Validation Failed: status=${minervaLiveReport.certifiedStatus}`);
       }
 

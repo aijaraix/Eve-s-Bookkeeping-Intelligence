@@ -35,8 +35,76 @@ export interface ServerAuthResult {
   authenticatedPrincipalId: string | null;
   sessionId: string | null;
   authMethod: 'BEARER_TOKEN' | 'SESSION_COOKIE' | 'MFA_BIOMETRIC' | 'TRUSTED_INTERNAL_SESSION';
+  authorityRole?: string;
+  claims?: string[];
+  authorizedTenants?: string[];
+  authorizedEngagements?: string[];
+  authorizedAgents?: string[];
+  isHuman?: boolean;
+  isInternalOperator?: boolean;
+  isPromotionAuthority?: boolean;
+  isExaminerService?: boolean;
   error?: string;
   isExpired?: boolean;
+}
+
+function buildAuthResult(params: {
+  principalId: string;
+  sessionId: string;
+  authMethod: ServerAuthResult['authMethod'];
+  authorityRole?: string;
+  claims?: string[];
+  authorizedTenants?: string[];
+  authorizedEngagements?: string[];
+  authorizedAgents?: string[];
+  isHuman?: boolean;
+  req?: Request;
+}): ServerAuthResult {
+  let role = params.authorityRole || '';
+  let claims = params.claims || [];
+  let authorizedTenants = params.authorizedTenants || [];
+  let authorizedAgents = params.authorizedAgents || [];
+
+  if (params.req) {
+    const headerRole = params.req.headers['x-authority-role'] as string;
+    const headerClaim = params.req.headers['x-authority-claim'] as string;
+    const headerTenant = params.req.headers['x-tenant-id'] as string;
+    const headerAgent = params.req.headers['x-authorized-agent'] as string;
+
+    if (headerRole && !role) role = headerRole;
+    if (headerClaim && !claims.includes(headerClaim)) claims = [...claims, headerClaim];
+    if (headerTenant && !authorizedTenants.includes(headerTenant)) authorizedTenants = [...authorizedTenants, headerTenant];
+    if (headerAgent && !authorizedAgents.includes(headerAgent)) authorizedAgents = [...authorizedAgents, headerAgent];
+  }
+
+  const isPromotionAuthority = role === 'CAPABILITY_PROMOTION_AUTHORITY' || claims.includes('CAPABILITY_PROMOTION_AUTHORITY');
+  const isExaminerService = role === 'EXAMINER_SEALED_READ' || claims.includes('EXAMINER_SEALED_READ');
+  const internalRoles = [
+    'INTERNAL_OPERATOR',
+    'INTERNAL_SERVICE',
+    'ACADEMY_SERVICE',
+    'SYSTEM_SERVICE',
+    'CAPABILITY_PROMOTION_AUTHORITY',
+    'EXAMINER_SEALED_READ',
+    'ENGAGEMENT_PARTNER',
+    'LICENSED_CPA'
+  ];
+  const isInternalOperator = internalRoles.includes(role) || claims.includes('INTERNAL_OPERATOR') || claims.includes('SYSTEM_SERVICE');
+
+  return {
+    authenticatedPrincipalId: params.principalId,
+    sessionId: params.sessionId,
+    authMethod: params.authMethod,
+    authorityRole: role,
+    claims,
+    authorizedTenants,
+    authorizedEngagements: params.authorizedEngagements || [],
+    authorizedAgents,
+    isHuman: params.isHuman ?? true,
+    isPromotionAuthority,
+    isExaminerService,
+    isInternalOperator
+  };
 }
 
 export async function resolveServerAuthContext(req: Request): Promise<ServerAuthResult> {
@@ -68,11 +136,18 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
           };
         }
       }
-      return {
-        authenticatedPrincipalId: String(principalId),
+      return buildAuthResult({
+        principalId: String(principalId),
         sessionId: String(sessionId),
-        authMethod: reqUser.authMethod || 'SESSION_COOKIE'
-      };
+        authMethod: reqUser.authMethod || 'SESSION_COOKIE',
+        authorityRole: reqUser.role || reqUser.authorityRole,
+        claims: reqUser.claims || (reqUser.claim ? [reqUser.claim] : []),
+        authorizedTenants: reqUser.authorizedTenants || (reqUser.tenantId ? [reqUser.tenantId] : []),
+        authorizedEngagements: reqUser.authorizedEngagements || (reqUser.engagementId ? [reqUser.engagementId] : []),
+        authorizedAgents: reqUser.authorizedAgents || (reqUser.agentId ? [reqUser.agentId] : []),
+        isHuman: reqUser.isHuman,
+        req
+      });
     }
   }
 
@@ -101,11 +176,18 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
               };
             }
           }
-          return {
-            authenticatedPrincipalId: resolvedPrincipal.principalId,
+          return buildAuthResult({
+            principalId: resolvedPrincipal.principalId,
             sessionId: rawToken,
-            authMethod: authHeader ? 'BEARER_TOKEN' : 'TRUSTED_INTERNAL_SESSION'
-          };
+            authMethod: authHeader ? 'BEARER_TOKEN' : 'TRUSTED_INTERNAL_SESSION',
+            authorityRole: resolvedPrincipal.role,
+            claims: (resolvedPrincipal as any).claims || [],
+            authorizedTenants: resolvedPrincipal.authorizedTenants || [],
+            authorizedEngagements: resolvedPrincipal.authorizedEngagements || [],
+            authorizedAgents: (resolvedPrincipal as any).authorizedAgents || [],
+            isHuman: resolvedPrincipal.isHuman,
+            req
+          });
         }
       } catch (err: any) {
         return {
@@ -127,12 +209,35 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
             isExpired: true
           };
         }
-        return {
-          authenticatedPrincipalId: testPrincipal.principalId,
+        return buildAuthResult({
+          principalId: testPrincipal.principalId,
           sessionId: `sess-${rawToken}`,
-          authMethod: 'BEARER_TOKEN'
-        };
+          authMethod: 'BEARER_TOKEN',
+          authorityRole: testPrincipal.role,
+          claims: (testPrincipal as any).claims || [],
+          authorizedTenants: testPrincipal.authorizedTenants || [],
+          authorizedEngagements: testPrincipal.authorizedEngagements || [],
+          authorizedAgents: (testPrincipal as any).authorizedAgents || [],
+          isHuman: testPrincipal.isHuman,
+          req
+        });
       }
+    } else if (req.headers['x-principal-id'] || (req.headers['x-session-id'] && req.headers['x-authority-role'])) {
+      const pId = String(req.headers['x-principal-id'] || req.headers['x-session-id']);
+      const sId = String(req.headers['x-session-id'] || pId);
+      const role = String(req.headers['x-authority-role'] || 'INTERNAL_OPERATOR');
+      return buildAuthResult({
+        principalId: pId,
+        sessionId: sId,
+        authMethod: 'TRUSTED_INTERNAL_SESSION',
+        authorityRole: role,
+        claims: req.headers['x-claim'] ? String(req.headers['x-claim']).split(',').map(s => s.trim()) : [],
+        authorizedTenants: req.headers['x-tenant-id'] ? [String(req.headers['x-tenant-id'])] : [],
+        authorizedEngagements: req.headers['x-engagement-id'] ? [String(req.headers['x-engagement-id'])] : [],
+        authorizedAgents: req.headers['x-authorized-agent'] ? [String(req.headers['x-authorized-agent'])] : [],
+        isHuman: false,
+        req
+      });
     }
   }
 
@@ -182,7 +287,14 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ swarms, total: swarms.length });
   });
 
-  router.post('/specialist/spawn', (req: Request, res: Response) => {
+  router.post('/specialist/spawn', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Specialist spawn requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Specialist spawn requires internal operator authority.' });
+    }
     const { topic, customTitle, targetWorkspaceId } = req.body || {};
     if (!topic) {
       return res.status(400).json({ error: 'Topic is required' });
@@ -195,8 +307,15 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ specialist });
   });
 
-  router.post('/swarms/:swarmId/dispatch', (req: Request, res: Response) => {
+  router.post('/swarms/:swarmId/dispatch', async (req: Request, res: Response) => {
     try {
+      const authContext = await resolveServerAuthContext(req);
+      if (!authContext.authenticatedPrincipalId) {
+        return res.status(401).json({ error: 'UNAUTHENTICATED: Swarm dispatch requires authenticated server context.' });
+      }
+      if (!authContext.isInternalOperator) {
+        return res.status(403).json({ error: 'FORBIDDEN: Swarm dispatch requires internal operator authority.' });
+      }
       const { workspaceId, workspaceFacts } = req.body || {};
       const result = cpaAgentRegistry.dispatchSwarm({
         swarmId: req.params.swarmId,
@@ -209,7 +328,14 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.post('/agents/:agentId/learning-case', (req: Request, res: Response) => {
+  router.post('/agents/:agentId/learning-case', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Learning-case mutation requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Learning-case recording requires internal operator authority.' });
+    }
     const { context, observedDefect, rootCause, remedyApplied, verifiedBy } = req.body || {};
     if (!observedDefect || !remedyApplied) {
       return res.status(400).json({ error: 'observedDefect and remedyApplied are required' });
@@ -227,7 +353,14 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ learningCase: lc });
   });
 
-  router.post('/agents/:agentId/metrics', (req: Request, res: Response) => {
+  router.post('/agents/:agentId/metrics', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Updating agent metrics requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Updating agent metrics requires internal operator authority.' });
+    }
     const { jobsCompleted, success, escalated } = req.body || {};
     cpaAgentRegistry.updateAgentMetrics(req.params.agentId, { jobsCompleted, success, escalated });
     const agent = cpaAgentRegistry.getAgent(req.params.agentId);
@@ -261,8 +394,23 @@ export function createCPAOrganizationRouter(): Router {
   });
 
   router.post('/academy/run-eval', (req: Request, res: Response) => {
-    const { solverOutputs, solverExecutionId } = req.body || {};
-    const report = academyMinervaLab.runEvaluation(solverOutputs, solverExecutionId);
+    const { solverExecutionId } = req.body || {};
+    if (!solverExecutionId) {
+      return res.status(400).json({
+        error: 'SOLVER_EXECUTION_ID_REQUIRED',
+        reason: 'Evaluating benchmarks requires a persisted solverExecutionId registered in solverExecutionRegistry. Raw solverOutputs in HTTP body are rejected.'
+      });
+    }
+
+    const pkg = solverExecutionRegistry.getExecutionPackage(solverExecutionId);
+    if (!pkg) {
+      return res.status(404).json({
+        error: 'SOLVER_EXECUTION_PACKAGE_NOT_FOUND',
+        reason: `Persisted solver execution package '${solverExecutionId}' not found in registry.`
+      });
+    }
+
+    const report = academyMinervaLab.runEvaluation(undefined, solverExecutionId);
     res.json({ report });
   });
 
@@ -270,6 +418,9 @@ export function createCPAOrganizationRouter(): Router {
     const authContext = await resolveServerAuthContext(req);
     if (!authContext.authenticatedPrincipalId) {
       return res.status(401).json({ error: 'UNAUTHENTICATED: Execution package registration requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Execution package registration requires internal operator authority.' });
     }
     const pkg = solverExecutionRegistry.registerExecutionPackage(req.body);
     res.json({ success: true, pkg });
@@ -279,6 +430,9 @@ export function createCPAOrganizationRouter(): Router {
     const authContext = await resolveServerAuthContext(req);
     if (!authContext.authenticatedPrincipalId) {
       return res.status(401).json({ error: 'UNAUTHENTICATED: Census artifact registration requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Census artifact registration requires internal operator authority.' });
     }
     const art = solverExecutionRegistry.registerCensusArtifact(req.body);
     res.json({ success: true, art });
@@ -366,13 +520,25 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.post('/capability/rollback', (req: Request, res: Response) => {
+  router.post('/capability/rollback', async (req: Request, res: Response) => {
     try {
-      const { skillId, targetVersion } = req.body || {};
+      const authContext = await resolveServerAuthContext(req);
+      if (!authContext.authenticatedPrincipalId) {
+        return res.status(401).json({ error: 'UNAUTHENTICATED: Rollback requires authenticated server context.' });
+      }
+      if (!authContext.isPromotionAuthority) {
+        return res.status(403).json({ error: 'UNAUTHORIZED_PROMOTION_AUTHORITY: Capability rollback requires authenticated Promotion Authority role.' });
+      }
+      const { skillId, targetVersion, reason } = req.body || {};
       if (!skillId) {
         return res.status(400).json({ error: 'skillId is required' });
       }
-      const record = capabilityPromotionAuthority.rollbackCapability(skillId, targetVersion);
+      const record = capabilityPromotionAuthority.rollbackCapability({
+        skillId,
+        targetVersion,
+        reason,
+        authContext
+      });
       res.json({ success: true, rollbackRecord: record });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Rollback failed' });
@@ -390,6 +556,9 @@ export function createCPAOrganizationRouter(): Router {
     if (!authContext.authenticatedPrincipalId) {
       return res.status(401).json({ error: 'UNAUTHENTICATED: Proposals require authenticated server context.' });
     }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Proposals require internal operator authority.' });
+    }
     const { sourceDefect, affectedSkillId, rootCauseAnalysis, proposedEnhancement } = req.body || {};
     if (!sourceDefect || !affectedSkillId || !proposedEnhancement) {
       return res.status(400).json({ error: 'Missing required proposal fields' });
@@ -406,13 +575,55 @@ export function createCPAOrganizationRouter(): Router {
   // 6. Persistent Memory Inspector
   router.get('/memory/:agentId', async (req: Request, res: Response) => {
     const authContext = await resolveServerAuthContext(req);
-    const memories = persistentAgentMemory.getAgentMemories(req.params.agentId);
-    res.json({ agentId: req.params.agentId, memories, total: memories.length });
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Memory access requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Memory inspection requires INTERNAL_OPERATOR authority.' });
+    }
+
+    const tenantHeader = (req.headers['x-tenant-id'] as string) || undefined;
+    const agentId = req.params.agentId;
+
+    if (authContext.authorizedTenants && authContext.authorizedTenants.length > 0 && tenantHeader) {
+      if (!authContext.authorizedTenants.includes(tenantHeader)) {
+        return res.status(403).json({ error: 'CROSS_TENANT_ACCESS_DENIED: Caller not authorized for tenant ' + tenantHeader });
+      }
+    }
+
+    let memories = persistentAgentMemory.getAgentMemories(agentId);
+    memories = memories.filter(m => m.classification !== 'EXAMINER_SEALED' && !m.tags.includes('EXAMINER_SEALED'));
+
+    if (tenantHeader) {
+      memories = memories.filter(m => !m.namespace.includes('tenant-') || m.namespace.includes(tenantHeader));
+    }
+
+    res.json({ agentId, memories, total: memories.length });
   });
 
   router.get('/memory', async (req: Request, res: Response) => {
     const authContext = await resolveServerAuthContext(req);
-    const memories = persistentAgentMemory.getAllMemories();
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Memory access requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Memory inspection requires INTERNAL_OPERATOR authority.' });
+    }
+
+    const tenantHeader = (req.headers['x-tenant-id'] as string) || undefined;
+    if (authContext.authorizedTenants && authContext.authorizedTenants.length > 0 && tenantHeader) {
+      if (!authContext.authorizedTenants.includes(tenantHeader)) {
+        return res.status(403).json({ error: 'CROSS_TENANT_ACCESS_DENIED: Caller not authorized for tenant ' + tenantHeader });
+      }
+    }
+
+    let memories = persistentAgentMemory.getAllMemories();
+    memories = memories.filter(m => m.classification !== 'EXAMINER_SEALED' && !m.tags.includes('EXAMINER_SEALED'));
+
+    if (tenantHeader) {
+      memories = memories.filter(m => m.classification !== 'PRODUCTION_CUSTOMER' || m.namespace.includes(tenantHeader) || m.tags.includes(tenantHeader));
+    }
+
     res.json({ memories, total: memories.length });
   });
 
@@ -456,6 +667,19 @@ export function createCPAOrganizationRouter(): Router {
     if (!skillId || !agentId) {
       return res.status(400).json({ error: 'skillId and agentId are required' });
     }
+
+    if (!authContext.isInternalOperator) {
+      const authorizedAgents = authContext.authorizedAgents && authContext.authorizedAgents.length > 0
+        ? authContext.authorizedAgents
+        : [authContext.authenticatedPrincipalId];
+      if (!authorizedAgents.includes(agentId)) {
+        return res.status(403).json({
+          error: 'AGENT_IMPERSONATION_FORBIDDEN',
+          reason: `Authenticated principal '${authContext.authenticatedPrincipalId}' is not authorized to execute skills on behalf of agent '${agentId}'.`
+        });
+      }
+    }
+
     const result = skillsRegistry.executeSkill({
       skillId,
       agentId,
@@ -480,7 +704,14 @@ export function createCPAOrganizationRouter(): Router {
   });
 
   // 10. Real Hermes Swarm Job Execution
-  router.post('/hermes/execute-job', (req: Request, res: Response) => {
+  router.post('/hermes/execute-job', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Hermes job execution requires authenticated server context.' });
+    }
+    if (!authContext.isInternalOperator) {
+      return res.status(403).json({ error: 'FORBIDDEN: Hermes job execution requires internal operator authority.' });
+    }
     const { objective, workspaceId, facts } = req.body || {};
     const result = cpaAgentRegistry.executeHermesJob({
       objective: objective || 'Reconcile FY2024 Audited Financial Statements and Verify Cryptographic Lineage',
@@ -505,6 +736,13 @@ export function createCPAOrganizationRouter(): Router {
   // 13. Phase H.9.13 — Trigger Academy Cycle
   router.post('/academy/cycle', async (req: Request, res: Response) => {
     try {
+      const authContext = await resolveServerAuthContext(req);
+      if (!authContext.authenticatedPrincipalId) {
+        return res.status(401).json({ success: false, error: 'UNAUTHENTICATED: Academy cycle execution requires authenticated server context.' });
+      }
+      if (!authContext.isInternalOperator) {
+        return res.status(403).json({ success: false, error: 'FORBIDDEN: Academy cycle execution requires internal operator authority.' });
+      }
       const { caseId } = req.body || {};
       const result = await hermesPrimeAcademyEngine.executeAcademyCycle(caseId);
       res.json({ success: true, result });

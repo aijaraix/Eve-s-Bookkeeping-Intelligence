@@ -1,0 +1,23 @@
+========================================================================
+ANNUAL REPORT AND AUDITED FINANCIAL STATEMENTS — FY 2025
+ISSUER: Tokyo MicroSystems K.K.
+REPORTING FRAMEWORK: US_GAAP
+FUNCTIONAL CURRENCY: JPY, USD
+AUTHORITY: Tokyo Stock Exchange Prime Market Annual Securities Report
+TIMESTAMP: 2026-09-11T22:14:00.431Z
+========================================================================
+
+PART I: PRIMARY FINANCIAL STATEMENTS
+
+Line 1 | [INCOME_STATEMENT] | Revenue                          : ¥420.00B (Base: 420000000000 JPY) | Source Page: 4
+Line 2 | [BALANCE_SHEET] | Total Assets                     : ¥680.00B (Base: 680000000000 JPY) | Source Page: 5
+Line 3 | [BALANCE_SHEET] | Total Liabilities                : ¥310.00B (Base: 310000000000 JPY) | Source Page: 5
+Line 4 | [BALANCE_SHEET] | Total Equity                     : ¥370.00B (Base: 370000000000 JPY) | Source Page: 5
+
+PART II: GROUP CONSOLIDATION & RECONCILIATIONS
+
+Entities: Tokyo MicroSystems K.K., Tokyo Micro Americas Inc.
+Reconciliation Identity: Assets == Liabilities + Equity (680B == 310B + 370B) [Variance: 0]
+
+========================================================================
+END OF CERTIFIED SOURCE DISCLOSURE

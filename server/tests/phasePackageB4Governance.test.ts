@@ -7,6 +7,7 @@ import { persistentAgentMemory } from '../cpaOrganization/persistentMemory.js';
 import { darwinEvolutionLoop } from '../cpaOrganization/darwinEvolutionLoop.js';
 import { capabilityPromotionAuthority } from '../cpaOrganization/capabilityPromotionAuthority.js';
 import { skillsRegistry } from '../cpaOrganization/skillsRegistry.js';
+import { solverExecutionRegistry } from '../cpaOrganization/solverExecutionRegistry.js';
 
 export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: number; failed: number; total: number }> {
   console.log('====================================================');
@@ -213,8 +214,7 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
 
   // 11. No measurements returns NOT_MEASURED
   const t11 = academyMinervaLab.evaluateExtractionCompleteness({
-    extractedFacts: [],
-    sourceCensus: { totalTables: 0, totalRows: 0, totalCells: 0, totalXbrlTags: 0 }
+    extractedFacts: []
   });
   assert(
     'B4-REQ-11: Zero Census Returns NOT_MEASURED',
@@ -224,9 +224,16 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
   );
 
   // 12. Academy learning metric records real numerator/denominator
+  solverExecutionRegistry.registerCensusArtifact('doc-b4-12', {
+    totalCensusCount: 10,
+    totalTables: 1,
+    totalRows: 1,
+    totalCells: 10,
+    totalXbrlTags: 0
+  });
   const t12 = academyMinervaLab.evaluateExtractionCompleteness({
-    extractedFacts: [{ id: '1' }, { id: '2' }],
-    sourceCensus: { totalTables: 1, totalRows: 1, totalCells: 10, totalXbrlTags: 0 }
+    documentId: 'doc-b4-12',
+    extractedFacts: [{ id: '1' }, { id: '2' }]
   });
   assert(
     'B4-REQ-12: Extraction Ratio Measured Accurately',
@@ -236,9 +243,16 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
   );
 
   // 13 & 14. Suspicious extraction density blocks completion
+  solverExecutionRegistry.registerCensusArtifact('doc-b4-14', {
+    totalCensusCount: 100,
+    totalTables: 5,
+    totalRows: 20,
+    totalCells: 100,
+    totalXbrlTags: 0
+  });
   const t14 = academyMinervaLab.evaluateExtractionCompleteness({
-    extractedFacts: [{ id: '1' }],
-    sourceCensus: { totalTables: 5, totalRows: 20, totalCells: 100, totalXbrlTags: 0 }
+    documentId: 'doc-b4-14',
+    extractedFacts: [{ id: '1' }]
   });
   assert(
     'B4-REQ-13/14: Low Extraction Ratio (<5%) Blocks Completion',
@@ -341,6 +355,13 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
       variance: 500000
     }
   };
+  solverExecutionRegistry.registerExecutionPackage({
+    solverExecutionId: 'exec-b4-19',
+    skillId: 'cash-flow-rollforward',
+    candidateVersion: 'v1.9.5-test',
+    solverOutputs: passingOutputs,
+    toolAccessReceipt: ['working_memory']
+  });
   const rep19 = academyMinervaLab.runEvaluation(passingOutputs, 'exec-b4-19');
   capabilityPromotionAuthority.attachHoldoutEvaluation({
     skillId: 'cash-flow-rollforward',
@@ -350,13 +371,18 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
   capabilityPromotionAuthority.promoteCandidate({
     skillId: 'cash-flow-rollforward',
     candidateVersion: 'v1.9.5-test',
-    authContext: { authenticatedPrincipalId: 'PROMOTION_AUTHORITY_COMMITTEE', isPromotionAuthority: true },
+    authContext: { authenticatedPrincipalId: 'PROMOTION_AUTHORITY_COMMITTEE', isPromotionAuthority: true, authorityRole: 'CAPABILITY_PROMOTION_AUTHORITY' },
     approvedBy: 'COMMITTEE'
   });
-  const rbRecord = capabilityPromotionAuthority.rollbackCapability('cash-flow-rollforward', '1.9.0');
+  const rbRecord = capabilityPromotionAuthority.rollbackCapability(
+    'cash-flow-rollforward',
+    '1.9.0',
+    'Reverting to 1.9.0',
+    { authenticatedPrincipalId: 'PROMOTION_AUTHORITY_COMMITTEE', isPromotionAuthority: true, authorityRole: 'CAPABILITY_PROMOTION_AUTHORITY' }
+  );
   assert(
     'B4-REQ-19: Capability Version Rollback Executed',
-    rbRecord.candidateVersion === '1.9.0' && capabilityPromotionAuthority.getActiveVersion('cash-flow-rollforward') === '1.9.0',
+    rbRecord.toVersion === '1.9.0' && capabilityPromotionAuthority.getActiveVersion('cash-flow-rollforward') === '1.9.0',
     'Rollback failed to revert active capability version!',
     'Active capability version rolled back to target version.'
   );

@@ -96,14 +96,14 @@ export class SolverExecutionRegistry {
     }
   }
 
-  public registerExecutionPackage(pkg: Partial<SolverExecutionPackage> & { executionId?: string; toolUsageReceipts?: string[]; outputFacts?: any[] }): SolverExecutionPackage {
+  public registerExecutionPackage(pkg: Partial<SolverExecutionPackage> & { executionId?: string; toolUsageReceipts?: string[]; outputFacts?: any[]; outputs?: any }): SolverExecutionPackage {
     const id = pkg.solverExecutionId || pkg.executionId || `exec-${Date.now()}`;
     const fullPkg: SolverExecutionPackage = {
       solverExecutionId: id,
       timestamp: pkg.timestamp || new Date().toISOString(),
       agentId: pkg.agentId || 'HERMES',
       benchmarkId: pkg.benchmarkId,
-      solverOutputs: pkg.solverOutputs || { facts: pkg.outputFacts || [] },
+      solverOutputs: pkg.solverOutputs || pkg.outputs || { facts: pkg.outputFacts || [] },
       allowedEvidenceStores: pkg.allowedEvidenceStores || [],
       toolAccessReceipt: pkg.toolAccessReceipt || pkg.toolUsageReceipts || [],
       memoryAccessReceipt: pkg.memoryAccessReceipt || [],
@@ -119,8 +119,17 @@ export class SolverExecutionRegistry {
     return this.executions.get(solverExecutionId);
   }
 
-  public registerCensusArtifact(art: Partial<DocumentCensusArtifact> & { documentId: string }): DocumentCensusArtifact {
-    const fullArt: DocumentCensusArtifact = {
+  public registerCensusArtifact(art: (Partial<DocumentCensusArtifact> & { documentId: string }) | string, maybeArt?: Partial<DocumentCensusArtifact>): DocumentCensusArtifact {
+    const fullArt: DocumentCensusArtifact = typeof art === 'string' ? {
+      documentId: art,
+      totalTables: maybeArt?.totalTables || 0,
+      totalRows: maybeArt?.totalRows || 0,
+      totalCells: maybeArt?.totalCells || 0,
+      totalXbrlTags: maybeArt?.totalXbrlTags || 0,
+      totalCensusCount: maybeArt?.totalCensusCount || maybeArt?.totalCells || ((maybeArt?.totalTables || 0) + (maybeArt?.totalRows || 0) + (maybeArt?.totalCells || 0) + (maybeArt?.totalXbrlTags || 0)),
+      sha256: maybeArt?.sha256,
+      filePath: maybeArt?.filePath
+    } : {
       documentId: art.documentId,
       totalTables: art.totalTables || 0,
       totalRows: art.totalRows || 0,
@@ -130,7 +139,7 @@ export class SolverExecutionRegistry {
       sha256: art.sha256,
       filePath: art.filePath
     };
-    this.censusArtifacts.set(art.documentId, fullArt);
+    this.censusArtifacts.set(fullArt.documentId, fullArt);
     this.saveToDisk();
     return fullArt;
   }

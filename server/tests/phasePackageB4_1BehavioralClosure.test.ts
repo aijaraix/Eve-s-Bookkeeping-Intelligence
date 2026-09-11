@@ -247,6 +247,12 @@ export async function runPhasePackageB4_1BehavioralClosureTests(): Promise<{ pas
       testResults: { passed: true, score: 1.0, totalCases: 5 }
     });
     // Register evaluation report with MINERVA
+    solverExecutionRegistry.registerExecutionPackage({
+      executionId: 'exec-001',
+      agentId: 'HERMES',
+      toolCalls: [],
+      outputs: passingSolverOutputs
+    });
     const evalReport = academyMinervaLab.runEvaluation(passingSolverOutputs, 'exec-001');
     capabilityPromotionAuthority.attachHoldoutEvaluation({
       skillId: 'table-scale-detection',
@@ -279,6 +285,12 @@ export async function runPhasePackageB4_1BehavioralClosureTests(): Promise<{ pas
       proposedBy: 'DARWIN',
       changeReason: 'Atomic write test',
       testResults: { passed: true, score: 1.0, totalCases: 5 }
+    });
+    solverExecutionRegistry.registerExecutionPackage({
+      executionId: 'exec-002',
+      agentId: 'HERMES',
+      toolCalls: [],
+      outputs: passingSolverOutputs
     });
     const evalReport = academyMinervaLab.runEvaluation(passingSolverOutputs, 'exec-002');
     capabilityPromotionAuthority.attachHoldoutEvaluation({
