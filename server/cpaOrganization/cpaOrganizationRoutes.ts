@@ -27,7 +27,120 @@ import { universalEngagementManager } from './universalEngagementModel.js';
 import { universalFinancialLineageManager } from './universalFinancialLineage.js';
 import { customerJourneyEngine } from './customerJourneyEngine.js';
 import { routeBoundaryGuard } from './routeBoundaryGuard.js';
-import { professionalSignoffGuard } from './professionalSignoffGuard.js';
+import { professionalSignoffGuard, AuthenticationContext } from './professionalSignoffGuard.js';
+
+export interface ServerAuthResult {
+  authenticatedPrincipalId: string | null;
+  sessionId: string | null;
+  authMethod: 'BEARER_TOKEN' | 'SESSION_COOKIE' | 'MFA_BIOMETRIC' | 'TRUSTED_INTERNAL_SESSION';
+  error?: string;
+  isExpired?: boolean;
+}
+
+export async function resolveServerAuthContext(req: Request): Promise<ServerAuthResult> {
+  // 1. Check server middleware-populated request property: req.user, req.auth, req.authenticatedUser
+  const reqUser = (req as any).user || (req as any).auth || (req as any).authenticatedUser;
+  if (reqUser && typeof reqUser === 'object') {
+    const principalId = reqUser.principalId || reqUser.id || reqUser.userId || reqUser.sub;
+    const sessionId = reqUser.sessionId || (req as any).session?.id || req.headers['x-session-id'] || (req.headers.authorization ? String(req.headers.authorization).replace(/^Bearer\s+/i, '') : null);
+    if (principalId && sessionId) {
+      const provider = professionalSignoffGuard.getAuthorityProvider();
+      if (provider?.verifySession) {
+        try {
+          const sessionValid = await provider.verifySession(String(sessionId), String(principalId));
+          if (!sessionValid) {
+            return {
+              authenticatedPrincipalId: null,
+              sessionId: null,
+              authMethod: 'SESSION_COOKIE',
+              error: 'EXPIRED_SESSION_REJECTED: Server session is expired or invalid according to authority provider.',
+              isExpired: true
+            };
+          }
+        } catch (err: any) {
+          return {
+            authenticatedPrincipalId: null,
+            sessionId: null,
+            authMethod: 'SESSION_COOKIE',
+            error: `AUTHORITY_PROVIDER_UNAVAILABLE: Authority provider session verification failed: ${err.message}`
+          };
+        }
+      }
+      return {
+        authenticatedPrincipalId: String(principalId),
+        sessionId: String(sessionId),
+        authMethod: reqUser.authMethod || 'SESSION_COOKIE'
+      };
+    }
+  }
+
+  // 2. Check Authorization header or X-Session-ID header against real authority provider or test store
+  const authHeader = req.headers.authorization;
+  const sessionIdHeader = req.headers['x-session-id'] as string;
+  const rawToken = authHeader && authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : (sessionIdHeader ? sessionIdHeader.trim() : null);
+
+  if (rawToken) {
+    const provider = professionalSignoffGuard.getAuthorityProvider();
+    if (provider) {
+      try {
+        const resolvedPrincipal = await provider.resolvePrincipalAuthority({ sessionId: rawToken });
+        if (resolvedPrincipal && resolvedPrincipal.principalId) {
+          if (provider.verifySession) {
+            const sessionValid = await provider.verifySession(rawToken, resolvedPrincipal.principalId);
+            if (!sessionValid) {
+              return {
+                authenticatedPrincipalId: null,
+                sessionId: null,
+                authMethod: 'BEARER_TOKEN',
+                error: 'EXPIRED_SESSION_REJECTED: Session token is expired, revoked, or unverified.',
+                isExpired: true
+              };
+            }
+          }
+          return {
+            authenticatedPrincipalId: resolvedPrincipal.principalId,
+            sessionId: rawToken,
+            authMethod: authHeader ? 'BEARER_TOKEN' : 'TRUSTED_INTERNAL_SESSION'
+          };
+        }
+      } catch (err: any) {
+        return {
+          authenticatedPrincipalId: null,
+          sessionId: null,
+          authMethod: 'BEARER_TOKEN',
+          error: `AUTHORITY_PROVIDER_UNAVAILABLE: ${err.message}`
+        };
+      }
+    } else if (professionalSignoffGuard.isTestEnvironment()) {
+      const testPrincipal = await professionalSignoffGuard.getTrustedPrincipalAsync(rawToken);
+      if (testPrincipal && testPrincipal.principalId) {
+        if (!testPrincipal.sessionValid) {
+          return {
+            authenticatedPrincipalId: null,
+            sessionId: null,
+            authMethod: 'BEARER_TOKEN',
+            error: `EXPIRED_SESSION_REJECTED: Test principal '${testPrincipal.principalId}' session is expired.`,
+            isExpired: true
+          };
+        }
+        return {
+          authenticatedPrincipalId: testPrincipal.principalId,
+          sessionId: `sess-${rawToken}`,
+          authMethod: 'BEARER_TOKEN'
+        };
+      }
+    }
+  }
+
+  return {
+    authenticatedPrincipalId: null,
+    sessionId: null,
+    authMethod: 'BEARER_TOKEN',
+    error: 'UNAUTHENTICATED: No valid authenticated server principal or session present in request.'
+  };
+}
 
 export function createCPAOrganizationRouter(): Router {
   const router = Router();
@@ -519,56 +632,89 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.post('/report/signoff', (req: Request, res: Response) => {
+  router.post('/report/signoff', async (req: Request, res: Response) => {
     try {
-      const { engagementId, reportId, approvalObject, eventContext, principalId, reportVersion, expectedReportHash, approvalScope, action, notes } = req.body || {};
+      const {
+        engagementId,
+        reportId,
+        approvalObject,
+        eventContext,
+        principalId,
+        reportVersion,
+        expectedReportHash,
+        approvalScope,
+        action,
+        notes
+      } = req.body || {};
+
       if (!engagementId || !reportId) {
-        return res.status(400).json({ error: 'Missing engagementId or reportId.' });
+        return res.status(400).json({ success: false, error: 'Missing engagementId or reportId.' });
       }
 
-      // If called with human approval event parameters
-      if (principalId || (eventContext && eventContext.principalId)) {
-        const effectivePrincipalId = principalId || eventContext.principalId;
-        const effectiveEventContext = eventContext || {
-          sessionId: req.headers['x-session-id'] || `sess-${Date.now()}`,
-          authenticationMethod: 'BEARER_TOKEN',
-          timestamp: new Date().toISOString()
-        };
-
-        const eventResult = professionalSignoffGuard.processHumanApprovalEvent({
-          eventId: `evt-${Date.now()}`,
-          principalId: effectivePrincipalId,
-          engagementId,
-          reportId,
-          reportVersion: reportVersion || '1.0',
-          expectedReportHash: expectedReportHash || approvalObject?.reportHash || '',
-          approvalScope: approvalScope || 'STATUTORY_DELIVERABLE_RELEASE',
-          eventContext: effectiveEventContext,
-          approvalMethod: req.body.approvalMethod || 'INTERACTIVE_PORTAL',
-          action: action === 'REJECT' ? 'REJECT' : 'APPROVE',
-          notes
+      // 1. Resolve server authentication context
+      const authContext = await resolveServerAuthContext(req);
+      if (!authContext.authenticatedPrincipalId || !authContext.sessionId) {
+        const statusCode = authContext.error?.includes('AUTHORITY_PROVIDER_UNAVAILABLE') ? 503 : 401;
+        return res.status(statusCode).json({
+          success: false,
+          error: authContext.error || 'UNAUTHENTICATED: Valid server-authenticated principal and session required for professional sign-off.'
         });
-
-        if (!eventResult.success || !eventResult.approval) {
-          return res.status(400).json({ success: false, error: eventResult.error });
-        }
-
-        const applyResult = deliverableArtifactService.applyPhysicalSignoff(engagementId, reportId, eventResult.approval);
-        if (!applyResult.success) {
-          return res.status(400).json({ success: false, error: applyResult.error });
-        }
-        return res.json({ success: true, report: applyResult.report, approval: eventResult.approval });
       }
 
-      if (!approvalObject) {
-        return res.status(400).json({ error: 'Missing approvalObject or principal approval event context.' });
+      const serverPrincipalId = authContext.authenticatedPrincipalId;
+
+      // 2. Reject if client-supplied body principalId or eventContext.principalId mismatches server identity
+      const bodyPrincipalId = principalId || (eventContext && eventContext.principalId) || approvalObject?.principalId;
+      if (bodyPrincipalId && bodyPrincipalId !== serverPrincipalId) {
+        return res.status(403).json({
+          success: false,
+          error: `PRINCIPAL_MISMATCH: Request body principalId ('${bodyPrincipalId}') does not match server-authenticated principal identity ('${serverPrincipalId}'). Client-controlled identity is prohibited.`
+        });
       }
 
-      const result = deliverableArtifactService.applyPhysicalSignoff(engagementId, reportId, approvalObject);
-      if (!result.success) {
-        return res.status(400).json({ success: false, error: result.error });
+      // 3. Construct authentic event context from server auth
+      const validatedEventContext: AuthenticationContext = {
+        sessionId: authContext.sessionId,
+        authenticationMethod: authContext.authMethod,
+        timestamp: new Date().toISOString(),
+        clientIp: req.ip || req.socket?.remoteAddress,
+        userAgent: req.headers['user-agent'] as string,
+        isExpired: authContext.isExpired === true
+      };
+
+      // 4. Process human approval event with server-authenticated principal identity
+      const eventResult = await professionalSignoffGuard.processHumanApprovalEvent({
+        eventId: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        authenticatedPrincipalId: serverPrincipalId,
+        principalId: bodyPrincipalId || serverPrincipalId,
+        engagementId,
+        reportId,
+        reportVersion: reportVersion || approvalObject?.reportVersion || '1.0',
+        expectedReportHash: expectedReportHash || approvalObject?.reportHash || '',
+        approvalScope: approvalScope || approvalObject?.approvalScope || 'STATUTORY_DELIVERABLE_RELEASE',
+        eventContext: validatedEventContext,
+        approvalMethod: req.body.approvalMethod || approvalObject?.approvalMethod || 'INTERACTIVE_PORTAL',
+        action: action === 'REJECT' ? 'REJECT' : 'APPROVE',
+        notes: notes || approvalObject?.notes
+      });
+
+      if (!eventResult.success || !eventResult.approval) {
+        const statusCode = eventResult.statusCode || (
+          eventResult.error?.includes('UNAUTHENTICATED') || eventResult.error?.includes('EXPIRED_SESSION') ? 401 :
+          eventResult.error?.includes('PRINCIPAL_MISMATCH') || eventResult.error?.includes('LICENSE') || eventResult.error?.includes('not authorized') || eventResult.error?.includes('WILDCARD') ? 403 :
+          eventResult.error?.includes('PROFESSIONAL_AUTHORITY_NOT_CONFIGURED') || eventResult.error?.includes('UNAVAILABLE') ? 503 :
+          400
+        );
+        return res.status(statusCode).json({ success: false, error: eventResult.error });
       }
-      res.json({ success: true, report: result.report });
+
+      // 5. Apply physical signoff to deliverable artifact
+      const applyResult = await deliverableArtifactService.applyPhysicalSignoff(engagementId, reportId, eventResult.approval);
+      if (!applyResult.success) {
+        return res.status(400).json({ success: false, error: applyResult.error });
+      }
+
+      return res.json({ success: true, report: applyResult.report, approval: eventResult.approval });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

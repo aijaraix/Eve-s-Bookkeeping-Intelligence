@@ -1,0 +1,24 @@
+========================================================================
+ANNUAL REPORT AND AUDITED FINANCIAL STATEMENTS — FY 2025
+ISSUER: Nordic CleanTech AB
+REPORTING FRAMEWORK: IFRS
+FUNCTIONAL CURRENCY: SEK
+AUTHORITY: Nasdaq Stockholm Prime Segment Annual Report & Deloitte Audit Certificate
+TIMESTAMP: 2026-09-11T20:04:14.004Z
+========================================================================
+
+PART I: PRIMARY FINANCIAL STATEMENTS
+
+Line 1 | [INCOME_STATEMENT] | Revenue                          : SEK 1.850B (Base: 1850000000 SEK) | Source Page: 3
+Line 2 | [BALANCE_SHEET] | Total Assets                     : SEK 4.200B (Base: 4200000000 SEK) | Source Page: 4
+Line 3 | [BALANCE_SHEET] | Total Liabilities                : SEK 2.100B (Base: 2100000000 SEK) | Source Page: 4
+Line 4 | [BALANCE_SHEET] | Total Equity                     : SEK 2.100B (Base: 2100000000 SEK) | Source Page: 4
+Line 5 | [NOTE] | Capitalized R&D Assets           : SEK 450.0M (Base: 450000000 SEK) | Source Page: 7
+
+PART II: GROUP CONSOLIDATION & RECONCILIATIONS
+
+Entities: Nordic CleanTech AB, Nordic Energy Systems AS
+Reconciliation Identity: Assets == Liabilities + Equity (4.200B == 2.100B + 2.100B) [Variance: 0]
+
+========================================================================
+END OF CERTIFIED SOURCE DISCLOSURE

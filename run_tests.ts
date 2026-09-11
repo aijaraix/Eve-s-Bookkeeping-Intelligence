@@ -38,6 +38,7 @@ import { runPhasePackageB2RealAgentExecutionTests } from "./server/tests/phasePa
 import { runPhasePackageB3ReportingTruthTests } from "./server/tests/phasePackageB3ReportingTruth.test.js";
 import { runPhasePackageB3_1HumanApprovalTests } from "./server/tests/phasePackageB3_1HumanApproval.test.js";
 import { runPhasePackageB3_2AuthorityIntegrationTests } from "./server/tests/phasePackageB3_2AuthorityIntegration.test.js";
+import { runPhasePackageB3_3HttpAuthTests } from "./server/tests/phasePackageB3_3HttpAuth.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -785,6 +786,15 @@ assert(
   pkgB32Res.passed === pkgB32Res.total && pkgB32Res.failed === 0,
   `Package B3.2 Suite failed (${pkgB32Res.failed} failures)`,
   `All ${pkgB32Res.total}/${pkgB32Res.total} Package B3.2 Real Authority Provider Integration tests passed cleanly.`
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B3.3: PROFESSIONAL APPROVAL HTTP AUTHENTICATION BOUNDARY]${colors.reset}`);
+const pkgB33Res = await runPhasePackageB3_3HttpAuthTests();
+assert(
+  `Package B3.3 Professional Approval HTTP Authentication Boundary Suite (${pkgB33Res.total}/${pkgB33Res.total} Passed)`,
+  pkgB33Res.passed === pkgB33Res.total && pkgB33Res.failed === 0,
+  `Package B3.3 Suite failed (${pkgB33Res.failed} failures)`,
+  `All ${pkgB33Res.total}/${pkgB33Res.total} Package B3.3 Professional Approval HTTP Authentication Boundary tests passed cleanly.`
 );
 
 

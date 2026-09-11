@@ -67,7 +67,7 @@ export interface TrustedPrincipal {
 export interface RealAuthorityProvider {
   name: string;
   resolvePrincipalAuthority(params: {
-    principalId: string;
+    principalId?: string;
     engagementId?: string;
     tenantId?: string;
     workspaceId?: string;
@@ -190,21 +190,86 @@ export class ProfessionalSignoffGuard {
 
   /**
    * Retrieves a trusted principal from the real authority provider or test store.
+   * Supports both synchronous and Promise-returning authority providers.
    */
   public getTrustedPrincipal(
     principalId: string,
     context?: { engagementId?: string; tenantId?: string; workspaceId?: string; sessionId?: string }
-  ): TrustedPrincipal | undefined {
+  ): TrustedPrincipal | undefined | Promise<TrustedPrincipal | undefined> {
     if (this.authorityProvider) {
-      const res = this.authorityProvider.resolvePrincipalAuthority({ principalId, ...context });
-      if (res && !(res instanceof Promise)) {
-        return res;
+      try {
+        const res = this.authorityProvider.resolvePrincipalAuthority({ principalId, ...context });
+        if (res instanceof Promise) {
+          return res.then(async (p) => {
+            if (!p) return undefined;
+            if (this.authorityProvider?.verifySession && context?.sessionId) {
+              const sessionOk = await this.authorityProvider.verifySession(context.sessionId, principalId);
+              if (!sessionOk) return undefined;
+            }
+            if (this.authorityProvider?.verifyLicenseStatus && p.licenseDetails) {
+              const licStatus = await this.authorityProvider.verifyLicenseStatus(
+                p.licenseDetails.licenseNumber,
+                p.licenseDetails.jurisdiction
+              );
+              p.licenseDetails.status = licStatus;
+            }
+            return p;
+          }).catch(() => undefined);
+        }
+        if (res) {
+          if (this.authorityProvider.verifySession && context?.sessionId) {
+            const sessionOk = this.authorityProvider.verifySession(context.sessionId, principalId);
+            if (sessionOk instanceof Promise) {
+              return sessionOk.then(async (sessionValid) => {
+                if (!sessionValid) return undefined;
+                if (this.authorityProvider?.verifyLicenseStatus && res.licenseDetails) {
+                  const licStatus = await this.authorityProvider.verifyLicenseStatus(
+                    res.licenseDetails.licenseNumber,
+                    res.licenseDetails.jurisdiction
+                  );
+                  res.licenseDetails.status = licStatus;
+                }
+                return res;
+              }).catch(() => undefined);
+            } else if (!sessionOk) {
+              return undefined;
+            }
+          }
+          if (this.authorityProvider.verifyLicenseStatus && res.licenseDetails) {
+            const licStatus = this.authorityProvider.verifyLicenseStatus(
+              res.licenseDetails.licenseNumber,
+              res.licenseDetails.jurisdiction
+            );
+            if (licStatus instanceof Promise) {
+              return licStatus.then((statusVal) => {
+                res.licenseDetails!.status = statusVal;
+                return res;
+              }).catch(() => undefined);
+            } else {
+              res.licenseDetails.status = licStatus;
+            }
+          }
+          return res;
+        }
+      } catch (_) {
+        return undefined;
       }
     }
     if (this.isTestEnvironment()) {
       return this.trustedPrincipals.get(principalId);
     }
     return undefined;
+  }
+
+  public async getTrustedPrincipalAsync(
+    principalId: string,
+    context?: { engagementId?: string; tenantId?: string; workspaceId?: string; sessionId?: string }
+  ): Promise<TrustedPrincipal | undefined> {
+    const res = this.getTrustedPrincipal(principalId, context);
+    if (res instanceof Promise) {
+      return await res;
+    }
+    return res;
   }
 
   /**
@@ -304,12 +369,51 @@ export class ProfessionalSignoffGuard {
     }
 
     // 2. Lookup in trusted authority store or real authority provider
-    const principal = this.getTrustedPrincipal(principalId, {
+    const principalOrPromise = this.getTrustedPrincipal(principalId, {
       engagementId: approval.engagementId,
       tenantId: approval.tenantId,
       workspaceId: approval.workspaceId,
       sessionId: approval.authenticationContext?.sessionId
     });
+
+    if (principalOrPromise instanceof Promise) {
+      return {
+        valid: false,
+        reason: 'ASYNC_AUTHORITY_RESOLUTION_REQUIRED: Authority provider is async. Use isValidApprovalObjectAsync.'
+      };
+    }
+
+    return this.completeValidateApprovalObject(approval, principalId, principalOrPromise);
+  }
+
+  public async isValidApprovalObjectAsync(approval: any): Promise<{ valid: boolean; reason?: string }> {
+    if (!approval || typeof approval !== 'object') {
+      return { valid: false, reason: 'Approval object is null or undefined.' };
+    }
+
+    const principalId = approval.principalId || approval.authenticatedUserId;
+    if (!principalId || typeof principalId !== 'string' || principalId.trim() === '') {
+      return {
+        valid: false,
+        reason: 'Missing authenticated principal context: a shaped approval object without authenticated principal context cannot prove human authorization.'
+      };
+    }
+
+    const principal = await this.getTrustedPrincipalAsync(principalId, {
+      engagementId: approval.engagementId,
+      tenantId: approval.tenantId,
+      workspaceId: approval.workspaceId,
+      sessionId: approval.authenticationContext?.sessionId
+    });
+
+    return this.completeValidateApprovalObject(approval, principalId, principal);
+  }
+
+  private completeValidateApprovalObject(
+    approval: any,
+    principalId: string,
+    principal?: TrustedPrincipal
+  ): { valid: boolean; reason?: string } {
     if (!principal) {
       if (!this.authorityProvider && (!this.isTestEnvironment() || this.trustedPrincipals.size === 0)) {
         return {
@@ -477,6 +581,14 @@ export class ProfessionalSignoffGuard {
     };
   }
 
+  public async validateApprovalObjectAsync(approval: any): Promise<{ valid: boolean; errors: string[] }> {
+    const check = await this.isValidApprovalObjectAsync(approval);
+    return {
+      valid: check.valid,
+      errors: check.valid ? [] : [check.reason || 'Invalid approval object']
+    };
+  }
+
   /**
    * Package B3.1 Requirement 6: Fail-Closed Persistence
    * Atomic sequence: validate authority -> write atomically -> re-read -> verify contents/hash -> update in-memory index.
@@ -488,6 +600,19 @@ export class ProfessionalSignoffGuard {
       return { success: false, reason: check.reason };
     }
 
+    return this.completeRegisterApproval(approval);
+  }
+
+  public async registerApprovalAsync(approval: ProfessionalApprovalObject): Promise<{ success: boolean; reason?: string }> {
+    const check = await this.isValidApprovalObjectAsync(approval);
+    if (!check.valid) {
+      return { success: false, reason: check.reason };
+    }
+
+    return this.completeRegisterApproval(approval);
+  }
+
+  private completeRegisterApproval(approval: ProfessionalApprovalObject): { success: boolean; reason?: string } {
     const targetPath = path.join(this.approvalsDir, `${approval.approvalId}.json`);
     const tempPath = path.join(this.approvalsDir, `${approval.approvalId}.${Date.now()}.tmp`);
 
@@ -539,76 +664,110 @@ export class ProfessionalSignoffGuard {
   }
 
   /**
-   * Package B3.1 & B3.2 Requirement: Real Human Approval Event Processing
+   * Package B3.1, B3.2 & B3.3 Requirement: Real Human Approval Event Processing
    * Enforces that approvals originate from an authenticated user event, validating
    * credentials against trusted state and checking cryptographic report binding.
+   * Supports both synchronous and Promise-returning authority providers.
    */
-  public processHumanApprovalEvent(event: HumanApprovalEvent): {
-    success: boolean;
-    approval?: ProfessionalApprovalObject;
-    error?: string;
-  } {
+  public processHumanApprovalEvent(event: HumanApprovalEvent):
+    | { success: boolean; approval?: ProfessionalApprovalObject; error?: string; statusCode?: number }
+    | Promise<{ success: boolean; approval?: ProfessionalApprovalObject; error?: string; statusCode?: number }> {
     if (!event || !event.eventContext) {
-      return { success: false, error: 'Missing event payload or eventContext.' };
+      return { success: false, error: 'Missing event payload or eventContext.', statusCode: 400 };
     }
 
     // Requirement 7: Server-Resolved Principal Identity Enforcement
     if (event.authenticatedPrincipalId && event.principalId && event.principalId !== event.authenticatedPrincipalId) {
       return {
         success: false,
-        error: `PRINCIPAL_MISMATCH: Request body principalId ('${event.principalId}') does not match server-authenticated principal identity ('${event.authenticatedPrincipalId}'). Client-controlled identity is prohibited.`
+        error: `PRINCIPAL_MISMATCH: Request body principalId ('${event.principalId}') does not match server-authenticated principal identity ('${event.authenticatedPrincipalId}'). Client-controlled identity is prohibited.`,
+        statusCode: 403
       };
     }
 
-    const effectivePrincipalId = event.authenticatedPrincipalId || event.principalId;
+    const effectivePrincipalId = event.authenticatedPrincipalId || (this.isTestEnvironment() ? event.principalId : undefined);
     if (!effectivePrincipalId || typeof effectivePrincipalId !== 'string' || effectivePrincipalId.trim() === '') {
-      return { success: false, error: 'Missing authenticated principalId in server approval request.' };
+      return {
+        success: false,
+        error: 'UNAUTHENTICATED: Missing server-authenticated principalId in server approval request.',
+        statusCode: 401
+      };
     }
 
-    const principal = this.getTrustedPrincipal(effectivePrincipalId, {
+    const principalOrPromise = this.getTrustedPrincipal(effectivePrincipalId, {
       engagementId: event.engagementId,
       sessionId: event.eventContext.sessionId
     });
 
+    if (principalOrPromise instanceof Promise) {
+      return principalOrPromise
+        .then(principal => this.completeProcessHumanApprovalEvent(event, effectivePrincipalId, principal))
+        .catch(err => ({
+          success: false,
+          error: `AUTHORITY_PROVIDER_UNAVAILABLE: Authority provider error: ${err.message}`,
+          statusCode: 503
+        }));
+    }
+
+    return this.completeProcessHumanApprovalEvent(event, effectivePrincipalId, principalOrPromise);
+  }
+
+  private completeProcessHumanApprovalEvent(
+    event: HumanApprovalEvent,
+    effectivePrincipalId: string,
+    principal?: TrustedPrincipal
+  ): { success: boolean; approval?: ProfessionalApprovalObject; error?: string; statusCode?: number } {
     if (!principal) {
       if (!this.authorityProvider && (!this.isTestEnvironment() || this.trustedPrincipals.size === 0)) {
-        return { success: false, error: 'PROFESSIONAL_AUTHORITY_NOT_CONFIGURED: Real professional authority provider is not configured.' };
+        return {
+          success: false,
+          error: 'PROFESSIONAL_AUTHORITY_NOT_CONFIGURED: Real professional authority provider is not configured.',
+          statusCode: 503
+        };
       }
-      return { success: false, error: `Principal '${effectivePrincipalId}' not found in trusted authority store or real authority provider.` };
+      return {
+        success: false,
+        error: `Principal '${effectivePrincipalId}' not found in trusted authority store or real authority provider.`,
+        statusCode: 403
+      };
     }
 
     if (!principal.isHuman) {
-      return { success: false, error: `Principal '${effectivePrincipalId}' is not human. AI agents cannot perform human approval.` };
+      return { success: false, error: `Principal '${effectivePrincipalId}' is not human. AI agents cannot perform human approval.`, statusCode: 403 };
     }
 
     if (principal.status !== 'ACTIVE' || !principal.sessionValid || event.eventContext.isExpired === true) {
-      return { success: false, error: `EXPIRED_SESSION_REJECTED: Principal '${effectivePrincipalId}' session is expired, revoked, or authority status is inactive.` };
+      return {
+        success: false,
+        error: `EXPIRED_SESSION_REJECTED: Principal '${effectivePrincipalId}' session is expired, revoked, or authority status is inactive.`,
+        statusCode: 401
+      };
     }
 
     if (!['LICENSED_CPA', 'ENGAGEMENT_PARTNER', 'CONCURRING_PARTNER', 'QUALITY_REVIEWER'].includes(principal.role)) {
-      return { success: false, error: `Principal role '${principal.role}' is not authorized for professional sign-off.` };
+      return { success: false, error: `Principal role '${principal.role}' is not authorized for professional sign-off.`, statusCode: 403 };
     }
 
     if (!principal.licenseDetails || principal.licenseDetails.status === 'UNVERIFIED') {
-      return { success: false, error: 'LICENSE_AUTHORITY_NOT_VERIFIED: Professional license verification is missing or unverified.' };
+      return { success: false, error: 'LICENSE_AUTHORITY_NOT_VERIFIED: Professional license verification is missing or unverified.', statusCode: 403 };
     }
 
     if (principal.licenseDetails.status !== 'ACTIVE') {
-      return { success: false, error: `LICENSE_UNVERIFIED: Professional license status is '${principal.licenseDetails.status}'.` };
+      return { success: false, error: `LICENSE_UNVERIFIED: Professional license status is '${principal.licenseDetails.status}'.`, statusCode: 403 };
     }
 
     // Engagement permission check (No Wildcard in Production)
     if (!this.isTestEnvironment()) {
       if (principal.authorizedEngagements?.includes('*') && !principal.authorizedEngagements.includes(event.engagementId)) {
-        return { success: false, error: "WILDCARD_ENGAGEMENT_AUTHORITY_REMOVED: Wildcard engagement authority ('*') is prohibited for production professional sign-off." };
+        return { success: false, error: "WILDCARD_ENGAGEMENT_AUTHORITY_REMOVED: Wildcard engagement authority ('*') is prohibited for production professional sign-off.", statusCode: 403 };
       }
     }
     if (principal.authorizedEngagements && !principal.authorizedEngagements.includes('*') && !principal.authorizedEngagements.includes(event.engagementId)) {
-      return { success: false, error: `Principal '${effectivePrincipalId}' is not authorized for engagement '${event.engagementId}'.` };
+      return { success: false, error: `Principal '${effectivePrincipalId}' is not authorized for engagement '${event.engagementId}'.`, statusCode: 403 };
     }
 
     if (event.eventContext.authenticationMethod === 'AI_AUTONOMOUS') {
-      return { success: false, error: 'AI autonomous authentication context is prohibited for human approvals.' };
+      return { success: false, error: 'AI autonomous authentication context is prohibited for human approvals.', statusCode: 403 };
     }
 
     const approvalId = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -636,12 +795,21 @@ export class ProfessionalSignoffGuard {
       notes: event.notes
     };
 
-    const regResult = this.registerApproval(approval);
+    const regResult = this.completeRegisterApproval(approval);
     if (!regResult.success) {
-      return { success: false, error: regResult.reason };
+      return { success: false, error: regResult.reason, statusCode: 400 };
     }
 
     return { success: true, approval };
+  }
+
+  public async processHumanApprovalEventAsync(event: HumanApprovalEvent): Promise<{
+    success: boolean;
+    approval?: ProfessionalApprovalObject;
+    error?: string;
+    statusCode?: number;
+  }> {
+    return await this.processHumanApprovalEvent(event);
   }
 
   /**

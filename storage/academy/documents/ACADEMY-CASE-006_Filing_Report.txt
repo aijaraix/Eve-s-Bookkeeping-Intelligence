@@ -1,0 +1,24 @@
+========================================================================
+ANNUAL REPORT AND AUDITED FINANCIAL STATEMENTS — FY 2025
+ISSUER: Solaria Pacific Renewable Energy Ltd
+REPORTING FRAMEWORK: IFRS
+FUNCTIONAL CURRENCY: AUD, NZD, JPY
+AUTHORITY: ASX Corporate Disclosures & PwC Australian Audit Opinion Page 30
+TIMESTAMP: 2026-09-11T20:05:31.977Z
+========================================================================
+
+PART I: PRIMARY FINANCIAL STATEMENTS
+
+Line 1 | [INCOME_STATEMENT] | Revenue                          : A$5.600B (Base: 5600000000 AUD) | Source Page: 3
+Line 2 | [INCOME_STATEMENT] | Operating Profit                 : A$1.120B (Base: 1120000000 AUD) | Source Page: 3
+Line 3 | [BALANCE_SHEET] | Total Assets                     : A$16.80B (Base: 16800000000 AUD) | Source Page: 5
+Line 4 | [BALANCE_SHEET] | Total Liabilities                : A$9.40B (Base: 9400000000 AUD) | Source Page: 5
+Line 5 | [BALANCE_SHEET] | Total Equity                     : A$7.40B (Base: 7400000000 AUD) | Source Page: 5
+
+PART II: GROUP CONSOLIDATION & RECONCILIATIONS
+
+Entities: Solaria Pacific Renewable Energy Ltd, Solaria New Zealand Ltd
+Reconciliation Identity: Assets == Liabilities + Equity (16.80B == 9.40B + 7.40B) [Variance: 0]
+
+========================================================================
+END OF CERTIFIED SOURCE DISCLOSURE

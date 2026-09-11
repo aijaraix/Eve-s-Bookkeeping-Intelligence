@@ -394,7 +394,7 @@ export async function runPhasePackageB3ReportingTruthTests(): Promise<{
   );
 
   // Requirement 18: Full End-to-End Certified Transition with Physical Approval
-  const signoffResult = deliverableArtifactService.applyPhysicalSignoff(
+  const signoffResult = await deliverableArtifactService.applyPhysicalSignoff(
     'eng-test-finality',
     compiledArtifact.reportId,
     {

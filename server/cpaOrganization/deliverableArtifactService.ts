@@ -815,11 +815,11 @@ export class DeliverableArtifactService {
    * Applies physical human sign-off with authentic principal validation, cryptographic report binding,
    * and fail-closed persistence. Transitions report to FINAL_CERTIFIED only upon successful durable registration.
    */
-  public applyPhysicalSignoff(
+  public async applyPhysicalSignoff(
     engagementId: string,
     reportId: string,
     approval: ProfessionalApprovalObject
-  ): { success: boolean; report?: DeliverableArtifactRecord; error?: string } {
+  ): Promise<{ success: boolean; report?: DeliverableArtifactRecord; error?: string }> {
     const list = this.artifacts.get(engagementId);
     if (!list) {
       return { success: false, error: `Engagement ${engagementId} not found.` };
@@ -855,13 +855,13 @@ export class DeliverableArtifactService {
       }
     }
 
-    const validation = professionalSignoffGuard.validateApprovalObject(approval);
+    const validation = await professionalSignoffGuard.validateApprovalObjectAsync(approval);
     if (!validation.valid) {
       return { success: false, error: `Sign-off validation failed: ${validation.errors.join(', ')}` };
     }
 
     // Durable fail-closed persistence
-    const regResult = professionalSignoffGuard.registerApproval(approval);
+    const regResult = await professionalSignoffGuard.registerApprovalAsync(approval);
     if (!regResult.success) {
       return { success: false, error: `Durable approval persistence failed: ${regResult.reason}` };
     }
