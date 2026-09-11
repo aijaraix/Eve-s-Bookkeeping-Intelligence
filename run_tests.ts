@@ -29,6 +29,7 @@ import { runPhasePackageA2BrowserTruthTests } from "./server/tests/phasePackageA
 import { runPhasePackageA3BrowserTruthTests } from "./server/tests/phasePackageA3BrowserTruth.test.js";
 import { runPhasePackageA4BrowserProofTests } from "./server/tests/phasePackageA4BrowserProof.test.js";
 import { runPhasePackageB1TransactionalIntakeTests } from "./server/tests/phasePackageB1TransactionalIntake.test.js";
+import { runPhasePackageB1_1IntakeHygieneTests } from "./server/tests/phasePackageB1_1IntakeHygiene.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -722,6 +723,15 @@ assert(
   pkgB1Res.passed === 14 && pkgB1Res.failed === 0,
   `Package B1 Suite failed (${pkgB1Res.failed} failures)`,
   "All 14/14 Package B1 Transactional Intake & One Durable Job Identity tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B1.1: INTAKE HYGIENE & QUEUE AUTHORITY BOUNDARY (DOC 35)]${colors.reset}`);
+const pkgB11Res = await runPhasePackageB1_1IntakeHygieneTests();
+assert(
+  "Package B1.1 Intake Hygiene & Queue Authority Boundary Suite (5/5 Passed)",
+  pkgB11Res.passed === 5 && pkgB11Res.failed === 0,
+  `Package B1.1 Suite failed (${pkgB11Res.failed} failures)`,
+  "All 5/5 Package B1.1 Intake Hygiene & Queue Authority Boundary tests passed cleanly."
 );
 
 

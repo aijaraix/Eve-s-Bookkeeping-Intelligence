@@ -36,6 +36,16 @@ export interface StoredFileResult {
  *    - Compute persisted SHA-256 and verify exact match with received SHA-256 and byte length
  * 4. Return StoredFileResult with verification evidence
  */
+function syncDirectory(dirPath: string): void {
+  try {
+    const dirFd = fs.openSync(dirPath, "r");
+    fs.fsyncSync(dirFd);
+    fs.closeSync(dirFd);
+  } catch {
+    // Parent directory fsync is POSIX-dependent; gracefully handled when unsupported
+  }
+}
+
 export function saveUploadedFile(buffer: Buffer, originalFilename: string): StoredFileResult {
   if (!buffer || !Buffer.isBuffer(buffer)) {
     throw new Error("[FileStorage] Invalid buffer provided for physical file persistence.");
@@ -92,6 +102,7 @@ export function saveUploadedFile(buffer: Buffer, originalFilename: string): Stor
 
     // Atomic rename to final path
     fs.renameSync(tempPath, filePath);
+    syncDirectory(UPLOAD_DIR);
   } catch (writeErr: any) {
     // Clean up temporary file if left behind
     try {

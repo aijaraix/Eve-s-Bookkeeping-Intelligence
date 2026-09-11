@@ -6,6 +6,7 @@ import { executeWorkerExtraction, WorkerJob } from "./worker.js";
 import { LLM_CONFIG, getGeminiDiagnosticStatus } from "./llmGateway.js";
 import { intakeService } from "./intakeService.js";
 import { assertRealDocumentHash } from "./failClosedGuards.js";
+import { runtimeAuthorityManifestManager } from "./cpaOrganization/runtimeAuthorityManifest.js";
 import {
   ExtractedFact,
   DiscrepancyItem,
@@ -42,6 +43,8 @@ export class BackgroundIngestionQueue {
   private workerAliveHeartbeat = new Date().toISOString();
   private onJobCompletedListener?: (job: QueueJob) => void;
   private dbRef?: any;
+  private standbyObserver = false;
+  private queueWriterAuthorized: boolean | null = null;
 
   constructor() {
     this.loadQueueFromDisk();
@@ -49,6 +52,42 @@ export class BackgroundIngestionQueue {
       this.workerAliveHeartbeat = new Date().toISOString();
       this.checkStalledJobs();
     }, 5000);
+  }
+
+  public setStandbyObserverMode(isStandby: boolean): void {
+    this.standbyObserver = isStandby;
+  }
+
+  public isStandbyObserver(): boolean {
+    return this.standbyObserver || process.env.STANDBY_OBSERVER === "true" || process.env.IS_STANDBY_OBSERVER === "true";
+  }
+
+  public setQueueWriterAuthority(authorized: boolean): void {
+    this.queueWriterAuthorized = authorized;
+  }
+
+  public isQueueWriterAuthorized(): boolean {
+    if (this.isStandbyObserver()) {
+      return false;
+    }
+    if (this.queueWriterAuthorized !== null) {
+      return this.queueWriterAuthorized;
+    }
+    try {
+      const isLeader = runtimeAuthorityManifestManager.isLeader();
+      if (isLeader) return true;
+    } catch {}
+    return !process.env.REQUIRE_STRICT_LEADER_LEASE || process.env.REQUIRE_STRICT_LEADER_LEASE === "false";
+  }
+
+  public isQueueProcessingAuthorized(): boolean {
+    if (this.isStandbyObserver()) {
+      return false;
+    }
+    if (this.queueWriterAuthorized === false) {
+      return false;
+    }
+    return this.isQueueWriterAuthorized();
   }
 
   public setDbRef(db: any) {
@@ -60,11 +99,20 @@ export class BackgroundIngestionQueue {
   }
 
   public clearQueue(): void {
+    if (!this.isQueueWriterAuthorized()) {
+      throw new Error("[Hermes Queue] UNAUTHORIZED_QUEUE_WRITER: Standby/unauthorized process cannot mutate or clear authoritative queue state.");
+    }
     this.jobs.clear();
     const queueFile = getQueueFile();
+    const storageDir = path.dirname(queueFile);
     try {
       if (fs.existsSync(queueFile)) {
         fs.writeFileSync(queueFile, "[]");
+        try {
+          const dirFd = fs.openSync(storageDir, 'r');
+          fs.fsyncSync(dirFd);
+          fs.closeSync(dirFd);
+        } catch {}
       }
     } catch (err) {
       console.error("[Hermes Queue] Failed to clear queue on disk:", err);
@@ -94,6 +142,10 @@ export class BackgroundIngestionQueue {
   }
 
   public async performDiskSave(): Promise<void> {
+    if (!this.isQueueWriterAuthorized()) {
+      throw new Error("[Hermes Queue] UNAUTHORIZED_QUEUE_WRITER: Process is not authorized to write or mutate authoritative queue state.");
+    }
+
     const queueFile = getQueueFile();
     const storageDir = path.dirname(queueFile);
     if (!fs.existsSync(storageDir)) {
@@ -137,6 +189,15 @@ export class BackgroundIngestionQueue {
     try {
       await fs.promises.writeFile(tempFile, jsonString, "utf-8");
       await fs.promises.rename(tempFile, queueFile);
+
+      // Parent directory durability: fsync parent directory where supported
+      try {
+        const dirHandle = await fs.promises.open(storageDir, "r");
+        await dirHandle.sync();
+        await dirHandle.close();
+      } catch {
+        // Platform/OS gracefully ignored fallback
+      }
     } catch (err: any) {
       try {
         if (fs.existsSync(tempFile)) await fs.promises.unlink(tempFile);
@@ -275,7 +336,9 @@ export class BackgroundIngestionQueue {
         details
       });
     }
-    this.saveQueueToDiskAsync();
+    if (this.isQueueWriterAuthorized()) {
+      this.saveQueueToDiskAsync();
+    }
     if (job.intakeSessionId) {
       intakeService.updateIntakeSessionFromJobs(job.intakeSessionId, Array.from(this.jobs.values()));
     }
@@ -510,8 +573,12 @@ export class BackgroundIngestionQueue {
       this.advanceJobStage(job, "INGESTION_FAILED", "FAILED", "Failed: Physical page inventory required before PDF extraction.", jobLastError);
     }
 
-    this.saveQueueToDiskAsync(true);
-    setTimeout(() => this.processNextJob(), 10);
+    if (this.isQueueWriterAuthorized()) {
+      this.saveQueueToDiskAsync(true);
+    }
+    if (this.isQueueProcessingAuthorized()) {
+      setTimeout(() => this.processNextJob(), 10);
+    }
     return job;
   }
 
@@ -576,6 +643,9 @@ export class BackgroundIngestionQueue {
 
   private async processNextJob() {
     if (this.isProcessingQueue) return;
+    if (!this.isQueueProcessingAuthorized()) {
+      return;
+    }
 
     this.checkStalledJobs();
     // Interleave processing across queued jobs for fair scheduling

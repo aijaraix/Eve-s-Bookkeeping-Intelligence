@@ -8,6 +8,16 @@ function getIntakeSessionsFile(): string {
   return process.env.INTAKE_SESSIONS_FILE || path.join(process.cwd(), 'storage', 'intake_sessions.json');
 }
 
+function syncDirectory(dirPath: string): void {
+  try {
+    const dirFd = fs.openSync(dirPath, 'r');
+    fs.fsyncSync(dirFd);
+    fs.closeSync(dirFd);
+  } catch {
+    // POSIX parent directory fsync fallback
+  }
+}
+
 export class IntakeService {
   private intakeSessions: Map<string, IntakeSessionRecord> = new Map();
 
@@ -46,6 +56,7 @@ export class IntakeService {
       fs.fsyncSync(fd);
       fs.closeSync(fd);
       fs.renameSync(tempFile, file);
+      syncDirectory(dir);
     } catch (err: any) {
       try {
         if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
