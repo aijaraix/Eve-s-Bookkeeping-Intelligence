@@ -32,6 +32,7 @@ import { runPhasePackageA4BrowserProofTests } from "./server/tests/phasePackageA
 import { runPhasePackageB1TransactionalIntakeTests } from "./server/tests/phasePackageB1TransactionalIntake.test.js";
 import { runPhasePackageB1_1IntakeHygieneTests } from "./server/tests/phasePackageB1_1IntakeHygiene.test.js";
 import { runPhasePackageB1_2QueueAuthorityTests } from "./server/tests/phasePackageB1_2QueueAuthority.test.js";
+import { runPhasePackageB2RealAgentExecutionTests } from "./server/tests/phasePackageB2RealAgentExecution.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -743,6 +744,15 @@ assert(
   pkgB12Res.passed === 9 && pkgB12Res.failed === 0,
   `Package B1.2 Suite failed (${pkgB12Res.failed} failures)`,
   "All 9/9 Package B1.2 Queue Leader Authority Fail-Closed Cleanup tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B2: REAL AGENT EXECUTION, SWARM DAG & HANDOFF CONSERVATION (DOC 35)]${colors.reset}`);
+const pkgB2Res = await runPhasePackageB2RealAgentExecutionTests();
+assert(
+  "Package B2 Real Agent Execution & Swarm DAG Suite (19/19 Passed)",
+  pkgB2Res.passed === 19 && pkgB2Res.failed === 0,
+  `Package B2 Suite failed (${pkgB2Res.failed} failures)`,
+  "All 19/19 Package B2 Real Agent Execution & Swarm DAG tests passed cleanly."
 );
 
 
