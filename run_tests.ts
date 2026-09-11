@@ -9,6 +9,8 @@
 process.env.NO_SERVER_LISTEN = "true";
 process.env.IS_SCRIPT = "true";
 process.env.TEST_QUEUE_AUTHORITY = "true";
+process.env.NODE_ENV = "test";
+process.env.TEST_MODE = "true";
 
 import fs from "fs";
 import path from "path";
@@ -35,6 +37,7 @@ import { runPhasePackageB1_2QueueAuthorityTests } from "./server/tests/phasePack
 import { runPhasePackageB2RealAgentExecutionTests } from "./server/tests/phasePackageB2RealAgentExecution.test.js";
 import { runPhasePackageB3ReportingTruthTests } from "./server/tests/phasePackageB3ReportingTruth.test.js";
 import { runPhasePackageB3_1HumanApprovalTests } from "./server/tests/phasePackageB3_1HumanApproval.test.js";
+import { runPhasePackageB3_2AuthorityIntegrationTests } from "./server/tests/phasePackageB3_2AuthorityIntegration.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -774,6 +777,16 @@ assert(
   `Package B3.1 Suite failed (${pkgB31Res.failed} failures)`,
   `All ${pkgB31Res.total}/${pkgB31Res.total} Package B3.1 Physical Human Approval Authenticity tests passed cleanly.`
 );
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B3.2: REAL AUTHORITY PROVIDER INTEGRATION & TRUST BACKDOOR PREVENTION]${colors.reset}`);
+const pkgB32Res = await runPhasePackageB3_2AuthorityIntegrationTests();
+assert(
+  `Package B3.2 Real Authority Provider Integration Suite (${pkgB32Res.total}/${pkgB32Res.total} Passed)`,
+  pkgB32Res.passed === pkgB32Res.total && pkgB32Res.failed === 0,
+  `Package B3.2 Suite failed (${pkgB32Res.failed} failures)`,
+  `All ${pkgB32Res.total}/${pkgB32Res.total} Package B3.2 Real Authority Provider Integration tests passed cleanly.`
+);
+
 
 
 

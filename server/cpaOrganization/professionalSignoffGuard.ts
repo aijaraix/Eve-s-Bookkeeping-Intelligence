@@ -42,6 +42,7 @@ export interface AuthenticationContext {
   clientIp?: string;
   userAgent?: string;
   callerRole?: string;
+  isExpired?: boolean;
 }
 
 export interface TrustedPrincipal {
@@ -61,6 +62,19 @@ export interface TrustedPrincipal {
   authorizedEngagements?: string[];
   sessionValid: boolean;
   status: 'ACTIVE' | 'REVOKED' | 'SUSPENDED';
+}
+
+export interface RealAuthorityProvider {
+  name: string;
+  resolvePrincipalAuthority(params: {
+    principalId: string;
+    engagementId?: string;
+    tenantId?: string;
+    workspaceId?: string;
+    sessionId?: string;
+  }): Promise<TrustedPrincipal | null> | TrustedPrincipal | null;
+  verifySession?(sessionId: string, principalId: string): Promise<boolean> | boolean;
+  verifyLicenseStatus?(licenseNumber: string, jurisdiction: string): Promise<'ACTIVE' | 'EXPIRED' | 'SUSPENDED' | 'UNVERIFIED'> | ('ACTIVE' | 'EXPIRED' | 'SUSPENDED' | 'UNVERIFIED');
 }
 
 export interface ProfessionalApprovalObject {
@@ -93,7 +107,8 @@ export interface ProfessionalApprovalObject {
 
 export interface HumanApprovalEvent {
   eventId: string;
-  principalId: string;
+  principalId?: string;
+  authenticatedPrincipalId?: string;
   engagementId: string;
   reportId: string;
   reportVersion: string;
@@ -111,6 +126,7 @@ export class ProfessionalSignoffGuard {
   private approvals: Map<string, ProfessionalApprovalObject> = new Map(); // key = approvalId
   private reportApprovals: Map<string, string[]> = new Map(); // key = reportId, values = approvalIds
   private trustedPrincipals: Map<string, TrustedPrincipal> = new Map(); // key = principalId
+  private authorityProvider: RealAuthorityProvider | null = null;
 
   private constructor() {
     this.approvalsDir = path.join(process.cwd(), 'storage', 'cpa_memory', 'approvals');
@@ -128,43 +144,67 @@ export class ProfessionalSignoffGuard {
     return ProfessionalSignoffGuard.instance;
   }
 
-  /**
-   * Initializes the trusted practitioner and firm authority store.
-   * Resolves professional authority from verified state rather than request bodies.
-   */
-  private initializeTrustedAuthorityStore(): void {
-    // Register certified engagement partner with verified license
-    this.trustedPrincipals.set('usr-jane-doe-cpa-01', {
-      principalId: 'usr-jane-doe-cpa-01',
-      displayName: 'Jane Doe, CPA',
-      email: 'jdoe@cpa-attest.com',
-      isHuman: true,
-      role: 'ENGAGEMENT_PARTNER',
-      licenseDetails: {
-        licenseNumber: 'CPA-NY-849201',
-        jurisdiction: 'NY',
-        status: 'ACTIVE',
-        verificationSource: 'STATE_BOARD_OF_ACCOUNTANCY',
-        verifiedAt: '2026-01-01T00:00:00Z'
-      },
-      authorizedEngagements: ['*'],
-      sessionValid: true,
-      status: 'ACTIVE'
-    });
+  public isTestEnvironment(): boolean {
+    return process.env.NODE_ENV === 'test' || process.env.TEST_MODE === 'true';
+  }
+
+  public setAuthorityProvider(provider: RealAuthorityProvider | null): void {
+    this.authorityProvider = provider;
+  }
+
+  public getAuthorityProvider(): RealAuthorityProvider | null {
+    return this.authorityProvider;
   }
 
   /**
-   * Registers a trusted principal in the authority store.
+   * Package B3.2 Requirement 1: Production authority store starts empty.
+   * No hardcoded default practitioners (e.g. Jane Doe).
+   */
+  private initializeTrustedAuthorityStore(): void {
+    this.trustedPrincipals.clear();
+  }
+
+  /**
+   * Package B3.2 Requirement 3: Remove Public Trust-Seeding Backdoor.
+   * Direct trusted principal registration is disabled in production environments.
    */
   public registerTrustedPrincipal(principal: TrustedPrincipal): void {
+    if (!this.isTestEnvironment()) {
+      throw new Error('PUBLIC_TRUST_REGISTRATION_BLOCKED: Manual registration of trusted principals is strictly prohibited in production environments.');
+    }
     this.trustedPrincipals.set(principal.principalId, principal);
   }
 
+  public registerTestPrincipalInternal(principal: TrustedPrincipal): void {
+    if (!this.isTestEnvironment()) {
+      throw new Error('PUBLIC_TRUST_REGISTRATION_BLOCKED: Test principal injection adapter is disabled outside of test environment.');
+    }
+    this.trustedPrincipals.set(principal.principalId, principal);
+  }
+
+  public clearTestPrincipalsInternal(): void {
+    if (this.isTestEnvironment()) {
+      this.trustedPrincipals.clear();
+    }
+  }
+
   /**
-   * Retrieves a trusted principal by ID.
+   * Retrieves a trusted principal from the real authority provider or test store.
    */
-  public getTrustedPrincipal(principalId: string): TrustedPrincipal | undefined {
-    return this.trustedPrincipals.get(principalId);
+  public getTrustedPrincipal(
+    principalId: string,
+    context?: { engagementId?: string; tenantId?: string; workspaceId?: string; sessionId?: string }
+  ): TrustedPrincipal | undefined {
+    if (this.authorityProvider) {
+      const res = this.authorityProvider.resolvePrincipalAuthority({ principalId, ...context });
+      if (res && !(res instanceof Promise)) {
+        return res;
+      }
+    }
+    if (this.isTestEnvironment()) {
+      return this.trustedPrincipals.get(principalId);
+    }
+    return undefined;
   }
 
   /**
@@ -263,12 +303,23 @@ export class ProfessionalSignoffGuard {
       };
     }
 
-    // 2. Lookup in trusted authority store
-    const principal = this.getTrustedPrincipal(principalId);
+    // 2. Lookup in trusted authority store or real authority provider
+    const principal = this.getTrustedPrincipal(principalId, {
+      engagementId: approval.engagementId,
+      tenantId: approval.tenantId,
+      workspaceId: approval.workspaceId,
+      sessionId: approval.authenticationContext?.sessionId
+    });
     if (!principal) {
+      if (!this.authorityProvider && (!this.isTestEnvironment() || this.trustedPrincipals.size === 0)) {
+        return {
+          valid: false,
+          reason: 'PROFESSIONAL_AUTHORITY_NOT_CONFIGURED: Real professional authority provider is not configured. Deliverable status remains READY_FOR_AUTHORIZED_HUMAN_REVIEW.'
+        };
+      }
       return {
         valid: false,
-        reason: `Principal '${principalId}' is not found in trusted practitioner authority store.`
+        reason: `Principal '${principalId}' is not found in trusted practitioner authority store or real authority provider.`
       };
     }
 
@@ -290,7 +341,7 @@ export class ProfessionalSignoffGuard {
     if (principal.sessionValid !== true) {
       return {
         valid: false,
-        reason: `Principal session for '${principalId}' is invalid, expired, or unauthenticated.`
+        reason: `EXPIRED_SESSION_REJECTED: Principal session for '${principalId}' is invalid, expired, or unauthenticated.`
       };
     }
 
@@ -310,11 +361,17 @@ export class ProfessionalSignoffGuard {
       };
     }
 
-    // 6. License authority from trusted state (do NOT accept caller-supplied license numbers alone)
-    if (!principal.licenseDetails || principal.licenseDetails.status !== 'ACTIVE') {
+    // 6. License authority from trusted state
+    if (!principal.licenseDetails || principal.licenseDetails.status === 'UNVERIFIED') {
       return {
         valid: false,
-        reason: 'LICENSE_UNVERIFIED: Professional license verification is unverified or inactive; approval cannot become ELIGIBLE professional sign-off.'
+        reason: 'LICENSE_AUTHORITY_NOT_VERIFIED: Professional license verification is missing or unverified.'
+      };
+    }
+    if (principal.licenseDetails.status !== 'ACTIVE') {
+      return {
+        valid: false,
+        reason: `LICENSE_UNVERIFIED: Professional license status is '${principal.licenseDetails.status}'. Professional sign-off is blocked.`
       };
     }
     if (approval.licenseNumber && principal.licenseDetails.licenseNumber && approval.licenseNumber !== principal.licenseDetails.licenseNumber) {
@@ -324,13 +381,23 @@ export class ProfessionalSignoffGuard {
       };
     }
 
-    // 7. Engagement authority boundary check
-    if (approval.engagementId && principal.authorizedEngagements && principal.authorizedEngagements.length > 0) {
-      if (!principal.authorizedEngagements.includes('*') && !principal.authorizedEngagements.includes(approval.engagementId)) {
-        return {
-          valid: false,
-          reason: `Principal '${principalId}' is not authorized to sign off on engagement '${approval.engagementId}'.`
-        };
+    // 7. Engagement authority boundary check (No Wildcard in Production)
+    if (approval.engagementId) {
+      if (!this.isTestEnvironment()) {
+        if (principal.authorizedEngagements?.includes('*') && !principal.authorizedEngagements.includes(approval.engagementId)) {
+          return {
+            valid: false,
+            reason: "WILDCARD_ENGAGEMENT_AUTHORITY_REMOVED: Wildcard engagement authority ('*') is prohibited for production professional sign-off. Explicit engagement authorization required."
+          };
+        }
+      }
+      if (principal.authorizedEngagements && principal.authorizedEngagements.length > 0) {
+        if (!principal.authorizedEngagements.includes('*') && !principal.authorizedEngagements.includes(approval.engagementId)) {
+          return {
+            valid: false,
+            reason: `Principal '${principalId}' is not authorized to sign off on engagement '${approval.engagementId}'.`
+          };
+        }
       }
     }
 
@@ -358,6 +425,12 @@ export class ProfessionalSignoffGuard {
       return {
         valid: false,
         reason: 'Missing authenticated sessionId in authenticationContext.'
+      };
+    }
+    if (approval.authenticationContext.isExpired === true) {
+      return {
+        valid: false,
+        reason: `EXPIRED_SESSION_REJECTED: Session '${approval.authenticationContext.sessionId}' for principal '${principalId}' is expired or revoked.`
       };
     }
     if (approval.authenticationContext.authenticationMethod === 'AI_AUTONOMOUS') {
@@ -466,7 +539,7 @@ export class ProfessionalSignoffGuard {
   }
 
   /**
-   * Package B3.1 Requirement 4: Real Human Approval Event Processing
+   * Package B3.1 & B3.2 Requirement: Real Human Approval Event Processing
    * Enforces that approvals originate from an authenticated user event, validating
    * credentials against trusted state and checking cryptographic report binding.
    */
@@ -475,28 +548,63 @@ export class ProfessionalSignoffGuard {
     approval?: ProfessionalApprovalObject;
     error?: string;
   } {
-    if (!event || !event.principalId || !event.eventContext) {
-      return { success: false, error: 'Missing event payload, principalId, or eventContext.' };
+    if (!event || !event.eventContext) {
+      return { success: false, error: 'Missing event payload or eventContext.' };
     }
 
-    const principal = this.getTrustedPrincipal(event.principalId);
+    // Requirement 7: Server-Resolved Principal Identity Enforcement
+    if (event.authenticatedPrincipalId && event.principalId && event.principalId !== event.authenticatedPrincipalId) {
+      return {
+        success: false,
+        error: `PRINCIPAL_MISMATCH: Request body principalId ('${event.principalId}') does not match server-authenticated principal identity ('${event.authenticatedPrincipalId}'). Client-controlled identity is prohibited.`
+      };
+    }
+
+    const effectivePrincipalId = event.authenticatedPrincipalId || event.principalId;
+    if (!effectivePrincipalId || typeof effectivePrincipalId !== 'string' || effectivePrincipalId.trim() === '') {
+      return { success: false, error: 'Missing authenticated principalId in server approval request.' };
+    }
+
+    const principal = this.getTrustedPrincipal(effectivePrincipalId, {
+      engagementId: event.engagementId,
+      sessionId: event.eventContext.sessionId
+    });
+
     if (!principal) {
-      return { success: false, error: `Principal '${event.principalId}' not found in trusted authority store.` };
+      if (!this.authorityProvider && (!this.isTestEnvironment() || this.trustedPrincipals.size === 0)) {
+        return { success: false, error: 'PROFESSIONAL_AUTHORITY_NOT_CONFIGURED: Real professional authority provider is not configured.' };
+      }
+      return { success: false, error: `Principal '${effectivePrincipalId}' not found in trusted authority store or real authority provider.` };
     }
+
     if (!principal.isHuman) {
-      return { success: false, error: `Principal '${event.principalId}' is not human. AI agents cannot perform human approval.` };
+      return { success: false, error: `Principal '${effectivePrincipalId}' is not human. AI agents cannot perform human approval.` };
     }
-    if (principal.status !== 'ACTIVE' || !principal.sessionValid) {
-      return { success: false, error: `Principal '${event.principalId}' authority is inactive or session is invalid.` };
+
+    if (principal.status !== 'ACTIVE' || !principal.sessionValid || event.eventContext.isExpired === true) {
+      return { success: false, error: `EXPIRED_SESSION_REJECTED: Principal '${effectivePrincipalId}' session is expired, revoked, or authority status is inactive.` };
     }
+
     if (!['LICENSED_CPA', 'ENGAGEMENT_PARTNER', 'CONCURRING_PARTNER', 'QUALITY_REVIEWER'].includes(principal.role)) {
       return { success: false, error: `Principal role '${principal.role}' is not authorized for professional sign-off.` };
     }
-    if (!principal.licenseDetails || principal.licenseDetails.status !== 'ACTIVE') {
-      return { success: false, error: 'LICENSE_UNVERIFIED: Professional license verification is inactive or unverified.' };
+
+    if (!principal.licenseDetails || principal.licenseDetails.status === 'UNVERIFIED') {
+      return { success: false, error: 'LICENSE_AUTHORITY_NOT_VERIFIED: Professional license verification is missing or unverified.' };
+    }
+
+    if (principal.licenseDetails.status !== 'ACTIVE') {
+      return { success: false, error: `LICENSE_UNVERIFIED: Professional license status is '${principal.licenseDetails.status}'.` };
+    }
+
+    // Engagement permission check (No Wildcard in Production)
+    if (!this.isTestEnvironment()) {
+      if (principal.authorizedEngagements?.includes('*') && !principal.authorizedEngagements.includes(event.engagementId)) {
+        return { success: false, error: "WILDCARD_ENGAGEMENT_AUTHORITY_REMOVED: Wildcard engagement authority ('*') is prohibited for production professional sign-off." };
+      }
     }
     if (principal.authorizedEngagements && !principal.authorizedEngagements.includes('*') && !principal.authorizedEngagements.includes(event.engagementId)) {
-      return { success: false, error: `Principal '${event.principalId}' is not authorized for engagement '${event.engagementId}'.` };
+      return { success: false, error: `Principal '${effectivePrincipalId}' is not authorized for engagement '${event.engagementId}'.` };
     }
 
     if (event.eventContext.authenticationMethod === 'AI_AUTONOMOUS') {
@@ -680,4 +788,23 @@ export class ProfessionalSignoffGuard {
 }
 
 export const professionalSignoffGuard = ProfessionalSignoffGuard.getInstance();
+
+export class TestTrustedPrincipalAdapter {
+  public registerTestPrincipal(principal: TrustedPrincipal): void {
+    if (process.env.NODE_ENV !== 'test' && process.env.TEST_MODE !== 'true') {
+      throw new Error('PUBLIC_TRUST_REGISTRATION_BLOCKED: Test principal injection adapter is disabled outside of test environment.');
+    }
+    professionalSignoffGuard.registerTestPrincipalInternal(principal);
+  }
+
+  public clearTestPrincipals(): void {
+    if (process.env.NODE_ENV !== 'test' && process.env.TEST_MODE !== 'true') {
+      throw new Error('PUBLIC_TRUST_REGISTRATION_BLOCKED: Test principal adapter is disabled outside of test environment.');
+    }
+    professionalSignoffGuard.clearTestPrincipalsInternal();
+  }
+}
+
+export const TEST_TRUSTED_PRINCIPAL_ADAPTER = new TestTrustedPrincipalAdapter();
+
 

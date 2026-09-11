@@ -27,7 +27,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { deliverableWizardEngine } from '../../src/lib/deliverables/wizardEngine.js';
 import { derivationObjectService } from '../cpaOrganization/derivationObjectService.js';
-import { professionalSignoffGuard } from '../cpaOrganization/professionalSignoffGuard.js';
+import { professionalSignoffGuard, TEST_TRUSTED_PRINCIPAL_ADAPTER } from '../cpaOrganization/professionalSignoffGuard.js';
 import { routeBoundaryGuard } from '../cpaOrganization/routeBoundaryGuard.js';
 import { observatoryEventLedger } from '../cpaOrganization/observatoryEventLedger.js';
 import { deliverableArtifactService } from '../cpaOrganization/deliverableArtifactService.js';
@@ -43,6 +43,29 @@ export async function runPhasePackageB3ReportingTruthTests(): Promise<{
   const results: Array<{ name: string; success: boolean; message: string }> = [];
   let passed = 0;
   let failed = 0;
+
+  // Set test environment mode for B3 test suite
+  process.env.NODE_ENV = 'test';
+
+  // Register test principal for B3 test environment
+  TEST_TRUSTED_PRINCIPAL_ADAPTER.registerTestPrincipal({
+    principalId: 'usr-jane-doe-cpa-01',
+    displayName: 'Jane Doe, CPA',
+    email: 'jdoe@cpa-attest.com',
+    isHuman: true,
+    role: 'ENGAGEMENT_PARTNER',
+    licenseDetails: {
+      licenseNumber: 'CPA-NY-849201',
+      jurisdiction: 'NY',
+      status: 'ACTIVE',
+      verificationSource: 'STATE_BOARD_OF_ACCOUNTANCY',
+      verifiedAt: '2026-01-01T00:00:00Z'
+    },
+    authorizedEngagements: ['*'],
+    sessionValid: true,
+    status: 'ACTIVE'
+  });
+
 
   function assert(name: string, condition: boolean, failMsg: string, passMsg: string) {
     if (condition) {

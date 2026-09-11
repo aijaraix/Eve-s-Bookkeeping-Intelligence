@@ -22,6 +22,7 @@ export interface DeliverableManifest {
   generator: string;
   engagementId: string;
   createdAt: string;
+  contentHash?: string;
   artifacts: {
     pdf: ArtifactManifestItem;
     xlsx: ArtifactManifestItem;
