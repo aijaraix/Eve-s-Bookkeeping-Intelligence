@@ -33,6 +33,7 @@ import { runPhasePackageB1TransactionalIntakeTests } from "./server/tests/phaseP
 import { runPhasePackageB1_1IntakeHygieneTests } from "./server/tests/phasePackageB1_1IntakeHygiene.test.js";
 import { runPhasePackageB1_2QueueAuthorityTests } from "./server/tests/phasePackageB1_2QueueAuthority.test.js";
 import { runPhasePackageB2RealAgentExecutionTests } from "./server/tests/phasePackageB2RealAgentExecution.test.js";
+import { runPhasePackageB3ReportingTruthTests } from "./server/tests/phasePackageB3ReportingTruth.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -753,6 +754,15 @@ assert(
   pkgB2Res.passed === pkgB2Res.total && pkgB2Res.failed === 0,
   `Package B2 Suite failed (${pkgB2Res.failed} failures)`,
   `All ${pkgB2Res.total}/${pkgB2Res.total} Package B2 Real Agent Execution & Swarm DAG tests passed cleanly.`
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B3: REPORTING TRUTH, PROFESSIONAL SIGN-OFF, OBSERVABILITY & ISOLATION (DOC 35)]${colors.reset}`);
+const pkgB3Res = await runPhasePackageB3ReportingTruthTests();
+assert(
+  `Package B3 Reporting Truth & Observability Suite (${pkgB3Res.total}/${pkgB3Res.total} Passed)`,
+  pkgB3Res.passed === pkgB3Res.total && pkgB3Res.failed === 0,
+  `Package B3 Suite failed (${pkgB3Res.failed} failures)`,
+  `All ${pkgB3Res.total}/${pkgB3Res.total} Package B3 Reporting Truth & Observability tests passed cleanly.`
 );
 
 

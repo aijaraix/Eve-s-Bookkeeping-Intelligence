@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import * as XLSX from 'xlsx';
+import { ProfessionalApprovalObject, professionalSignoffGuard } from './professionalSignoffGuard.js';
 
 export interface ArtifactManifestItem {
   format: 'PDF' | 'XLSX' | 'JSON' | 'CSV';
@@ -77,8 +78,12 @@ export interface DeliverableArtifactRecord {
   canonicalFactHash: string;
   numericFactsCount: number;
   euclidVariance: number;
-  quinnReviewStatus: 'CLEARED' | 'PENDING';
-  status: 'FINAL_CERTIFIED' | 'SUPERSEDED' | 'DRAFT';
+  quinnReviewStatus: 'CLEARED' | 'PENDING' | 'AI_REVIEW_COMPLETE' | 'REVIEW_ISSUES_FOUND' | 'READY_FOR_AUTHORIZED_HUMAN_REVIEW';
+  status: 'DRAFT' | 'AI_PREPARED' | 'INTERNALLY_REVIEWED' | 'READY_FOR_AUTHORIZED_HUMAN_REVIEW' | 'AUTHORIZED_APPROVAL_RECEIVED' | 'ELIGIBLE_FOR_DELIVERY' | 'DELIVERED' | 'SUPERSEDED' | 'STALE_INVALIDATED' | 'FINAL_CERTIFIED';
+  isStale?: boolean;
+  approvalObject?: ProfessionalApprovalObject;
+  dependentFactIds?: string[];
+  dependentDerivationIds?: string[];
 }
 
 export class DeliverableArtifactService {
@@ -226,8 +231,12 @@ export class DeliverableArtifactService {
             canonicalFactHash: data.quinnSignoff || '',
             numericFactsCount: data.facts?.length || 0,
             euclidVariance: data.euclidBalance?.variance || 0,
-            quinnReviewStatus: 'CLEARED',
-            status: 'FINAL_CERTIFIED'
+            quinnReviewStatus: data.quinnReviewStatus || 'AI_REVIEW_COMPLETE',
+            status: data.approvalObject?.status === 'APPROVED' ? 'FINAL_CERTIFIED' : (data.status || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'),
+            isStale: data.isStale || false,
+            approvalObject: data.approvalObject,
+            dependentFactIds: data.dependentFactIds || [],
+            dependentDerivationIds: data.dependentDerivationIds || []
           };
 
           const existing = this.artifacts.get(engagementId) || [];
@@ -273,11 +282,16 @@ export class DeliverableArtifactService {
       equity: number;
       variance: number;
     };
+    status?: string;
+    approvalObject?: ProfessionalApprovalObject;
   }): Promise<{ filename: string; filepath: string; sizeBytes: number; sha256: string }> {
     const pdfDoc = await PDFDocument.create();
     const timesRoman = await pdfDoc.embedFont(StandardFonts.TimesRoman);
     const timesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
     const courier = await pdfDoc.embedFont(StandardFonts.Courier);
+
+    const isOfficiallyCertified = params.status === 'FINAL_CERTIFIED' && params.approvalObject?.status === 'APPROVED';
+    const displayStatus = isOfficiallyCertified ? 'FINAL_CERTIFIED' : (params.status || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW');
 
     // Page 1: Formal Audit Attestation & Title Page
     const page1 = pdfDoc.addPage([595.28, 841.89]); // A4 dimensions
@@ -314,21 +328,33 @@ export class DeliverableArtifactService {
     y -= 16;
     page1.drawText(`AUDIT PERIOD: ${params.period} | PRESENTATION CURRENCY: ${params.currency}`, { x: 50, y, size: 10, font: timesRoman, color: rgb(0.3, 0.3, 0.3) });
     y -= 16;
-    page1.drawText(`INDEPENDENT AUDITOR: ${params.firmName} (Lead Partner: ${params.partnerName}, CPA #${params.licenseNumber})`, { x: 50, y, size: 10, font: timesRoman, color: rgb(0.3, 0.3, 0.3) });
+    const auditorLabel = isOfficiallyCertified
+      ? `INDEPENDENT AUDITOR: ${params.firmName} (Lead Partner: ${params.partnerName}, CPA #${params.licenseNumber})`
+      : `PREPARATION: AI Prepared by Veritas & Eve Scribe | SIGNATORY: READY_FOR_AUTHORIZED_HUMAN_REVIEW`;
+    page1.drawText(auditorLabel, { x: 50, y, size: 10, font: timesRoman, color: rgb(0.3, 0.3, 0.3) });
     y -= 16;
-    page1.drawText(`REPORT ID: ${params.reportId} | VERSION: ${params.version} | STATUS: FINAL_CERTIFIED`, { x: 50, y, size: 9, font: courier, color: rgb(0.2, 0.5, 0.3) });
+    page1.drawText(`REPORT ID: ${params.reportId} | VERSION: ${params.version} | STATUS: ${displayStatus}`, { x: 50, y, size: 9, font: courier, color: isOfficiallyCertified ? rgb(0.2, 0.5, 0.3) : rgb(0.6, 0.4, 0.1) });
 
     // Independent Auditor's Report Section
     y -= 30;
-    page1.drawText("INDEPENDENT AUDITOR'S REPORT", { x: 50, y, size: 12, font: timesBold, color: rgb(0.1, 0.15, 0.3) });
+    const sectionHeading = isOfficiallyCertified
+      ? "INDEPENDENT AUDITOR'S REPORT"
+      : "WORKING PAPERS / DRAFT DELIVERABLE (NOT AUTHORIZED FOR EXTERNAL DELIVERY)";
+    page1.drawText(sectionHeading, { x: 50, y, size: 12, font: timesBold, color: rgb(0.1, 0.15, 0.3) });
     y -= 18;
-    const opinionText = [
+    const opinionText = isOfficiallyCertified ? [
       "Opinion",
       `We have audited the consolidated financial statements of ${params.clientName}, which comprise the balance sheet,`,
       "statement of income, statement of cash flows, and notes to the financial statements.",
       "In our opinion, the accompanying financial statements present fairly, in all material respects, the financial position",
       `of the Company in accordance with applicable statutory accounting principles. Complete source-to-pixel provenance`,
       "lineage and Euclid identity mathematical equilibrium (Assets = Liabilities + Equity) have been fully verified."
+    ] : [
+      "Working Paper Examination Status",
+      `This artifact was prepared by autonomous analysis agents for ${params.clientName}.`,
+      "It represents compiled working paper calculations subject to required professional human review and sign-off.",
+      "THIS DRAFT REMAINS UNAUTHORIZED FOR STATUTORY ISSUANCE OR EXTERNAL CIRCULATION UNTIL",
+      "PHYSICAL PROFESSIONAL CPA SIGN-OFF AND CONCURRING REVIEW ARE EXPLICITLY RECORDED."
     ];
     for (const line of opinionText) {
       page1.drawText(line, { x: 50, y, size: 10, font: timesRoman, color: rgb(0.15, 0.15, 0.15) });
@@ -564,31 +590,43 @@ export class DeliverableArtifactService {
     const clientName = params.clientName || params.companyName || 'Corporate Client';
     const title = params.title || `${clientName} Financial Attestation Deliverable`;
     const firmName = params.firmName || 'Eve Autonomous CPA Assurance LLP';
-    const partnerName = params.partnerName || 'Quinn Concurring Audit Partner, CPA';
-    const licenseNumber = params.licenseNumber || 'CPA-PCAOB-90421';
+    const partnerName = params.partnerName || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW';
+    const licenseNumber = params.licenseNumber || '';
     const period = params.period || 'FY 2025';
     const currency = params.currency || 'USD';
 
-    // Normalize facts
+    // Normalize facts strictly without defaulting missing source data
     const rawFacts = params.facts || params.canonicalFacts || [];
     const normalizedFacts = rawFacts.map((f: any) => ({
+      id: f.id || undefined,
       canonicalMetric: f.canonicalMetric || 'Financial Metric',
       label: f.label || f.canonicalMetric || 'Line Item',
       value: typeof f.value === 'number' ? f.value : (Number(f.normalizedValue || f.expectedValue) || 0),
       statement: f.statement || f.statementType || 'BALANCE_SHEET',
-      sourceDoc: f.sourceDoc || 'Annual Financial Report',
-      page: f.page || f.sourcePage || 1,
-      verificationStatus: f.verificationStatus || 'CONFIRMED'
+      sourceDoc: f.sourceDoc || f.documentTitle || 'MISSING_EVIDENCE',
+      page: typeof f.page === 'number' ? f.page : (typeof f.sourcePage === 'number' ? f.sourcePage : undefined),
+      verificationStatus: f.verificationStatus || 'NOT_VERIFIED'
     }));
 
-    // Normalize euclidBalance
+    // Normalize euclidBalance from real fact numbers rather than fabricated defaults
     const balance = params.euclidBalance || {};
-    const assets = typeof balance.assets === 'number' ? balance.assets : (normalizedFacts.find(f => f.canonicalMetric.toLowerCase().includes('asset'))?.value || 142500000000);
-    const liabilities = typeof balance.liabilities === 'number' ? balance.liabilities : (normalizedFacts.find(f => f.canonicalMetric.toLowerCase().includes('liabilit'))?.value || 85200000000);
-    const equity = typeof balance.equity === 'number' ? balance.equity : (normalizedFacts.find(f => f.canonicalMetric.toLowerCase().includes('equity'))?.value || 57300000000);
+    const assets = typeof balance.assets === 'number' ? balance.assets : (normalizedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('asset'))?.value || 0);
+    const liabilities = typeof balance.liabilities === 'number' ? balance.liabilities : (normalizedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('liabilit'))?.value || 0);
+    const equity = typeof balance.equity === 'number' ? balance.equity : (normalizedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('equity'))?.value || 0);
     const variance = typeof balance.variance === 'number' ? balance.variance : Math.abs(assets - (liabilities + equity));
 
     const euclidBalance = { assets, liabilities, equity, variance };
+
+    // Determine initial lifecycle status following Requirement 7 & 4
+    let reportStatus: DeliverableArtifactRecord['status'] = 'READY_FOR_AUTHORIZED_HUMAN_REVIEW';
+    if (params.approvalObject && params.approvalObject.status === 'APPROVED') {
+      const val = professionalSignoffGuard.validateApprovalObject(params.approvalObject);
+      if (val.valid) {
+        reportStatus = 'FINAL_CERTIFIED';
+      }
+    } else if (params.status) {
+      reportStatus = params.status;
+    }
 
     // Mark previous versions as SUPERSEDED if same reportId
     existing.forEach(art => {
@@ -756,14 +794,83 @@ export class DeliverableArtifactService {
       canonicalFactHash,
       numericFactsCount: normalizedFacts.length,
       euclidVariance: euclidBalance.variance,
-      quinnReviewStatus: 'CLEARED',
-      status: 'FINAL_CERTIFIED'
+      quinnReviewStatus: params.quinnReviewStatus || 'AI_REVIEW_COMPLETE',
+      status: reportStatus,
+      isStale: false,
+      approvalObject: params.approvalObject,
+      dependentFactIds: normalizedFacts.map(f => f.id).filter(Boolean) as string[],
+      dependentDerivationIds: params.dependentDerivationIds || []
     };
 
-    existing.push(record);
-    this.artifacts.set(engagementId, existing);
+    const updatedList = existing.filter(r => r.reportId !== reportId);
+    updatedList.push(record);
+    this.artifacts.set(engagementId, updatedList);
 
     return record;
+  }
+
+  /**
+   * Package B3 Requirement 4 & 7:
+   * Applies physical human sign-off with validation. Transitions report to FINAL_CERTIFIED only upon valid approval.
+   */
+  public applyPhysicalSignoff(
+    engagementId: string,
+    reportId: string,
+    approval: ProfessionalApprovalObject
+  ): { success: boolean; report?: DeliverableArtifactRecord; error?: string } {
+    const list = this.artifacts.get(engagementId);
+    if (!list) {
+      return { success: false, error: `Engagement ${engagementId} not found.` };
+    }
+    const report = list.find(r => r.reportId === reportId);
+    if (!report) {
+      return { success: false, error: `Report ${reportId} not found in engagement.` };
+    }
+
+    const validation = professionalSignoffGuard.validateApprovalObject(approval);
+    if (!validation.valid) {
+      return { success: false, error: `Sign-off validation failed: ${validation.errors.join(', ')}` };
+    }
+
+    report.approvalObject = approval;
+    report.status = 'FINAL_CERTIFIED';
+    return { success: true, report };
+  }
+
+  /**
+   * Package B3 Requirement 14:
+   * Invalidates dependent reports when canonical facts are rejected, superseded, or modified.
+   */
+  public invalidateDependentReports(invalidatedFactIds: string[]): {
+    affectedReports: string[];
+    updatedCount: number;
+  } {
+    const affectedReports: string[] = [];
+    let updatedCount = 0;
+
+    for (const [engagementId, reports] of this.artifacts.entries()) {
+      for (const report of reports) {
+        const hasDependency = report.dependentFactIds && report.dependentFactIds.some(id => invalidatedFactIds.includes(id));
+        if (hasDependency && !report.isStale) {
+          report.isStale = true;
+          report.status = 'STALE_INVALIDATED';
+          affectedReports.push(report.reportId);
+          updatedCount++;
+
+          if (report.formats?.json?.filepath && fs.existsSync(report.formats.json.filepath)) {
+            try {
+              const raw = fs.readFileSync(report.formats.json.filepath, 'utf-8');
+              const data = JSON.parse(raw);
+              data.isStale = true;
+              data.status = 'STALE_INVALIDATED';
+              fs.writeFileSync(report.formats.json.filepath, JSON.stringify(data, null, 2), 'utf-8');
+            } catch (e) {}
+          }
+        }
+      }
+    }
+
+    return { affectedReports, updatedCount };
   }
 
   /**

@@ -1327,6 +1327,142 @@ export class EveInternalAuditEngine {
 
     return auditReport;
   }
+
+  /**
+   * Package B3 Requirement 8:
+   * Internal Audit independently inspects report truth without trusting report flags.
+   * Prohibits trusting report.signedOffBy === true, report.quinnCleared === true, etc.
+   * Inspects:
+   * 1. Underlying facts (must be verified, unquarantined)
+   * 2. Reconciliation state (Euclid equilibrium variance <= 1.0)
+   * 3. Derivation lineage (all non-canonical facts must have valid derivation objects)
+   * 4. Physical Approval Objects (must be signed by authorized human, not AI)
+   */
+  public auditDeliverableTruth(
+    report: any,
+    context?: {
+      underlyingFacts?: any[];
+      derivations?: any[];
+      approvalObject?: any;
+    }
+  ): {
+    compliant: boolean;
+    findings: InternalAuditFinding[];
+    deliveryGateStatus: 'ELIGIBLE_FOR_DELIVERY' | 'DELIVERY_BLOCKED_PENDING_REVIEW';
+    summary: string;
+  } {
+    const findings: InternalAuditFinding[] = [];
+    const reportStatus = report?.status || 'UNKNOWN';
+
+    // 1. Physical Approval Object Inspection (Never trust report.signedOffBy or report flags)
+    const approval = context?.approvalObject || report?.approvalObject;
+    if (['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus)) {
+      if (!approval) {
+        findings.push({
+          findingId: `FIND-SIGNOFF-${Date.now()}-1`,
+          severity: 'P1_PILOT_BLOCKER',
+          category: 'PROFESSIONAL_SIGN_OFF',
+          proofLevel: 'PRODUCT_VERIFIED',
+          title: 'Missing Physical Human Sign-off for Certified Deliverable',
+          description: `Report claims certified status (${reportStatus}) without an attached physical human approval object.`,
+          evidence: `report.status=${reportStatus}, approvalObject=null`,
+          remediationStatus: 'UNRESOLVED'
+        });
+      } else {
+        if (approval.signatureType !== 'PHYSICAL_HUMAN') {
+          findings.push({
+            findingId: `FIND-SIGNOFF-${Date.now()}-2`,
+            severity: 'P0_CRITICAL_TRUTH_OR_SECURITY',
+            category: 'PROFESSIONAL_SIGN_OFF',
+            proofLevel: 'PRODUCT_VERIFIED',
+            title: 'Prohibited AI Autonomous Sign-off',
+            description: `Deliverable approval was generated with signatureType=${approval.signatureType}. Only physical human credentials may certify deliverables.`,
+            evidence: JSON.stringify(approval),
+            remediationStatus: 'UNRESOLVED'
+          });
+        }
+        if (!approval.approverLicenseNumber || !approval.approverName || approval.approverName.toUpperCase().includes('QUINN') || approval.approverName.toUpperCase().includes('AI')) {
+          findings.push({
+            findingId: `FIND-SIGNOFF-${Date.now()}-3`,
+            severity: 'P1_PILOT_BLOCKER',
+            category: 'PROFESSIONAL_SIGN_OFF',
+            proofLevel: 'PRODUCT_VERIFIED',
+            title: 'Invalid or AI Signatory Identity',
+            description: `Approver identity (${approval.approverName}) violates separation between AI agents and human signing authority.`,
+            evidence: `Name: ${approval.approverName}, License: ${approval.approverLicenseNumber}`,
+            remediationStatus: 'UNRESOLVED'
+          });
+        }
+      }
+    }
+
+    // 2. Underlying Evidence Inspection
+    const facts = context?.underlyingFacts || report?.facts || report?.canonicalFacts || [];
+    for (const f of facts) {
+      const vStatus = String(f.verificationStatus || f.status || '').toUpperCase();
+      if (['REJECTED', 'UNVERIFIED', 'QUARANTINED', 'NOT_VERIFIED'].includes(vStatus)) {
+        findings.push({
+          findingId: `FIND-FACT-${Date.now()}-${f.id || 'unknown'}`,
+          severity: 'P0_CRITICAL_TRUTH_OR_SECURITY',
+          category: 'UNVERIFIED_EVIDENCE',
+          proofLevel: 'PRODUCT_VERIFIED',
+          title: 'Unverified or Quarantined Evidence in Deliverable',
+          description: `Fact ${f.canonicalMetric || f.id} has status ${vStatus}.`,
+          evidence: `factId=${f.id}, status=${vStatus}`,
+          remediationStatus: 'UNRESOLVED'
+        });
+      }
+    }
+
+    // 3. Accounting Balance / Euclid Invariant Inspection
+    const euclidVariance = typeof report?.euclidVariance === 'number'
+      ? report.euclidVariance
+      : (typeof report?.euclidBalance?.variance === 'number' ? report.euclidBalance.variance : null);
+    if (euclidVariance !== null && euclidVariance > 1.0) {
+      findings.push({
+        findingId: `FIND-EUCLID-${Date.now()}`,
+        severity: 'P0_CRITICAL_TRUTH_OR_SECURITY',
+        category: 'FINANCIAL_MISSTATEMENT',
+        proofLevel: 'PRODUCT_VERIFIED',
+        title: 'Euclid Identity Mathematical Variance',
+        description: `Balance Sheet variance is ${euclidVariance}, exceeding zero-tolerance threshold.`,
+        evidence: `variance=${euclidVariance}`,
+        remediationStatus: 'UNRESOLVED'
+      });
+    }
+
+    // 4. Derivation Lineage Inspection
+    const dependentDerivations = report?.dependentDerivationIds || [];
+    const availableDerivations = context?.derivations || [];
+    for (const derivId of dependentDerivations) {
+      const match = availableDerivations.find((d: any) => d.derivationId === derivId);
+      if (match && (match.proofState === 'INVALIDATED' || match.proofState === 'REJECTED')) {
+        findings.push({
+          findingId: `FIND-DERIV-${Date.now()}-${derivId}`,
+          severity: 'P0_CRITICAL_TRUTH_OR_SECURITY',
+          category: 'INVALID_DERIVATION',
+          proofLevel: 'PRODUCT_VERIFIED',
+          title: 'Deliverable Relies on Invalidated Derivation',
+          description: `Derivation ${derivId} is in state ${match.proofState}.`,
+          evidence: `derivationId=${derivId}, proofState=${match.proofState}`,
+          remediationStatus: 'UNRESOLVED'
+        });
+      }
+    }
+
+    const p0 = findings.filter(f => f.severity === 'P0_CRITICAL_TRUTH_OR_SECURITY').length;
+    const p1 = findings.filter(f => f.severity === 'P1_PILOT_BLOCKER').length;
+    const compliant = p0 === 0 && p1 === 0;
+
+    return {
+      compliant,
+      findings,
+      deliveryGateStatus: compliant ? 'ELIGIBLE_FOR_DELIVERY' : 'DELIVERY_BLOCKED_PENDING_REVIEW',
+      summary: compliant
+        ? 'Deliverable passed independent internal audit truth inspection.'
+        : `Deliverable failed independent internal audit: ${p0} P0 and ${p1} P1 findings.`
+    };
+  }
 }
 
 export const eveInternalAuditEngine = EveInternalAuditEngine.getInstance();

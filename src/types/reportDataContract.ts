@@ -110,9 +110,9 @@ export interface ReportMetricItem {
   period: string;
   canonicalFactId: string;
   documentTitle: string;
-  pageNumber: number;
+  pageNumber?: number;
   sourceQuote: string;
-  verificationStatus: 'verified' | 'calculated' | 'reconciled' | 'review_required';
+  verificationStatus: 'verified' | 'calculated' | 'reconciled' | 'review_required' | 'NOT_VERIFIED' | 'MISSING_EVIDENCE';
   scale: string;
 }
 
@@ -195,4 +195,8 @@ export interface ReportDataContract {
   provenanceLineageCount: number;
   isStale: boolean;
   supersededBy?: string;
+  status?: string;
+  dependentFactIds?: string[];
+  dependentDerivationIds?: string[];
+  invalidatedFactIds?: string[];
 }

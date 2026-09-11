@@ -108,6 +108,7 @@ export interface ObservatoryEvent {
   correlationId?: string;
   summary: string;
   structuredMetadata?: Record<string, any>;
+  payload?: Record<string, any>;
   durationMs?: number;
   status: 'SUCCESS' | 'IN_PROGRESS' | 'FAILED' | 'PENDING' | 'CLEARED';
   severity: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'SUCCESS';
@@ -719,6 +720,186 @@ export class ObservatoryEventLedger {
 
   public getEventCount(): number {
     return this.memoryEvents.length;
+  }
+
+  /**
+   * Package B3 Requirement 9 & 10:
+   * Resolves empirical operational metrics strictly from actual persisted event data.
+   * Prohibits static/seeded claims. If no events exist, returns NOT_MEASURED.
+   */
+  public getEmpiricalMetrics(timeWindowMs: number = 86400000): {
+    sampleSize: number;
+    passRate: number | 'NOT_MEASURED';
+    accuracyRate: number | 'NOT_MEASURED';
+    status: 'MEASURED' | 'NOT_MEASURED';
+    numericAccuracy: {
+      classification: 'NUMERIC_ACCURACY';
+      status: 'MEASURED' | 'NOT_MEASURED';
+      value: number | null;
+      percentage: string;
+      numerator: number;
+      denominator: number;
+      sampleSize: number;
+      timeWindow: string;
+      sourceEventsCount: number;
+    };
+    agentAccuracy: {
+      classification: 'AGENT_ACCURACY';
+      status: 'MEASURED' | 'NOT_MEASURED';
+      value: number | null;
+      percentage: string;
+      numerator: number;
+      denominator: number;
+      sampleSize: number;
+      timeWindow: string;
+      sourceEventsCount: number;
+    };
+    incidentCount: {
+      classification: 'INCIDENT_COUNT';
+      status: 'MEASURED';
+      value: number;
+      sampleSize: number;
+      timeWindow: string;
+    };
+    crossEngagementLeakage: {
+      classification: 'CROSS_ENGAGEMENT_LEAKAGE';
+      status: 'MEASURED' | 'NOT_MEASURED';
+      value: number | null;
+      sampleSize: number;
+    };
+  } {
+    const cutoff = Date.now() - timeWindowMs;
+    const recent = this.memoryEvents.filter(e => new Date(e.timestamp).getTime() >= cutoff);
+
+    // 1. Numeric Accuracy
+    const reconPassed = recent.filter(e => e.eventType === 'RECONCILIATION_PASSED').length;
+    const reconFailed = recent.filter(e => e.eventType === 'RECONCILIATION_FAILED').length;
+    const numDenom = reconPassed + reconFailed;
+
+    const numericAccuracy = {
+      classification: 'NUMERIC_ACCURACY' as const,
+      status: (numDenom > 0 ? 'MEASURED' : 'NOT_MEASURED') as 'MEASURED' | 'NOT_MEASURED',
+      value: numDenom > 0 ? reconPassed / numDenom : null,
+      percentage: numDenom > 0 ? `${((reconPassed / numDenom) * 100).toFixed(1)}%` : 'NOT_MEASURED',
+      numerator: reconPassed,
+      denominator: numDenom,
+      sampleSize: numDenom,
+      timeWindow: `${timeWindowMs / 3600000}h`,
+      sourceEventsCount: numDenom
+    };
+
+    // 2. Agent Accuracy (Task / Extraction outcomes)
+    const taskCompleted = recent.filter(e => e.eventType === 'TASK_COMPLETED' || e.eventType === 'FACT_VERIFIED').length;
+    const taskFailed = recent.filter(e => e.eventType === 'TASK_FAILED' || e.eventType === 'FACT_REJECTED').length;
+    const agentDenom = taskCompleted + taskFailed;
+
+    const agentAccuracy = {
+      classification: 'AGENT_ACCURACY' as const,
+      status: (agentDenom > 0 ? 'MEASURED' : 'NOT_MEASURED') as 'MEASURED' | 'NOT_MEASURED',
+      value: agentDenom > 0 ? taskCompleted / agentDenom : null,
+      percentage: agentDenom > 0 ? `${((taskCompleted / agentDenom) * 100).toFixed(1)}%` : 'NOT_MEASURED',
+      numerator: taskCompleted,
+      denominator: agentDenom,
+      sampleSize: agentDenom,
+      timeWindow: `${timeWindowMs / 3600000}h`,
+      sourceEventsCount: agentDenom
+    };
+
+    // 3. Incidents
+    const incidents = recent.filter(e => e.severity === 'CRITICAL' || e.eventType === 'EVOLUTION_INCIDENT').length;
+
+    // 4. Leakage
+    const leakageEvents = recent.filter(e => {
+      const p = e.payload || e.structuredMetadata;
+      return p && p.crossContaminationCheck !== undefined;
+    });
+    const leakagePassed = leakageEvents.filter(e => {
+      const p = e.payload || e.structuredMetadata;
+      return p && (p.crossContaminationCheck === true || p.crossContaminationScore === 0);
+    }).length;
+
+    const crossEngagementLeakage = {
+      classification: 'CROSS_ENGAGEMENT_LEAKAGE' as const,
+      status: (leakageEvents.length > 0 ? 'MEASURED' : 'NOT_MEASURED') as 'MEASURED' | 'NOT_MEASURED',
+      value: leakageEvents.length > 0 ? (leakageEvents.length - leakagePassed) / leakageEvents.length : null,
+      sampleSize: leakageEvents.length
+    };
+
+    const totalSample = numericAccuracy.sampleSize + agentAccuracy.sampleSize + incidents;
+    const overallPassRate = numDenom > 0 ? (numericAccuracy.value as number) : 'NOT_MEASURED';
+    const accuracyVal = agentDenom > 0 ? (agentAccuracy.value as number) : (numDenom > 0 ? (numericAccuracy.value as number) : 'NOT_MEASURED');
+    const measuredStatus = totalSample > 0 ? 'MEASURED' : 'NOT_MEASURED';
+
+    return {
+      sampleSize: totalSample,
+      passRate: overallPassRate,
+      accuracyRate: accuracyVal,
+      status: measuredStatus,
+      numericAccuracy,
+      agentAccuracy,
+      incidentCount: {
+        classification: 'INCIDENT_COUNT' as const,
+        status: 'MEASURED' as const,
+        value: incidents,
+        sampleSize: recent.length,
+        timeWindow: `${timeWindowMs / 3600000}h`
+      },
+      crossEngagementLeakage
+    };
+  }
+
+  /**
+   * Package B3 Requirement 10:
+   * Separates configured capability from measured performance for a given agent.
+   */
+  public separateConfiguredSkillsFromMeasuredPerformance(agentId: string, configuredSkills: string[] = []): {
+    agentId: string;
+    configuredCapability: {
+      declaredSkills: string[];
+      skills: string[];
+      totalDeclaredSkills: number;
+      isCapabilityOnly: true;
+    };
+    configuredCapabilities: {
+      declaredSkills: string[];
+      skills: string[];
+      totalDeclaredSkills: number;
+      isCapabilityOnly: true;
+    };
+    measuredPerformance: {
+      status: 'MEASURED' | 'NOT_MEASURED';
+      totalTasksObserved: number;
+      successfulTasks: number;
+      failedTasks: number;
+      empiricalSuccessRate: number | null;
+      isEmpiricalMeasurement: true;
+    };
+  } {
+    const agentEvents = this.memoryEvents.filter(e => e.agentId === agentId || e.sourceId === agentId);
+    const completed = agentEvents.filter(e => e.eventType === 'TASK_COMPLETED' || e.eventType === 'AGENT_COMPLETED').length;
+    const failed = agentEvents.filter(e => e.eventType === 'TASK_FAILED' || e.eventType === 'AGENT_FAILED').length;
+    const total = completed + failed;
+
+    const capObj = {
+      declaredSkills: [...configuredSkills],
+      skills: [...configuredSkills],
+      totalDeclaredSkills: configuredSkills.length,
+      isCapabilityOnly: true as const
+    };
+
+    return {
+      agentId,
+      configuredCapability: capObj,
+      configuredCapabilities: capObj,
+      measuredPerformance: {
+        status: total > 0 ? 'MEASURED' : 'NOT_MEASURED',
+        totalTasksObserved: total,
+        successfulTasks: completed,
+        failedTasks: failed,
+        empiricalSuccessRate: total > 0 ? completed / total : null,
+        isEmpiricalMeasurement: true
+      }
+    };
   }
 }
 

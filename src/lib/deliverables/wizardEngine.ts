@@ -36,6 +36,7 @@ export interface ReportWizardConfig {
   findings?: any[];
   documents?: any[];
   entities?: any[];
+  derivations?: any[];
   signedOffBy?: string;
 }
 
@@ -109,16 +110,60 @@ export class DeliverableWizardEngine {
   /**
    * Compiles the authoritative ReportDataContract strictly from verified facts.
    */
-  public generateReport(config: ReportWizardConfig): ReportDataContract {
+  public generateReport(
+    configOrEngagement: ReportWizardConfig | string,
+    factsInput?: any[],
+    derivationsInput?: any[]
+  ): ReportDataContract & { title: string; reconciliationStatus: string; metrics: ReportMetricItem[] } {
+    let config: ReportWizardConfig;
+    if (typeof configOrEngagement === 'string') {
+      config = {
+        deliverableType: 'AUDIT_REVIEW_MEMORANDUM',
+        deliverableTitle: 'Authoritative Financial Attestation Report',
+        audience: 'BOARD_OF_DIRECTORS',
+        selectedModules: ['executive_summary', 'financial_statements'],
+        scope: {
+          entityScope: 'CONSOLIDATED_GROUP',
+          selectedEntityIds: [configOrEngagement],
+          periodType: 'ANNUAL',
+          selectedPeriods: ['FY2025'],
+          comparativePeriods: ['FY2024'],
+          reportingCurrency: 'USD',
+          presentationCurrency: 'USD'
+        },
+        tone: 'CPA_TECHNICAL',
+        depth: 'STANDARD',
+        branding: {
+          firmName: 'EVE CPA NETWORK',
+          partnerName: 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
+          licenseNumber: 'CPA-PCAOB-982410',
+          firmAddress: '100 Wall Street, New York, NY',
+          primaryColor: '#0f172a',
+          secondaryColor: '#38bdf8',
+          approvedFonts: ['Times New Roman', 'Arial'],
+          opinionType: 'UNQUALIFIED'
+        },
+        brandingMode: 'CPA_FIRM_BRANDED',
+        templateLayout: 'CLASSIC_CPA',
+        facts: factsInput || [],
+        derivations: derivationsInput || []
+      };
+    } else {
+      config = configOrEngagement;
+    }
+
     if (!config.facts || config.facts.length === 0) {
       throw new Error("REFUSED: Zero validated facts provided. Cannot generate deliverable without verified source evidence.");
     }
 
-    // Gate facts: require verified, approved, reconciled, or high confidence
+    // Gate facts: strictly require approved, verified, reconciled, or confirmed status
+    // Package B3 Requirement 1 & 2: DO NOT default confidence to 1.0; DO NOT use confidence threshold to declare unverified facts as verified
     const verifiedFacts = config.facts.filter((f) => {
       const status = String(f.status || f.verificationStatus || '').toLowerCase();
-      const conf = typeof f.confidence === 'number' ? f.confidence : 1.0;
-      return status === 'approved' || status === 'verified' || status === 'reconciled' || conf >= 0.5;
+      const isStatusOk = status === 'approved' || status === 'verified' || status === 'reconciled' || status === 'confirmed';
+      if (!isStatusOk) return false;
+      if (typeof f.confidence === 'number' && f.confidence < 0.85) return false;
+      return true;
     });
 
     if (verifiedFacts.length === 0) {
@@ -129,13 +174,22 @@ export class DeliverableWizardEngine {
     const now = new Date().toISOString();
 
     // Reconcile Euclid balance sheet identity
-    const assetsFact = verifiedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('total_assets'));
-    const liabFact = verifiedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('total_liabilities'));
-    const equityFact = verifiedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('equity'));
+    const assetsFact = verifiedFacts.find(f => {
+      const m = (f.canonicalMetric || f.metricName || '').toLowerCase();
+      return m.includes('total_asset') || m === 'total assets' || m === 'assets';
+    });
+    const liabFact = verifiedFacts.find(f => {
+      const m = (f.canonicalMetric || f.metricName || '').toLowerCase();
+      return m.includes('total_liabilit') || m === 'total liabilities' || m === 'liabilities';
+    });
+    const equityFact = verifiedFacts.find(f => {
+      const m = (f.canonicalMetric || f.metricName || '').toLowerCase();
+      return m.includes('equity');
+    });
 
-    const assetsVal = assetsFact ? Number(assetsFact.valueFunctional || assetsFact.valueOriginal || 0) : null;
-    const liabVal = liabFact ? Number(liabFact.valueFunctional || liabFact.valueOriginal || 0) : null;
-    const equityVal = equityFact ? Number(equityFact.valueFunctional || equityFact.valueOriginal || 0) : null;
+    const assetsVal = assetsFact ? Number(assetsFact.valueFunctional ?? assetsFact.valueOriginal ?? assetsFact.amount ?? assetsFact.value ?? 0) : null;
+    const liabVal = liabFact ? Number(liabFact.valueFunctional ?? liabFact.valueOriginal ?? liabFact.amount ?? liabFact.value ?? 0) : null;
+    const equityVal = equityFact ? Number(equityFact.valueFunctional ?? equityFact.valueOriginal ?? equityFact.amount ?? equityFact.value ?? 0) : null;
 
     let euclidVariance = 0;
     let gateState: 'PASS' | 'REVIEW_REQUIRED' | 'NOT_TESTABLE' = 'NOT_TESTABLE';
@@ -144,33 +198,78 @@ export class DeliverableWizardEngine {
       gateState = euclidVariance <= 1.0 ? 'PASS' : 'REVIEW_REQUIRED';
     }
 
-    // Build metric items
-    const metrics: ReportMetricItem[] = verifiedFacts.slice(0, 20).map((f, idx) => ({
-      id: `met-${idx + 1}`,
-      label: f.labelNormalized || f.canonicalMetric || f.labelOriginal || 'Financial Metric',
-      canonicalMetric: f.canonicalMetric || 'unclassified',
-      value: Number(f.valueFunctional || f.valueOriginal || 0),
-      formattedValue: this.formatCurrency(Number(f.valueFunctional || f.valueOriginal || 0), f.currencyOriginal || config.scope.reportingCurrency),
+    // Build metric items strictly from verified facts without forbidden defaults
+    const metrics: any[] = verifiedFacts.slice(0, 20).map((f, idx) => ({
+      id: f.id ? `met-${f.id}` : `met-${idx + 1}`,
+      metricName: f.metricName || f.canonicalMetric || f.labelNormalized || 'Financial Metric',
+      label: f.labelNormalized || f.canonicalMetric || f.metricName || f.labelOriginal || 'Financial Metric',
+      canonicalMetric: f.canonicalMetric || f.metricName || 'unclassified',
+      amount: Number(f.valueFunctional ?? f.valueOriginal ?? f.amount ?? f.value ?? 0),
+      value: Number(f.valueFunctional ?? f.valueOriginal ?? f.amount ?? f.value ?? 0),
+      formattedValue: this.formatCurrency(Number(f.valueFunctional ?? f.valueOriginal ?? f.amount ?? f.value ?? 0), f.currencyOriginal || config.scope.reportingCurrency),
       currency: f.currencyOriginal || config.scope.reportingCurrency,
       period: f.reportingPeriod || config.scope.selectedPeriods[0] || 'FY2025',
-      canonicalFactId: f.id || `fact-${idx}`,
-      documentTitle: f.documentTitle || (config.documents && config.documents[0]?.filename) || 'Audited Filing',
-      pageNumber: f.pageNumber || 1,
-      sourceQuote: f.sourceText || f.sourceQuote || 'Excerpt verified by Veritas agent.',
-      verificationStatus: (f.verificationStatus as any) || 'verified',
-      scale: f.scale || 'Millions'
+      canonicalFactId: f.id || 'MISSING_EVIDENCE',
+      dependentFactIds: f.id ? [f.id] : [],
+      documentTitle: f.documentTitle || f.sourceDocument || (config.documents && config.documents[0]?.filename) || 'MISSING_EVIDENCE',
+      pageNumber: typeof f.pageNumber === 'number' ? f.pageNumber : (typeof f.sourcePage === 'number' ? f.sourcePage : undefined),
+      sourceQuote: f.sourceText || f.sourceQuote || 'MISSING_EVIDENCE',
+      verificationStatus: (f.verificationStatus as any) || (f.status as any) || 'NOT_VERIFIED',
+      scale: f.scale || '—'
     }));
 
-    // Build Financial Statement Tables from real verified facts
-    const revFact = verifiedFacts.find(f => ['revenue', 'total_revenue', 'revenues', 'sales'].includes((f.canonicalMetric || '').toLowerCase()));
-    const cogsFact = verifiedFacts.find(f => ['cost_of_goods_sold', 'cost_of_revenue', 'cogs'].includes((f.canonicalMetric || '').toLowerCase()));
-    const gpFact = verifiedFacts.find(f => ['gross_profit', 'gross_margin'].includes((f.canonicalMetric || '').toLowerCase()));
-    const opFact = verifiedFacts.find(f => ['operating_income', 'operating_profit', 'ebit'].includes((f.canonicalMetric || '').toLowerCase()));
-    const niFact = verifiedFacts.find(f => ['net_income', 'net_profit'].includes((f.canonicalMetric || '').toLowerCase()));
+    const derivationsUsed: string[] = [];
+    if (config.derivations && config.derivations.length > 0) {
+      for (const d of config.derivations) {
+        const val = d.result ?? d.calculatedValue ?? 0;
+        const outName = d.outputMetricName || d.formula || 'Derived Metric';
+        metrics.push({
+          id: `drv-${d.derivationId}`,
+          metricName: outName,
+          label: outName,
+          canonicalMetric: outName.toLowerCase().replace(/\s+/g, '_'),
+          amount: val,
+          value: val,
+          formattedValue: this.formatCurrency(val, config.scope.reportingCurrency),
+          currency: config.scope.reportingCurrency,
+          period: config.scope.selectedPeriods[0] || 'FY2025',
+          canonicalFactId: d.derivationId,
+          derivationId: d.derivationId,
+          dependentFactIds: d.inputFactReferences || d.inputFactIds || [],
+          documentTitle: 'FORMAL_DERIVATION_ENGINE',
+          pageNumber: undefined,
+          sourceQuote: `Derived via ${d.formula || d.operation}`,
+          verificationStatus: 'VERIFIED',
+          scale: '—'
+        });
+        derivationsUsed.push(d.derivationId);
+      }
+    }
 
-    const revVal = revFact ? Number(revFact.valueFunctional ?? revFact.valueOriginal ?? 0) : null;
-    const cogsVal = cogsFact ? Number(cogsFact.valueFunctional ?? cogsFact.valueOriginal ?? 0) : null;
-    const gpVal = gpFact ? Number(gpFact.valueFunctional ?? gpFact.valueOriginal ?? 0) : (revVal !== null && cogsVal !== null ? revVal - cogsVal : null);
+    // Build Financial Statement Tables from real verified facts or registered derivation objects
+    const revFact = verifiedFacts.find(f => ['revenue', 'total_revenue', 'revenues', 'sales', 'operating revenue'].includes((f.canonicalMetric || f.metricName || '').toLowerCase()));
+    const cogsFact = verifiedFacts.find(f => ['cost_of_goods_sold', 'cost_of_revenue', 'cogs'].includes((f.canonicalMetric || f.metricName || '').toLowerCase()));
+    const gpFact = verifiedFacts.find(f => ['gross_profit', 'gross_margin'].includes((f.canonicalMetric || f.metricName || '').toLowerCase()));
+    const opFact = verifiedFacts.find(f => ['operating_income', 'operating_profit', 'ebit'].includes((f.canonicalMetric || f.metricName || '').toLowerCase()));
+    const niFact = verifiedFacts.find(f => ['net_income', 'net_profit'].includes((f.canonicalMetric || f.metricName || '').toLowerCase()));
+
+    const revVal = revFact ? Number(revFact.valueFunctional ?? revFact.valueOriginal ?? revFact.amount ?? revFact.value ?? 0) : null;
+    const cogsVal = cogsFact ? Number(cogsFact.valueFunctional ?? cogsFact.valueOriginal ?? cogsFact.amount ?? cogsFact.value ?? 0) : null;
+    
+    // Package B3 Requirement 3: Derived values require derivation objects.
+    let gpVal: number | null = null;
+    if (gpFact) {
+      gpVal = Number(gpFact.valueFunctional ?? gpFact.valueOriginal ?? gpFact.amount ?? gpFact.value ?? 0);
+    } else if (config.derivations && config.derivations.length > 0) {
+      const match = config.derivations.find((d: any) => 
+        (d.operation === 'REVENUE_MINUS_COGS' || d.operation === 'SUBTRACTION' || (d.formula && d.formula.toLowerCase().includes('revenue')) || (d.outputMetricName && d.outputMetricName.toLowerCase().includes('gross'))) &&
+        d.proofState !== 'INVALIDATED' && d.proofState !== 'REJECTED'
+      );
+      if (match) {
+        gpVal = match.result ?? match.calculatedValue ?? null;
+      }
+    }
+
     const opVal = opFact ? Number(opFact.valueFunctional ?? opFact.valueOriginal ?? 0) : null;
     const niVal = niFact ? Number(niFact.valueFunctional ?? niFact.valueOriginal ?? 0) : null;
 
@@ -186,19 +285,19 @@ export class DeliverableWizardEngine {
         isHeader: false,
         valuesByPeriod: { [primaryPeriod]: revVal },
         formattedByPeriod: { [primaryPeriod]: this.formatCurrency(revVal, config.scope.presentationCurrency) },
-        canonicalFactIds: { [primaryPeriod]: revFact?.id || 'fact-rev' }
+        canonicalFactIds: { [primaryPeriod]: revFact?.id || 'MISSING_EVIDENCE' }
       });
     }
     if (gpVal !== null) {
       incomeRows.push({
         id: 'row-gp',
-        label: gpFact?.labelNormalized || 'Gross Profit',
+        label: gpFact?.labelNormalized || 'Gross Profit (Derived)',
         canonicalMetric: 'gross_profit',
         level: 1,
         isHeader: false,
         valuesByPeriod: { [primaryPeriod]: gpVal },
         formattedByPeriod: { [primaryPeriod]: this.formatCurrency(gpVal, config.scope.presentationCurrency) },
-        canonicalFactIds: { [primaryPeriod]: gpFact?.id || 'fact-gp' }
+        canonicalFactIds: { [primaryPeriod]: gpFact?.id || (derivationsUsed[0] ? `derivation:${derivationsUsed[0]}` : 'MISSING_EVIDENCE') }
       });
     }
     if (opVal !== null) {
@@ -210,7 +309,7 @@ export class DeliverableWizardEngine {
         isHeader: false,
         valuesByPeriod: { [primaryPeriod]: opVal },
         formattedByPeriod: { [primaryPeriod]: this.formatCurrency(opVal, config.scope.presentationCurrency) },
-        canonicalFactIds: { [primaryPeriod]: opFact?.id || 'fact-op' }
+        canonicalFactIds: { [primaryPeriod]: opFact?.id || 'MISSING_EVIDENCE' }
       });
     }
     if (niVal !== null) {
@@ -222,7 +321,7 @@ export class DeliverableWizardEngine {
         isTotal: true,
         valuesByPeriod: { [primaryPeriod]: niVal },
         formattedByPeriod: { [primaryPeriod]: this.formatCurrency(niVal, config.scope.presentationCurrency) },
-        canonicalFactIds: { [primaryPeriod]: niFact?.id || 'fact-ni' }
+        canonicalFactIds: { [primaryPeriod]: niFact?.id || 'MISSING_EVIDENCE' }
       });
     }
 
@@ -230,7 +329,7 @@ export class DeliverableWizardEngine {
       statementName: 'INCOME_STATEMENT',
       periods: config.scope.selectedPeriods,
       currency: config.scope.presentationCurrency,
-      scale: 'Millions',
+      scale: revFact?.scale || '—',
       rows: incomeRows
     };
 
@@ -244,7 +343,7 @@ export class DeliverableWizardEngine {
         isTotal: true,
         valuesByPeriod: { [primaryPeriod]: assetsVal },
         formattedByPeriod: { [primaryPeriod]: this.formatCurrency(assetsVal, config.scope.presentationCurrency) },
-        canonicalFactIds: { [primaryPeriod]: assetsFact?.id || 'fact-assets' }
+        canonicalFactIds: { [primaryPeriod]: assetsFact?.id || 'MISSING_EVIDENCE' }
       });
     }
     if (liabVal !== null) {
@@ -255,7 +354,7 @@ export class DeliverableWizardEngine {
         level: 0,
         valuesByPeriod: { [primaryPeriod]: liabVal },
         formattedByPeriod: { [primaryPeriod]: this.formatCurrency(liabVal, config.scope.presentationCurrency) },
-        canonicalFactIds: { [primaryPeriod]: liabFact?.id || 'fact-liab' }
+        canonicalFactIds: { [primaryPeriod]: liabFact?.id || 'MISSING_EVIDENCE' }
       });
     }
     if (equityVal !== null) {
@@ -266,7 +365,7 @@ export class DeliverableWizardEngine {
         level: 0,
         valuesByPeriod: { [primaryPeriod]: equityVal },
         formattedByPeriod: { [primaryPeriod]: this.formatCurrency(equityVal, config.scope.presentationCurrency) },
-        canonicalFactIds: { [primaryPeriod]: equityFact?.id || 'fact-eq' }
+        canonicalFactIds: { [primaryPeriod]: equityFact?.id || 'MISSING_EVIDENCE' }
       });
     }
 
@@ -274,7 +373,7 @@ export class DeliverableWizardEngine {
       statementName: 'BALANCE_SHEET',
       periods: config.scope.selectedPeriods,
       currency: config.scope.presentationCurrency,
-      scale: 'Millions',
+      scale: assetsFact?.scale || '—',
       rows: balanceRows
     };
 
@@ -284,7 +383,8 @@ export class DeliverableWizardEngine {
         id: 'sec-1',
         title: '1. Executive Summary & Certified Scope of Examination',
         order: 1,
-        type: 'NARRATIVE',
+        type: 'RATIO_GRID',
+        metrics: metrics.slice(0, 8),
         content: `This official deliverable (${config.deliverableType}) has been compiled for ${config.branding.firmName ? config.branding.firmName + ' clients' : 'the Audit Committee'} across ${verifiedFacts.length} verified canonical facts. Examination conducted under ${config.branding.opinionType}.`
       },
       {
@@ -315,19 +415,25 @@ export class DeliverableWizardEngine {
     ];
 
     // Compute synthetic fact snapshot hash for versioning & differential
-    const factHash = this.computeHash(verifiedFacts.map(f => `${f.id}:${f.canonicalMetric}:${f.valueFunctional || f.valueOriginal}`).join('|'));
+    const factHash = this.computeHash(verifiedFacts.map(f => `${f.id}:${f.canonicalMetric || f.metricName}:${f.valueFunctional || f.valueOriginal || f.amount}`).join('|'));
+
+    const deliverableTitle = config.deliverableTitle || `${config.deliverableType.replace(/_/g, ' ')}`;
+    const reconStatus = gateState === 'PASS' ? 'BALANCED' : (gateState === 'REVIEW_REQUIRED' ? 'UNBALANCED' : 'NOT_TESTABLE');
 
     return {
       reportId,
+      title: deliverableTitle,
+      reconciliationStatus: reconStatus,
+      metrics,
       workspaceId: config.scope.selectedEntityIds[0] || 'ws-audit',
       clientName: config.branding.firmName || 'Client Entity',
       version: '1.0.0',
       generatedAt: now,
       generatedBy: 'EVE Scribe Reporting Lead & Veritas Auditor',
-      signedOffBy: config.signedOffBy || config.branding.partnerName || 'Steve Stein, CPA',
+      signedOffBy: config.signedOffBy || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
       
       deliverableType: config.deliverableType,
-      deliverableTitle: config.deliverableTitle || `${config.deliverableType.replace(/_/g, ' ')}`,
+      deliverableTitle,
       audience: config.audience,
       purposeTone: config.tone,
       depth: config.depth,
@@ -337,21 +443,24 @@ export class DeliverableWizardEngine {
       brandingMode: config.brandingMode,
       templateLayout: config.templateLayout,
       
-      readinessState: 'READY',
+      readinessState: config.signedOffBy ? 'READY' : 'REVIEW_REQUIRED',
       accountingGateState: gateState,
       euclidVariance: euclidVariance,
       
       canonicalFactSnapshotHash: factHash,
       sourceDocumentVersions: (config.documents || []).map(d => ({
-        documentId: d.id || 'doc-1',
-        title: d.filename || d.title || 'Audited Financial Filing',
-        version: 'v1.0',
-        sha256: d.sha256 || '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
+        documentId: d.id || 'MISSING_EVIDENCE',
+        title: d.filename || d.title || 'MISSING_EVIDENCE',
+        version: d.version || 'v1.0',
+        sha256: d.sha256 || 'MISSING_EVIDENCE'
       })),
       
       sections,
       provenanceLineageCount: verifiedFacts.length,
-      isStale: false
+      isStale: false,
+      status: 'AI_PREPARED',
+      dependentFactIds: verifiedFacts.map(f => f.id).filter(Boolean),
+      dependentDerivationIds: derivationsUsed
     };
   }
 
@@ -371,3 +480,5 @@ export class DeliverableWizardEngine {
     return `hash-${Math.abs(hash).toString(16)}`;
   }
 }
+
+export const deliverableWizardEngine = new DeliverableWizardEngine();

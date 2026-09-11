@@ -26,9 +26,26 @@ import { observatoryEventLedger } from './observatoryEventLedger.js';
 import { universalEngagementManager } from './universalEngagementModel.js';
 import { universalFinancialLineageManager } from './universalFinancialLineage.js';
 import { customerJourneyEngine } from './customerJourneyEngine.js';
+import { routeBoundaryGuard } from './routeBoundaryGuard.js';
+import { professionalSignoffGuard } from './professionalSignoffGuard.js';
 
 export function createCPAOrganizationRouter(): Router {
   const router = Router();
+
+  // Route boundary enforcement (Package B3 Requirement 11)
+  router.use((req, res, next) => {
+    const fullPath = req.baseUrl ? `${req.baseUrl}${req.path}` : req.path;
+    const environmentTarget = (req.headers['x-environment-target'] as string) || (req as any).environmentTarget || 'PRODUCTION';
+    const check = routeBoundaryGuard.enforceRouteBoundary(req.method, fullPath, environmentTarget);
+    if (!check.allowed) {
+      return res.status(403).json({
+        error: 'ROUTE_BOUNDARY_VIOLATION',
+        reason: check.reason,
+        classification: check.classification
+      });
+    }
+    next();
+  });
 
   // 1. Named CPA Agents
   router.get('/agents', (req: Request, res: Response) => {
@@ -497,6 +514,35 @@ export function createCPAOrganizationRouter(): Router {
     try {
       const artifact = await deliverableArtifactService.compileAndRegisterDeliverable(req.body);
       res.json({ success: true, artifact });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/report/signoff', (req: Request, res: Response) => {
+    try {
+      const { engagementId, reportId, approvalObject } = req.body || {};
+      if (!engagementId || !reportId || !approvalObject) {
+        return res.status(400).json({ error: 'Missing engagementId, reportId, or approvalObject.' });
+      }
+      const result = deliverableArtifactService.applyPhysicalSignoff(engagementId, reportId, approvalObject);
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true, report: result.report });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/report/invalidate', (req: Request, res: Response) => {
+    try {
+      const { invalidatedFactIds } = req.body || {};
+      if (!Array.isArray(invalidatedFactIds)) {
+        return res.status(400).json({ error: 'invalidatedFactIds must be an array.' });
+      }
+      const result = deliverableArtifactService.invalidateDependentReports(invalidatedFactIds);
+      res.json({ success: true, ...result });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -992,20 +1038,28 @@ export function createCPAOrganizationRouter(): Router {
     try {
       const selectorState = typeof (hermesHeartbeat as any).getSelectorState === 'function' ? (hermesHeartbeat as any).getSelectorState() : null;
       const heartbeatState = hermesHeartbeat.getState();
+      const empirical = observatoryEventLedger.getEmpiricalMetrics();
 
       res.json({
         lastCompletedCase: heartbeatState.lastCompletedCaseId,
         heartbeatSequence: heartbeatState.heartbeatSequence,
         learningHighlights: [
-          'Numeric accuracy preserved at 100% across all curriculum cycles with 0.000 Euclid balance variance',
-          'Autonomous recovery controller successfully reroutes offline local LLMs to deterministic semantic classifiers',
+          `Empirical sample size: ${empirical.sampleSize} measured events recorded in ledger`,
+          `Observed pass rate: ${empirical.passRate === 'NOT_MEASURED' ? 'NOT_MEASURED' : `${(Number(empirical.passRate) * 100).toFixed(1)}%`}`,
           'Quinn concurring partner review requires technical memo clearance prior to deliverable compilation',
-          'Disk rehydration ensures 100% persistent report discoverability across service restarts'
+          'Deliverables require physical professional human sign-off prior to statutory release'
         ],
-        agentCompetencySummary: {
+        empiricalMetrics: empirical,
+        configuredCapabilities: {
           totalAgents: cpaAgentRegistry.getAllAgents().length,
           activeAgents: cpaAgentRegistry.getAllAgents().filter(a => a.status === 'ACTIVE').length,
-          averageAccuracy: '99.2%'
+          routingMethod: 'DYNAMIC_CAPABILITY_ROUTED'
+        },
+        measuredPerformance: {
+          sampleSize: empirical.sampleSize,
+          passRate: empirical.passRate,
+          averageAccuracy: empirical.accuracyRate === 'NOT_MEASURED' ? 'NOT_MEASURED' : `${(Number(empirical.accuracyRate) * 100).toFixed(1)}%`,
+          status: empirical.status
         }
       });
     } catch (err: any) {
