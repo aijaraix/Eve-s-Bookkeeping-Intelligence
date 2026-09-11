@@ -810,8 +810,9 @@ export class DeliverableArtifactService {
   }
 
   /**
-   * Package B3 Requirement 4 & 7:
-   * Applies physical human sign-off with validation. Transitions report to FINAL_CERTIFIED only upon valid approval.
+   * Package B3 & B3.1 Requirements:
+   * Applies physical human sign-off with authentic principal validation, cryptographic report binding,
+   * and fail-closed persistence. Transitions report to FINAL_CERTIFIED only upon successful durable registration.
    */
   public applyPhysicalSignoff(
     engagementId: string,
@@ -827,9 +828,41 @@ export class DeliverableArtifactService {
       return { success: false, error: `Report ${reportId} not found in engagement.` };
     }
 
+    if (report.isStale || report.status === 'STALE_INVALIDATED') {
+      return { success: false, error: `Report ${reportId} is stale/invalidated and cannot receive professional sign-off.` };
+    }
+
+    // Cryptographic report binding check
+    if (approval.reportId !== report.reportId) {
+      return { success: false, error: `Approval reportId mismatch: approval is for '${approval.reportId}' but report is '${report.reportId}'.` };
+    }
+    if (approval.reportVersion && report.version && approval.reportVersion !== report.version) {
+      return { success: false, error: `Approval reportVersion mismatch: approval is for '${approval.reportVersion}' but report is '${report.version}'.` };
+    }
+
+    const expectedHashes = [
+      report.formats?.pdf?.sha256,
+      report.canonicalFactHash,
+      report.formats?.json?.sha256,
+      report.manifest?.artifacts?.pdf?.sha256,
+      report.manifest?.contentHash
+    ].filter(Boolean) as string[];
+
+    if (expectedHashes.length > 0 && approval.reportHash) {
+      if (!expectedHashes.includes(approval.reportHash)) {
+        return { success: false, error: `Approval reportHash (${approval.reportHash}) does not match actual report artifact hash.` };
+      }
+    }
+
     const validation = professionalSignoffGuard.validateApprovalObject(approval);
     if (!validation.valid) {
       return { success: false, error: `Sign-off validation failed: ${validation.errors.join(', ')}` };
+    }
+
+    // Durable fail-closed persistence
+    const regResult = professionalSignoffGuard.registerApproval(approval);
+    if (!regResult.success) {
+      return { success: false, error: `Durable approval persistence failed: ${regResult.reason}` };
     }
 
     report.approvalObject = approval;
@@ -838,8 +871,9 @@ export class DeliverableArtifactService {
   }
 
   /**
-   * Package B3 Requirement 14:
+   * Package B3 & B3.1 Requirements:
    * Invalidates dependent reports when canonical facts are rejected, superseded, or modified.
+   * Immediately revokes associated professional approvals and revokes delivery eligibility.
    */
   public invalidateDependentReports(invalidatedFactIds: string[]): {
     affectedReports: string[];
@@ -854,6 +888,14 @@ export class DeliverableArtifactService {
         if (hasDependency && !report.isStale) {
           report.isStale = true;
           report.status = 'STALE_INVALIDATED';
+          if (report.approvalObject) {
+            professionalSignoffGuard.revokeOrInvalidateApproval(
+              report.approvalObject.approvalId,
+              'DEPENDENT_FACT_INVALIDATED'
+            );
+            report.approvalObject.approvalStatus = 'REVOKED';
+            report.approvalObject.status = 'REVOKED';
+          }
           affectedReports.push(report.reportId);
           updatedCount++;
 

@@ -183,9 +183,11 @@ export async function runPhasePackageB3ReportingTruthTests(): Promise<{
 
   const validHumanApproval = {
     approvalId: 'app-human-cpa-01',
+    principalId: 'usr-jane-doe-cpa-01',
     authorizedIdentity: 'Jane Doe, CPA',
     authorizedRole: 'ENGAGEMENT_PARTNER' as const,
     licenseNumber: 'CPA-NY-849201',
+    jurisdiction: 'NY',
     engagementId: 'eng-test-01',
     reportId: reportWithDerivation.reportId,
     reportVersion: '1.0',
@@ -193,8 +195,14 @@ export async function runPhasePackageB3ReportingTruthTests(): Promise<{
     approvalScope: 'STATUTORY_DELIVERABLE_RELEASE',
     timestamp: new Date().toISOString(),
     approvalStatus: 'APPROVED' as const,
-    sourceAuthority: 'AUTHORIZED_PRACTITIONER_CREDENTIAL',
-    signatureType: 'PHYSICAL_HUMAN'
+    sourceAuthority: 'STATE_BOARD_OF_ACCOUNTANCY',
+    signatureType: 'PHYSICAL_HUMAN',
+    approvalMethod: 'AUTHORIZED_PRACTITIONER_SIGNATURE' as const,
+    authenticationContext: {
+      sessionId: 'sess-cpa-jane-01',
+      authenticationMethod: 'TRUSTED_INTERNAL_SESSION' as const,
+      timestamp: new Date().toISOString()
+    }
   };
 
   const humanCheck = professionalSignoffGuard.isValidApprovalObject(validHumanApproval);
@@ -366,7 +374,13 @@ export async function runPhasePackageB3ReportingTruthTests(): Promise<{
   const signoffResult = deliverableArtifactService.applyPhysicalSignoff(
     'eng-test-finality',
     compiledArtifact.reportId,
-    validHumanApproval
+    {
+      ...validHumanApproval,
+      engagementId: 'eng-test-finality',
+      reportId: compiledArtifact.reportId,
+      reportVersion: compiledArtifact.version || '1.0',
+      reportHash: compiledArtifact.formats.pdf?.sha256 || compiledArtifact.canonicalFactHash
+    }
   );
   assert(
     'B3-REQ-18: Valid Physical Sign-off Promotes Deliverable to FINAL_CERTIFIED',

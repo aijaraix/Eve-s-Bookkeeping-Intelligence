@@ -521,10 +521,49 @@ export function createCPAOrganizationRouter(): Router {
 
   router.post('/report/signoff', (req: Request, res: Response) => {
     try {
-      const { engagementId, reportId, approvalObject } = req.body || {};
-      if (!engagementId || !reportId || !approvalObject) {
-        return res.status(400).json({ error: 'Missing engagementId, reportId, or approvalObject.' });
+      const { engagementId, reportId, approvalObject, eventContext, principalId, reportVersion, expectedReportHash, approvalScope, action, notes } = req.body || {};
+      if (!engagementId || !reportId) {
+        return res.status(400).json({ error: 'Missing engagementId or reportId.' });
       }
+
+      // If called with human approval event parameters
+      if (principalId || (eventContext && eventContext.principalId)) {
+        const effectivePrincipalId = principalId || eventContext.principalId;
+        const effectiveEventContext = eventContext || {
+          sessionId: req.headers['x-session-id'] || `sess-${Date.now()}`,
+          authenticationMethod: 'BEARER_TOKEN',
+          timestamp: new Date().toISOString()
+        };
+
+        const eventResult = professionalSignoffGuard.processHumanApprovalEvent({
+          eventId: `evt-${Date.now()}`,
+          principalId: effectivePrincipalId,
+          engagementId,
+          reportId,
+          reportVersion: reportVersion || '1.0',
+          expectedReportHash: expectedReportHash || approvalObject?.reportHash || '',
+          approvalScope: approvalScope || 'STATUTORY_DELIVERABLE_RELEASE',
+          eventContext: effectiveEventContext,
+          approvalMethod: req.body.approvalMethod || 'INTERACTIVE_PORTAL',
+          action: action === 'REJECT' ? 'REJECT' : 'APPROVE',
+          notes
+        });
+
+        if (!eventResult.success || !eventResult.approval) {
+          return res.status(400).json({ success: false, error: eventResult.error });
+        }
+
+        const applyResult = deliverableArtifactService.applyPhysicalSignoff(engagementId, reportId, eventResult.approval);
+        if (!applyResult.success) {
+          return res.status(400).json({ success: false, error: applyResult.error });
+        }
+        return res.json({ success: true, report: applyResult.report, approval: eventResult.approval });
+      }
+
+      if (!approvalObject) {
+        return res.status(400).json({ error: 'Missing approvalObject or principal approval event context.' });
+      }
+
       const result = deliverableArtifactService.applyPhysicalSignoff(engagementId, reportId, approvalObject);
       if (!result.success) {
         return res.status(400).json({ success: false, error: result.error });

@@ -34,6 +34,7 @@ import { runPhasePackageB1_1IntakeHygieneTests } from "./server/tests/phasePacka
 import { runPhasePackageB1_2QueueAuthorityTests } from "./server/tests/phasePackageB1_2QueueAuthority.test.js";
 import { runPhasePackageB2RealAgentExecutionTests } from "./server/tests/phasePackageB2RealAgentExecution.test.js";
 import { runPhasePackageB3ReportingTruthTests } from "./server/tests/phasePackageB3ReportingTruth.test.js";
+import { runPhasePackageB3_1HumanApprovalTests } from "./server/tests/phasePackageB3_1HumanApproval.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -763,6 +764,15 @@ assert(
   pkgB3Res.passed === pkgB3Res.total && pkgB3Res.failed === 0,
   `Package B3 Suite failed (${pkgB3Res.failed} failures)`,
   `All ${pkgB3Res.total}/${pkgB3Res.total} Package B3 Reporting Truth & Observability tests passed cleanly.`
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B3.1: PHYSICAL HUMAN APPROVAL AUTHENTICITY & FAIL-CLOSED DURABILITY]${colors.reset}`);
+const pkgB31Res = await runPhasePackageB3_1HumanApprovalTests();
+assert(
+  `Package B3.1 Physical Human Approval Authenticity Suite (${pkgB31Res.total}/${pkgB31Res.total} Passed)`,
+  pkgB31Res.passed === pkgB31Res.total && pkgB31Res.failed === 0,
+  `Package B3.1 Suite failed (${pkgB31Res.failed} failures)`,
+  `All ${pkgB31Res.total}/${pkgB31Res.total} Package B3.1 Physical Human Approval Authenticity tests passed cleanly.`
 );
 
 
