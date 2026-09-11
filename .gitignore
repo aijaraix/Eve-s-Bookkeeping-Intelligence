@@ -44,10 +44,18 @@ storage/worker_jobs.json
 storage/forensics/*
 !storage/forensics/.gitkeep
 
-# Runtime Academy Files
-storage/academy/documents/*
-!storage/academy/documents/.gitkeep
-storage/academy/pbc/*
-!storage/academy/pbc/.gitkeep
+# Generated / Runtime Academy State (preserves curated versioned fixtures)
+storage/academy/**/*.tmp
+storage/academy/**/tmp_*
+storage/academy/**/run_*
+storage/academy/runtime/
+storage/academy/evaluations/*
+!storage/academy/evaluations/.gitkeep
+storage/academy/results/*
+!storage/academy/results/.gitkeep
+storage/academy/documents/ACADEMY-CASE-001_*
+storage/academy/documents/ACADEMY-CASE-002_*
+storage/academy/pbc/ACADEMY-CASE-001_*
+storage/academy/pbc/ACADEMY-CASE-002_*
 
 

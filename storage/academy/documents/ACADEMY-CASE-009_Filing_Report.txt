@@ -1,0 +1,24 @@
+========================================================================
+ANNUAL REPORT AND AUDITED FINANCIAL STATEMENTS — FY 2025
+ISSUER: Quantum Edge Technologies AG
+REPORTING FRAMEWORK: IFRS
+FUNCTIONAL CURRENCY: CHF, EUR
+AUTHORITY: SIX Swiss Exchange Annual Report & BDO Revisionsbericht
+TIMESTAMP: 2026-09-10T04:14:35.759Z
+========================================================================
+
+PART I: PRIMARY FINANCIAL STATEMENTS
+
+Line 1 | [INCOME_STATEMENT] | Revenue                          : CHF 4.500B (Base: 4500000000 CHF) | Source Page: 1
+Line 2 | [INCOME_STATEMENT] | Operating Profit                 : CHF 850.0M (Base: 850000000 CHF) | Source Page: 1
+Line 3 | [BALANCE_SHEET] | Total Assets                     : CHF 12.80B (Base: 12800000000 CHF) | Source Page: 3
+Line 4 | [BALANCE_SHEET] | Total Liabilities                : CHF 5.60B (Base: 5600000000 CHF) | Source Page: 3
+Line 5 | [BALANCE_SHEET] | Total Equity                     : CHF 7.20B (Base: 7200000000 CHF) | Source Page: 3
+
+PART II: GROUP CONSOLIDATION & RECONCILIATIONS
+
+Entities: Quantum Edge Technologies AG, Quantum Edge Zurich GmbH
+Reconciliation Identity: Assets == Liabilities + Equity (12.80B == 5.60B + 7.20B) [Variance: 0]
+
+========================================================================
+END OF CERTIFIED SOURCE DISCLOSURE
