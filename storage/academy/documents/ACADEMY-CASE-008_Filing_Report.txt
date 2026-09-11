@@ -4,7 +4,7 @@ ISSUER: BioSynthetica International Inc
 REPORTING FRAMEWORK: US_GAAP
 FUNCTIONAL CURRENCY: USD, GBP
 AUTHORITY: SEC Form 20-F F-Pages & Deloitte Independent Registered Public Accounting Firm Report
-TIMESTAMP: 2026-09-10T04:14:11.317Z
+TIMESTAMP: 2026-09-11T21:59:30.502Z
 ========================================================================
 
 PART I: PRIMARY FINANCIAL STATEMENTS

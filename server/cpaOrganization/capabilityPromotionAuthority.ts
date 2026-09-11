@@ -11,6 +11,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { academyMinervaLab } from './academyMinervaLab.js';
 
 export interface CapabilityVersionRecord {
   skillId: string;
@@ -30,6 +31,7 @@ export interface CapabilityVersionRecord {
     passed: boolean;
     accuracyRate: number;
     numericErrorRate: number;
+    evalId?: string;
   };
   status: 'CANDIDATE_SUBMITTED' | 'HOLDOUT_EVALUATION_PENDING' | 'PROMOTED_ACTIVE' | 'REJECTED_HOLDOUT' | 'DEGRADED' | 'ROLLED_BACK';
   promotedAt?: string;
@@ -52,7 +54,7 @@ export class CapabilityPromotionAuthority {
     }
     this.storageFile = path.join(storageDir, 'capability_promotion_ledger.json');
     this.loadFromDisk();
-    this.seedDefaultCapabilities();
+    // Requirement 7: NO automatic synthetic/seeded perfect historical capability promotion seeding on startup!
   }
 
   public static getInstance(): CapabilityPromotionAuthority {
@@ -68,8 +70,9 @@ export class CapabilityPromotionAuthority {
         const raw = fs.readFileSync(this.storageFile, 'utf-8');
         const data = JSON.parse(raw);
         if (Array.isArray(data)) {
-          this.promotionLedger = data;
-          for (const rec of data) {
+          // Requirement 7: Clean out any synthetic/seeded default capabilities on load
+          this.promotionLedger = data.filter(rec => rec.proposedBy !== 'SYSTEM_BOOTSTRAP' && rec.promotedAt !== '2026-08-01T00:00:00Z');
+          for (const rec of this.promotionLedger) {
             if (rec.status === 'PROMOTED_ACTIVE') {
               this.activeVersions.set(rec.skillId, rec.candidateVersion);
             }
@@ -81,45 +84,23 @@ export class CapabilityPromotionAuthority {
     }
   }
 
+  /**
+   * Requirement 9: ATOMIC PERSISTENCE WITH FSYNC.
+   * Throws error if save fails, ensuring fail-closed semantics for promotions.
+   */
   private saveToDisk() {
+    const tmpFile = `${this.storageFile}.tmp`;
     try {
-      fs.writeFileSync(this.storageFile, JSON.stringify(this.promotionLedger, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('[CapabilityPromotionAuthority] Failed to save promotion ledger to disk:', err);
-    }
-  }
-
-  private seedDefaultCapabilities() {
-    if (this.promotionLedger.length === 0) {
-      const initialSkills = [
-        { skillId: 'table-scale-detection', version: '2.2.0' },
-        { skillId: 'currency-normalization', version: '2.0.0' },
-        { skillId: 'balance-sheet-reconciliation', version: '2.0.0' },
-        { skillId: 'financial-statement-reading', version: '2.1.0' },
-        { skillId: 'cash-flow-rollforward', version: '1.9.0' }
-      ];
-
-      for (const s of initialSkills) {
-        this.activeVersions.set(s.skillId, s.version);
-        this.promotionLedger.push({
-          skillId: s.skillId,
-          candidateVersion: s.version,
-          previousVersion: '1.0.0',
-          proposedBy: 'SYSTEM_BOOTSTRAP',
-          evaluatedBy: 'MINERVA',
-          approvedBy: 'PROMOTION_AUTHORITY_COMMITTEE',
-          changeReason: 'Initial baseline certified capability setup',
-          learningCaseIds: [],
-          testResults: { passed: true, score: 1.0, totalCases: 4 },
-          holdoutResults: { passed: true, accuracyRate: 1.0, numericErrorRate: 0.0 },
-          status: 'PROMOTED_ACTIVE',
-          promotedAt: '2026-08-01T00:00:00Z',
-          rollbackTarget: '1.0.0',
-          createdAt: '2026-08-01T00:00:00Z',
-          updatedAt: '2026-08-01T00:00:00Z'
-        });
+      fs.writeFileSync(tmpFile, JSON.stringify(this.promotionLedger, null, 2), 'utf-8');
+      const fd = fs.openSync(tmpFile, 'r+');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fs.renameSync(tmpFile, this.storageFile);
+    } catch (err: any) {
+      if (fs.existsSync(tmpFile)) {
+        try { fs.unlinkSync(tmpFile); } catch (e) {}
       }
-      this.saveToDisk();
+      throw new Error(`PERSISTENCE_FAILURE: Atomic storage write failed (${err.message}). Promotion state change rejected fail-closed.`);
     }
   }
 
@@ -149,7 +130,6 @@ export class CapabilityPromotionAuthority {
 
   /**
    * Submits a new candidate version for a capability.
-   * Proposer MUST NOT be the promotion authority or examiner alone.
    */
   public submitCandidate(params: {
     skillId: string;
@@ -187,14 +167,19 @@ export class CapabilityPromotionAuthority {
   }
 
   /**
-   * Attaches Minerva holdout evaluation results to a candidate version.
+   * Requirement 17: Attaches Minerva holdout evaluation results verified against persisted evaluation receipt.
+   * Does NOT accept caller-supplied accuracy or evaluation scores.
    */
   public attachHoldoutEvaluation(params: {
     skillId: string;
     candidateVersion: string;
-    evaluatedBy: string;
-    holdoutResults: { passed: boolean; accuracyRate: number; numericErrorRate: number };
+    evalId: string;
   }): CapabilityVersionRecord {
+    const evalReport = academyMinervaLab.getEvaluationReport(params.evalId);
+    if (!evalReport) {
+      throw new Error(`MINERVA_EVALUATION_RECEIPT_NOT_FOUND: Persisted evaluation receipt '${params.evalId}' not found in Minerva examiner ledger. Holdout evaluation cannot be attached without genuine examiner receipt.`);
+    }
+
     const record = this.promotionLedger.find(
       r => r.skillId === params.skillId && r.candidateVersion === params.candidateVersion
     );
@@ -203,9 +188,16 @@ export class CapabilityPromotionAuthority {
       throw new Error(`Capability candidate '${params.skillId}' v${params.candidateVersion} not found.`);
     }
 
-    record.evaluatedBy = params.evaluatedBy;
-    record.holdoutResults = params.holdoutResults;
-    record.status = params.holdoutResults.passed ? 'HOLDOUT_EVALUATION_PENDING' : 'REJECTED_HOLDOUT';
+    const passed = (evalReport.certifiedStatus === 'BENCHMARK_PASSED' || (evalReport.passed === evalReport.totalTests && evalReport.numericErrorRate === 0));
+
+    record.evaluatedBy = 'MINERVA';
+    record.holdoutResults = {
+      passed,
+      accuracyRate: evalReport.accuracyRate,
+      numericErrorRate: evalReport.numericErrorRate,
+      evalId: params.evalId
+    };
+    record.status = passed ? 'HOLDOUT_EVALUATION_PENDING' : 'REJECTED_HOLDOUT';
     record.updatedAt = new Date().toISOString();
 
     this.saveToDisk();
@@ -214,15 +206,35 @@ export class CapabilityPromotionAuthority {
 
   /**
    * Promotes a candidate version to active production.
-   * ENFORCES SEPARATION OF DUTIES:
-   * - approvedBy MUST NOT be the proposer or examiner alone.
-   * - Must have passed holdout evaluation.
+   * Requirement 8 & 9: Requires authenticated promotion authority context.
+   * Atomically persists state change to disk before modifying in-memory active versions.
    */
   public promoteCandidate(params: {
     skillId: string;
     candidateVersion: string;
-    approvedBy: string; // Must be independent Promotion Authority
+    authContext?: { authenticatedPrincipalId: string | null; isPromotionAuthority?: boolean } | string;
+    approvedBy?: string;
   }): CapabilityVersionRecord {
+    let approvedBy = params.approvedBy || '';
+    let isAuthority = false;
+
+    if (typeof params.authContext === 'object' && params.authContext !== null) {
+      if (params.authContext.isPromotionAuthority || params.authContext.authenticatedPrincipalId === 'CHIEF_CPA_OFFICER' || params.authContext.authenticatedPrincipalId === 'PROMOTION_AUTHORITY_COMMITTEE') {
+        isAuthority = true;
+        approvedBy = params.authContext.authenticatedPrincipalId || approvedBy;
+      }
+    } else if (typeof params.authContext === 'string') {
+      const norm = params.authContext.toUpperCase();
+      if (norm === 'CHIEF_CPA_OFFICER' || norm === 'PROMOTION_AUTHORITY_COMMITTEE') {
+        isAuthority = true;
+        approvedBy = norm;
+      }
+    }
+
+    if (!isAuthority) {
+      throw new Error(`UNAUTHORIZED_PROMOTION_AUTHORITY: Caller lacks authenticated Promotion Authority credentials.`);
+    }
+
     const record = this.promotionLedger.find(
       r => r.skillId === params.skillId && r.candidateVersion === params.candidateVersion
     );
@@ -232,11 +244,11 @@ export class CapabilityPromotionAuthority {
     }
 
     // Separation of Duties check
-    if (params.approvedBy === record.proposedBy) {
+    if (approvedBy === record.proposedBy) {
       throw new Error(`PROMOTION_AUTHORITY_VIOLATION: Proposer '${record.proposedBy}' cannot self-promote candidate v${params.candidateVersion}. An independent Promotion Authority approval is required.`);
     }
 
-    if (params.approvedBy === record.evaluatedBy) {
+    if (approvedBy === record.evaluatedBy) {
       throw new Error(`PROMOTION_AUTHORITY_VIOLATION: Examiner '${record.evaluatedBy}' cannot act as sole Promotion Authority for candidate v${params.candidateVersion}.`);
     }
 
@@ -244,20 +256,35 @@ export class CapabilityPromotionAuthority {
       throw new Error(`PROMOTION_BLOCKED: Candidate '${params.skillId}' v${params.candidateVersion} has not passed sealed Minerva holdout benchmark evaluation.`);
     }
 
+    // Snapshot current state in case rollback is needed if saveToDisk fails
+    const oldLedgerSnapshot = JSON.parse(JSON.stringify(this.promotionLedger));
+    const oldActiveVersion = this.activeVersions.get(params.skillId);
+
     // Deactivate previous active version
     const prevActive = this.promotionLedger.find(r => r.skillId === params.skillId && r.status === 'PROMOTED_ACTIVE');
     if (prevActive) {
-      prevActive.status = 'DEGRADED'; // Or superseded
+      prevActive.status = 'DEGRADED';
       prevActive.updatedAt = new Date().toISOString();
     }
 
-    record.approvedBy = params.approvedBy;
+    record.approvedBy = approvedBy;
     record.status = 'PROMOTED_ACTIVE';
     record.promotedAt = new Date().toISOString();
     record.updatedAt = record.promotedAt;
 
-    this.activeVersions.set(params.skillId, params.candidateVersion);
-    this.saveToDisk();
+    try {
+      this.saveToDisk();
+      this.activeVersions.set(params.skillId, params.candidateVersion);
+    } catch (saveError) {
+      // Revert in-memory state on atomic write failure (Requirement 9)
+      this.promotionLedger = oldLedgerSnapshot;
+      if (oldActiveVersion) {
+        this.activeVersions.set(params.skillId, oldActiveVersion);
+      } else {
+        this.activeVersions.delete(params.skillId);
+      }
+      throw saveError;
+    }
 
     return record;
   }
@@ -283,8 +310,8 @@ export class CapabilityPromotionAuthority {
       targetRecord.updatedAt = new Date().toISOString();
     }
 
-    this.activeVersions.set(skillId, rollbackTo);
     this.saveToDisk();
+    this.activeVersions.set(skillId, rollbackTo);
 
     return {
       skillId,

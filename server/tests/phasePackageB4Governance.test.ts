@@ -36,7 +36,7 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
   );
 
   // 2. Minerva evaluation can read sealed answer
-  const t2 = academyMinervaLab.getSealedGroundTruth('BENCH-001', 'MINERVA');
+  const t2 = academyMinervaLab.getSealedGroundTruth('BENCH-001', { authenticatedPrincipalId: 'MINERVA_EXAMINER_SERVICE', isExaminerService: true });
   assert(
     'B4-REQ-02: Examiner Can Read Sealed Answers',
     !('error' in t2) && Array.isArray((t2 as any).expectedFacts),
@@ -114,15 +114,16 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
       changeReason: 'Self test',
       testResults: { passed: true, score: 1.0, totalCases: 4 }
     });
+    const rep7 = academyMinervaLab.runEvaluation([{ benchmarkId: 'BENCH-001', extractedFacts: [{ key: 'Turnover', value: '50503000000' }] }], 'exec-b4-7');
     capabilityPromotionAuthority.attachHoldoutEvaluation({
       skillId: 'table-scale-detection',
       candidateVersion: 'v2.2.99-self',
-      evaluatedBy: 'MINERVA',
-      holdoutResults: { passed: true, accuracyRate: 1.0, numericErrorRate: 0.0 }
+      evalId: rep7.evalId
     });
     capabilityPromotionAuthority.promoteCandidate({
       skillId: 'table-scale-detection',
       candidateVersion: 'v2.2.99-self',
+      authContext: { authenticatedPrincipalId: 'DARWIN', isPromotionAuthority: true },
       approvedBy: 'DARWIN'
     });
   } catch (err: any) {
@@ -145,15 +146,16 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
       changeReason: 'Exam test',
       testResults: { passed: true, score: 1.0, totalCases: 4 }
     });
+    const rep8 = academyMinervaLab.runEvaluation([{ benchmarkId: 'BENCH-001', extractedFacts: [{ key: 'Turnover', value: '50503000000' }] }], 'exec-b4-8');
     capabilityPromotionAuthority.attachHoldoutEvaluation({
       skillId: 'currency-normalization',
       candidateVersion: 'v2.0.99-exam',
-      evaluatedBy: 'MINERVA',
-      holdoutResults: { passed: true, accuracyRate: 1.0, numericErrorRate: 0.0 }
+      evalId: rep8.evalId
     });
     capabilityPromotionAuthority.promoteCandidate({
       skillId: 'currency-normalization',
       candidateVersion: 'v2.0.99-exam',
+      authContext: { authenticatedPrincipalId: 'MINERVA', isPromotionAuthority: true },
       approvedBy: 'MINERVA'
     });
   } catch (err: any) {
@@ -196,6 +198,7 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
     capabilityPromotionAuthority.promoteCandidate({
       skillId: 'financial-statement-reading',
       candidateVersion: 'v2.2.0-untested',
+      authContext: { authenticatedPrincipalId: 'PROMOTION_AUTHORITY_COMMITTEE', isPromotionAuthority: true },
       approvedBy: 'COMMITTEE'
     });
   } catch (err: any) {
@@ -310,15 +313,44 @@ export async function runPhasePackageB4GovernanceTests(): Promise<{ passed: numb
     changeReason: 'Test',
     testResults: { passed: true, score: 1.0, totalCases: 4 }
   });
+  const passingOutputs = {
+    'BENCH-001': {
+      facts: [
+        { canonicalName: 'Turnover (Continuing Operations)', value: '50503000000' },
+        { canonicalName: 'Operating Profit', value: '9900000000' },
+        { canonicalName: 'Net Profit', value: '7200000000' }
+      ]
+    },
+    'BENCH-002': {
+      facts: [
+        { canonicalName: 'US Subsidiary Revenue', value: '10850000' },
+        { canonicalName: 'UK Subsidiary Revenue', value: '8500000' },
+        { canonicalName: 'Normalized Group Revenue', value: '20120000' }
+      ],
+      convertedEur: 20120000
+    },
+    'BENCH-003': {
+      facts: [
+        { canonicalName: 'Total Assets', value: '142500000' },
+        { canonicalName: 'Total Liabilities', value: '85200000' },
+        { canonicalName: 'Total Equity', value: '57300000' }
+      ]
+    },
+    'BENCH-004': {
+      status: 'REFUSED',
+      variance: 500000
+    }
+  };
+  const rep19 = academyMinervaLab.runEvaluation(passingOutputs, 'exec-b4-19');
   capabilityPromotionAuthority.attachHoldoutEvaluation({
     skillId: 'cash-flow-rollforward',
     candidateVersion: 'v1.9.5-test',
-    evaluatedBy: 'MINERVA',
-    holdoutResults: { passed: true, accuracyRate: 1.0, numericErrorRate: 0.0 }
+    evalId: rep19.evalId
   });
   capabilityPromotionAuthority.promoteCandidate({
     skillId: 'cash-flow-rollforward',
     candidateVersion: 'v1.9.5-test',
+    authContext: { authenticatedPrincipalId: 'PROMOTION_AUTHORITY_COMMITTEE', isPromotionAuthority: true },
     approvedBy: 'COMMITTEE'
   });
   const rbRecord = capabilityPromotionAuthority.rollbackCapability('cash-flow-rollforward', '1.9.0');

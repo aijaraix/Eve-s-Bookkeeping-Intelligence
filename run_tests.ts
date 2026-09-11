@@ -40,6 +40,7 @@ import { runPhasePackageB3_1HumanApprovalTests } from "./server/tests/phasePacka
 import { runPhasePackageB3_2AuthorityIntegrationTests } from "./server/tests/phasePackageB3_2AuthorityIntegration.test.js";
 import { runPhasePackageB3_3HttpAuthTests } from "./server/tests/phasePackageB3_3HttpAuth.test.js";
 import { runPhasePackageB4GovernanceTests } from "./server/tests/phasePackageB4Governance.test.js";
+import { runPhasePackageB4_1BehavioralClosureTests } from "./server/tests/phasePackageB4_1BehavioralClosure.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -805,6 +806,15 @@ assert(
   pkgB4Res.passed === pkgB4Res.total && pkgB4Res.failed === 0,
   `Package B4 Suite failed (${pkgB4Res.failed} failures)`,
   `All ${pkgB4Res.total}/${pkgB4Res.total} Package B4 Minerva & Academy Governance tests passed cleanly.`
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B4.1: FINAL GOVERNANCE BEHAVIORAL CLOSURE (20 NEGATIVE TESTS)]${colors.reset}`);
+const pkgB41Res = await runPhasePackageB4_1BehavioralClosureTests();
+assert(
+  `Package B4.1 Governance Behavioral Closure Suite (${pkgB41Res.total}/${pkgB41Res.total} Passed)`,
+  pkgB41Res.passed === pkgB41Res.total && pkgB41Res.failed === 0,
+  `Package B4.1 Suite failed (${pkgB41Res.failed} failures)`,
+  `All ${pkgB41Res.total}/${pkgB41Res.total} Package B4.1 Governance Behavioral Closure negative tests passed cleanly.`
 );
 
 

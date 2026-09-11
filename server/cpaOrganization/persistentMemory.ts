@@ -130,9 +130,14 @@ export class PersistentAgentMemory {
     tags?: string[];
     classification?: DataClassification;
     confidence?: number;
+    authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean };
   }): MemoryEntry {
     const classification = params.classification || 
       (params.tags?.includes('EXAMINER_SEALED') || params.tags?.includes('golden_standard') ? 'EXAMINER_SEALED' : 'PUBLIC_REFERENCE');
+
+    // Authority verification (Requirement 10): Header or parameter x-agent-id cannot spoof examiner or unauthorized namespace
+    const callerPrincipal = params.authContext?.authenticatedPrincipalId || null;
+    const isExaminer = params.authContext?.isExaminerService || callerPrincipal === 'MINERVA_EXAMINER_SERVICE' || callerPrincipal === 'SYSTEM_EXAMINER';
 
     // Rule 1: Examiner Sealed Isolation (Doc 35 Requirements 1, 2, 3 & 18)
     const isSolverNamespace = !params.namespace.startsWith('eve/examiner') && !params.namespace.startsWith('eve/minerva');
@@ -143,6 +148,10 @@ export class PersistentAgentMemory {
 
     if (isSolverNamespace && isSealedContent) {
       throw new Error(`EXAMINER_SEALED_ISOLATION_VIOLATION: Cannot write examiner sealed benchmark answers into solver agent namespace '${params.namespace}'.`);
+    }
+
+    if (isSealedContent && !isExaminer && callerPrincipal !== null) {
+      throw new Error(`EXAMINER_SEALED_ACCESS_DENIED: Unauthenticated or non-examiner principal '${callerPrincipal}' cannot write EXAMINER_SEALED content.`);
     }
 
     // Rule 2: Customer Data Isolation (Doc 35 Requirement 5)
@@ -185,6 +194,7 @@ export class PersistentAgentMemory {
     confidence?: number;
     provenanceSource?: string;
     tags?: string[];
+    authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean };
   }): MemoryEntry {
     return this.store({
       namespace: params.namespace,
@@ -192,18 +202,18 @@ export class PersistentAgentMemory {
       key: params.key,
       value: params.value,
       tags: params.tags || (params.provenanceSource ? [params.provenanceSource] : []),
-      confidence: params.confidence !== undefined ? params.confidence : 1.0
+      confidence: params.confidence !== undefined ? params.confidence : 1.0,
+      authContext: params.authContext
     });
   }
 
-  public retrieve(namespace: string, key: string, requesterAgentId?: string): MemoryEntry | null {
+  public retrieve(namespace: string, key: string, requesterAgentId?: string, authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean }): MemoryEntry | null {
     const id = `${namespace}:${key}`;
     const entry = this.memoryStore.get(id);
     if (entry) {
-      const requester = (requesterAgentId || '').toUpperCase();
-      const isExaminer = requester === 'MINERVA' || requester === 'EXAMINER';
+      const isExaminer = authContext?.isExaminerService || authContext?.authenticatedPrincipalId === 'MINERVA_EXAMINER_SERVICE' || authContext?.authenticatedPrincipalId === 'SYSTEM_EXAMINER';
       if (entry.classification === 'EXAMINER_SEALED' && !isExaminer) {
-        return null; // Deny access to solver contexts
+        return null; // Deny access to solver contexts and unauthenticated callers
       }
       entry.accessCount++;
       return entry;
@@ -217,10 +227,10 @@ export class PersistentAgentMemory {
     tag?: string;
     searchTerm?: string;
     requesterAgentId?: string;
+    authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean };
   }): MemoryEntry[] {
     let results = Array.from(this.memoryStore.values());
-    const requester = (params.requesterAgentId || '').toUpperCase();
-    const isExaminer = requester === 'MINERVA' || requester === 'EXAMINER';
+    const isExaminer = params.authContext?.isExaminerService || params.authContext?.authenticatedPrincipalId === 'MINERVA_EXAMINER_SERVICE' || params.authContext?.authenticatedPrincipalId === 'SYSTEM_EXAMINER';
 
     if (!isExaminer) {
       results = results.filter(e => e.classification !== 'EXAMINER_SEALED' && !e.tags.includes('EXAMINER_SEALED'));

@@ -29,6 +29,7 @@ import { customerJourneyEngine } from './customerJourneyEngine.js';
 import { routeBoundaryGuard } from './routeBoundaryGuard.js';
 import { professionalSignoffGuard, AuthenticationContext } from './professionalSignoffGuard.js';
 import { capabilityPromotionAuthority } from './capabilityPromotionAuthority.js';
+import { solverExecutionRegistry } from './solverExecutionRegistry.js';
 
 export interface ServerAuthResult {
   authenticatedPrincipalId: string | null;
@@ -260,14 +261,33 @@ export function createCPAOrganizationRouter(): Router {
   });
 
   router.post('/academy/run-eval', (req: Request, res: Response) => {
-    const report = academyMinervaLab.runEvaluation();
+    const { solverOutputs, solverExecutionId } = req.body || {};
+    const report = academyMinervaLab.runEvaluation(solverOutputs, solverExecutionId);
     res.json({ report });
   });
 
+  router.post('/academy/register-execution-package', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Execution package registration requires authenticated server context.' });
+    }
+    const pkg = solverExecutionRegistry.registerExecutionPackage(req.body);
+    res.json({ success: true, pkg });
+  });
+
+  router.post('/academy/register-census-artifact', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Census artifact registration requires authenticated server context.' });
+    }
+    const art = solverExecutionRegistry.registerCensusArtifact(req.body);
+    res.json({ success: true, art });
+  });
+
   // Sealed Ground Truth Access (Doc 35 Requirements 1, 2 & 17: Examiner vs Solver Isolation)
-  router.get('/academy/sealed-truth/:benchmarkId', (req: Request, res: Response) => {
-    const requesterAgentId = (req.headers['x-agent-id'] as string) || (req.query.requesterAgentId as string) || 'HERMES';
-    const result = academyMinervaLab.getSealedGroundTruth(req.params.benchmarkId, requesterAgentId);
+  router.get('/academy/sealed-truth/:benchmarkId', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    const result = academyMinervaLab.getSealedGroundTruth(req.params.benchmarkId, authContext);
     if ('error' in result) {
       return res.status(403).json({
         error: 'EXAMINER_SEALED_ACCESS_DENIED',
@@ -277,24 +297,29 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ benchmarkId: req.params.benchmarkId, groundTruth: result });
   });
 
-  // Independent Source-Side Extraction Completeness Census (Doc 35 Requirement 12)
+  // Independent Source-Side Extraction Completeness Census (Doc 35 Requirement 5)
   router.post('/academy/extraction-completeness', (req: Request, res: Response) => {
-    const { extractedFacts, sourceCensus } = req.body || {};
+    const { extractedFacts, documentId } = req.body || {};
+    if (!documentId) {
+      return res.status(400).json({ error: 'documentId is required for extraction completeness verification' });
+    }
     const evalResult = academyMinervaLab.evaluateExtractionCompleteness({
       extractedFacts: extractedFacts || [],
-      sourceCensus: sourceCensus || { totalTables: 0, totalRows: 0, totalCells: 0, totalXbrlTags: 0 }
+      documentId
     });
     res.json(evalResult);
   });
 
-  // Ask-Anything Memory Recall Evaluation (Doc 35 Requirement 11)
+  // Ask-Anything Memory Recall Evaluation (Doc 35 Requirement 6)
   router.post('/academy/memory-recall', (req: Request, res: Response) => {
-    const { solverResponse, expectedFact, toolsUsedDuringRecall, requesterAgentId } = req.body || {};
+    const { solverExecutionId, questionId, solverResponse } = req.body || {};
+    if (!solverExecutionId || !questionId) {
+      return res.status(400).json({ error: 'solverExecutionId and questionId are required for memory recall evaluation' });
+    }
     const evalResult = academyMinervaLab.evaluateAskAnythingMemoryRecall({
-      solverResponse: solverResponse || '',
-      expectedFact: expectedFact || '',
-      toolsUsedDuringRecall: toolsUsedDuringRecall || [],
-      requesterAgentId: requesterAgentId || 'HERMES'
+      solverExecutionId,
+      questionId,
+      solverResponse: solverResponse || ''
     });
     res.json(evalResult);
   });
@@ -305,20 +330,39 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ success: true, ledger });
   });
 
-  router.post('/capability/promote', (req: Request, res: Response) => {
+  router.post('/capability/promote', async (req: Request, res: Response) => {
     try {
+      const authContext = await resolveServerAuthContext(req);
       const { skillId, candidateVersion, approvedBy } = req.body || {};
-      if (!skillId || !candidateVersion || !approvedBy) {
-        return res.status(400).json({ error: 'skillId, candidateVersion, and approvedBy are required' });
+      if (!skillId || !candidateVersion) {
+        return res.status(400).json({ error: 'skillId and candidateVersion are required' });
       }
       const record = capabilityPromotionAuthority.promoteCandidate({
         skillId,
         candidateVersion,
+        authContext,
         approvedBy
       });
       res.json({ success: true, promotedRecord: record });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Promotion failed' });
+    }
+  });
+
+  router.post('/capability/attach-holdout', async (req: Request, res: Response) => {
+    try {
+      const { skillId, candidateVersion, evalId } = req.body || {};
+      if (!skillId || !candidateVersion || !evalId) {
+        return res.status(400).json({ error: 'skillId, candidateVersion, and evalId are required' });
+      }
+      const record = capabilityPromotionAuthority.attachHoldoutEvaluation({
+        skillId,
+        candidateVersion,
+        evalId
+      });
+      res.json({ success: true, record });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Holdout evaluation attachment failed' });
     }
   });
 
@@ -341,7 +385,11 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ proposals, total: proposals.length });
   });
 
-  router.post('/darwin/propose', (req: Request, res: Response) => {
+  router.post('/darwin/propose', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Proposals require authenticated server context.' });
+    }
     const { sourceDefect, affectedSkillId, rootCauseAnalysis, proposedEnhancement } = req.body || {};
     if (!sourceDefect || !affectedSkillId || !proposedEnhancement) {
       return res.status(400).json({ error: 'Missing required proposal fields' });
@@ -356,30 +404,41 @@ export function createCPAOrganizationRouter(): Router {
   });
 
   // 6. Persistent Memory Inspector
-  router.get('/memory/:agentId', (req: Request, res: Response) => {
+  router.get('/memory/:agentId', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
     const memories = persistentAgentMemory.getAgentMemories(req.params.agentId);
     res.json({ agentId: req.params.agentId, memories, total: memories.length });
   });
 
-  router.get('/memory', (req: Request, res: Response) => {
+  router.get('/memory', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
     const memories = persistentAgentMemory.getAllMemories();
     res.json({ memories, total: memories.length });
   });
 
-  router.post('/memory', (req: Request, res: Response) => {
+  router.post('/memory', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Memory write requires authenticated server context.' });
+    }
     const { namespace, type, key, value, tags, confidence } = req.body || {};
     if (!namespace || !type || !key || value === undefined) {
       return res.status(400).json({ error: 'namespace, type, key, and value are required' });
     }
-    const memory = persistentAgentMemory.store({
-      namespace,
-      type,
-      key,
-      value,
-      tags: tags || [],
-      confidence: typeof confidence === 'number' ? confidence : 0.95
-    });
-    res.json({ memory });
+    try {
+      const memory = persistentAgentMemory.store({
+        namespace,
+        type,
+        key,
+        value,
+        tags: tags || [],
+        confidence: typeof confidence === 'number' ? confidence : 0.95,
+        authContext
+      });
+      res.json({ memory });
+    } catch (err: any) {
+      res.status(403).json({ error: err.message || 'Memory store failed' });
+    }
   });
 
   // 7. Skills & Tools Registry
@@ -388,7 +447,11 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ skills, total: skills.length });
   });
 
-  router.post('/skills/execute', (req: Request, res: Response) => {
+  router.post('/skills/execute', async (req: Request, res: Response) => {
+    const authContext = await resolveServerAuthContext(req);
+    if (!authContext.authenticatedPrincipalId) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED: Skill execution requires authenticated server context.' });
+    }
     const { skillId, agentId, input } = req.body || {};
     if (!skillId || !agentId) {
       return res.status(400).json({ error: 'skillId and agentId are required' });

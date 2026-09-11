@@ -4,7 +4,7 @@ ISSUER: Berlin Präzisionsmechanik AG
 REPORTING FRAMEWORK: IFRS
 FUNCTIONAL CURRENCY: EUR, CHF
 AUTHORITY: Bundesanzeiger Offenlegung & KPMG Bestätigungsvermerk
-TIMESTAMP: 2026-09-06T14:47:24.874Z
+TIMESTAMP: 2026-09-11T22:01:27.521Z
 ========================================================================
 
 PART I: PRIMARY FINANCIAL STATEMENTS

@@ -4,7 +4,7 @@ ISSUER: Nordic CleanTech AB
 REPORTING FRAMEWORK: IFRS
 FUNCTIONAL CURRENCY: SEK
 AUTHORITY: Nasdaq Stockholm Prime Segment Annual Report & Deloitte Audit Certificate
-TIMESTAMP: 2026-09-11T20:04:14.004Z
+TIMESTAMP: 2026-09-11T22:02:41.183Z
 ========================================================================
 
 PART I: PRIMARY FINANCIAL STATEMENTS

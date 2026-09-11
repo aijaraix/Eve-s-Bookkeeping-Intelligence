@@ -19,6 +19,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { solverExecutionRegistry } from './solverExecutionRegistry.js';
 
 export interface BenchmarkTestCase {
   id: string;
@@ -43,9 +44,9 @@ export interface EvaluationReport {
   failed: number;
   accuracyRate: number; // 0.0 - 1.0
   numericErrorRate: number; // 0.0 - 1.0 (must be 0.000 for CPA certification)
-  citationIntegrity: number; // 0.0 - 1.0
+  citationIntegrity: number | null; // null if 0 citations checked
   failClosedIntegrity: number; // 0.0 - 1.0
-  certifiedStatus: 'CERTIFIED_CPA_READY' | 'DEFECT_DETECTED' | 'FAILED_CLOSED';
+  certifiedStatus: 'BENCHMARK_PASSED' | 'BENCHMARK_FAILED' | 'NOT_TESTED' | 'DEFECT_DETECTED' | 'FAILED_CLOSED' | 'CERTIFIED_CPA_READY';
   caseDetails: Array<{
     testId: string;
     testTitle: string;
@@ -59,7 +60,7 @@ export interface EvaluationReport {
 export interface LiveEngagementValidationReport {
   validationId: string;
   runAt: string;
-  certifiedStatus: 'CERTIFIED_CPA_READY' | 'DEFECT_DETECTED' | 'FAILED_CLOSED';
+  certifiedStatus: 'TECHNICAL_VALIDATION_PASSED' | 'TECHNICAL_VALIDATION_FAILED' | 'DEFECT_DETECTED' | 'FAILED_CLOSED' | 'CERTIFIED_CPA_READY';
   physicalFileVerified: boolean;
   sha256Match: boolean;
   euclidIdentitySatisfied: boolean;
@@ -167,7 +168,7 @@ export class AcademyMinervaLab {
    * If solverOutputs is passed, evaluates each benchmark against the specific output provided for that test case.
    * If solver output is missing or incomplete for a test case, that test case FAILS.
    */
-  public runEvaluation(solverOutputs?: Record<string, any>): EvaluationReport {
+  public runEvaluation(solverOutputs?: Record<string, any>, solverExecutionId?: string): EvaluationReport {
     const startTime = Date.now();
     const caseDetails: EvaluationReport['caseDetails'] = [];
     let passedCount = 0;
@@ -177,151 +178,120 @@ export class AcademyMinervaLab {
     let validCitations = 0;
     let failClosedSuccess = true;
 
+    // Requirement 1 & 3: If no solver output provided at all, ALL benchmark cases fail.
+    const hasOutputs = solverOutputs && typeof solverOutputs === 'object' && Object.keys(solverOutputs).length > 0;
+
     for (const testCase of this.sealedCorpus) {
       let passed = true;
       const observations: string[] = [];
       const discrepancies: string[] = [];
 
       // Determine solver output for this specific test case
-      const caseOutput = solverOutputs ? (solverOutputs[testCase.id] || (solverOutputs.benchmarkId === testCase.id ? solverOutputs : null)) : null;
+      const caseOutput = hasOutputs ? (solverOutputs[testCase.id] || (solverOutputs.benchmarkId === testCase.id ? solverOutputs : null)) : null;
 
-      if (solverOutputs && !caseOutput) {
-        // Solver output was provided to runEvaluation, but nothing was provided for this specific benchmark
+      if (!caseOutput) {
+        // Requirement 1: NO solver result means NOT_TESTED / FAIL_MISSING_SOLVER_OUTPUT.
+        // Minerva may NEVER obtain a score by verifying its own benchmark definition.
         passed = false;
-        discrepancies.push(`Missing required solver output for benchmark ${testCase.id} (${testCase.title}). Not tested.`);
+        discrepancies.push(`FAIL_MISSING_SOLVER_OUTPUT: Benchmark ${testCase.id} (${testCase.title}) has no solver output.`);
       } else if (testCase.category === 'GOLDEN_STANDARD') {
         totalCheckedFacts += testCase.groundTruth.expectedFacts.length;
-        if (caseOutput) {
-          const outputString = JSON.stringify(caseOutput);
+        const outputString = JSON.stringify(caseOutput);
 
-          // Check prohibited hallucinations
-          for (const prohibited of testCase.groundTruth.prohibitedHallucinations) {
-            if (outputString.includes(prohibited)) {
-              passed = false;
-              discrepancies.push(`Prohibited hallucination detected: ${prohibited}`);
-              totalNumericDiscrepancies++;
-            }
-          }
-
-          // Check required expected facts
-          for (const expected of testCase.groundTruth.expectedFacts) {
-            totalCitationsChecked++;
-            const found = outputString.includes(expected.value) || 
-              (caseOutput.facts && caseOutput.facts.some((f: any) => String(f.value || f.normalizedValue) === expected.value));
-            if (!found) {
-              passed = false;
-              discrepancies.push(`Missing expected fact: ${expected.canonicalName} = ${expected.value}`);
-              totalNumericDiscrepancies++;
-            } else {
-              validCitations++;
-            }
-          }
-
-          if (passed) {
-            observations.push('Golden standard test case evaluated cleanly with full factual verification.');
-            passedCount++;
-          }
-        } else {
-          // Self-verification of ground truth definition when run in baseline mode
-          const continuingFact = testCase.groundTruth.expectedFacts.find(f => f.canonicalName.includes('Continuing'));
-          if (continuingFact && continuingFact.value === '50503000000') {
-            observations.push('Verified continuing operations Turnover matches €50.503B golden standard definition.');
-            validCitations += 3;
-            totalCitationsChecked += 3;
-            passedCount++;
-          } else {
+        for (const prohibited of testCase.groundTruth.prohibitedHallucinations) {
+          if (outputString.includes(prohibited)) {
             passed = false;
-            discrepancies.push('Sealed ground truth definition error');
+            discrepancies.push(`Prohibited hallucination detected: ${prohibited}`);
+            totalNumericDiscrepancies++;
           }
+        }
+
+        for (const expected of testCase.groundTruth.expectedFacts) {
+          totalCitationsChecked++;
+          const found = outputString.includes(expected.value) || 
+            (caseOutput.facts && caseOutput.facts.some((f: any) => String(f.value || f.normalizedValue) === expected.value));
+          if (!found) {
+            passed = false;
+            discrepancies.push(`Missing expected fact: ${expected.canonicalName} = ${expected.value}`);
+            totalNumericDiscrepancies++;
+          } else {
+            validCitations++;
+          }
+        }
+
+        if (passed) {
+          observations.push('Golden standard test case evaluated cleanly with full factual verification.');
+          passedCount++;
         }
       } else if (testCase.category === 'MULTI_CURRENCY') {
         totalCheckedFacts += testCase.groundTruth.expectedFacts.length;
-        if (caseOutput) {
-          const outputString = JSON.stringify(caseOutput);
-          for (const expected of testCase.groundTruth.expectedFacts) {
-            totalCitationsChecked++;
-            const found = outputString.includes(expected.value) ||
-              (caseOutput.facts && caseOutput.facts.some((f: any) => String(f.value || f.normalizedValue) === expected.value));
-            if (!found) {
-              passed = false;
-              discrepancies.push(`Multi-currency missing expected fact: ${expected.canonicalName} = ${expected.value}`);
-              totalNumericDiscrepancies++;
-            } else {
-              validCitations++;
-            }
+        const outputString = JSON.stringify(caseOutput);
+        for (const expected of testCase.groundTruth.expectedFacts) {
+          totalCitationsChecked++;
+          const found = outputString.includes(expected.value) ||
+            (caseOutput.facts && caseOutput.facts.some((f: any) => String(f.value || f.normalizedValue) === expected.value));
+          if (!found) {
+            passed = false;
+            discrepancies.push(`Multi-currency missing expected fact: ${expected.canonicalName} = ${expected.value}`);
+            totalNumericDiscrepancies++;
+          } else {
+            validCitations++;
           }
+        }
 
-          if (caseOutput.convertedEur !== undefined) {
-            const expectedEur = 20120000;
-            if (Math.abs(caseOutput.convertedEur - expectedEur) > 100) {
-              passed = false;
-              discrepancies.push(`Multi-currency conversion error: got ${caseOutput.convertedEur}, expected ${expectedEur}`);
-              totalNumericDiscrepancies++;
-            }
+        if (caseOutput.convertedEur !== undefined) {
+          const expectedEur = 20120000;
+          if (Math.abs(caseOutput.convertedEur - expectedEur) > 100) {
+            passed = false;
+            discrepancies.push(`Multi-currency conversion error: got ${caseOutput.convertedEur}, expected ${expectedEur}`);
+            totalNumericDiscrepancies++;
           }
+        }
 
-          if (passed) {
-            observations.push('Multi-currency conversion and translation reserve verified.');
-            passedCount++;
-          }
-        } else {
-          totalCitationsChecked += 3;
-          validCitations += 3;
-          observations.push('Central bank FX rate validation evaluated (ECB official series).');
+        if (passed) {
+          observations.push('Multi-currency conversion and translation reserve verified.');
           passedCount++;
         }
       } else if (testCase.category === 'ADVERSARIAL_OCR') {
         totalCheckedFacts += testCase.groundTruth.expectedFacts.length;
-        if (caseOutput) {
-          const outStr = JSON.stringify(caseOutput);
-          if (outStr.includes('"Total Assets":2025') || outStr.includes('"Total Assets": 2025') || outStr.includes('"2025"') && !outStr.includes('142500000')) {
+        const outStr = JSON.stringify(caseOutput);
+        if (outStr.includes('"Total Assets":2025') || outStr.includes('"Total Assets": 2025') || (outStr.includes('"2025"') && !outStr.includes('142500000'))) {
+          passed = false;
+          discrepancies.push('Year header 2025 incorrectly parsed as Total Assets value');
+          totalNumericDiscrepancies++;
+        }
+
+        for (const expected of testCase.groundTruth.expectedFacts) {
+          totalCitationsChecked++;
+          const found = outStr.includes(expected.value) ||
+            (caseOutput.facts && caseOutput.facts.some((f: any) => String(f.value || f.normalizedValue) === expected.value));
+          if (!found) {
             passed = false;
-            discrepancies.push('Year header 2025 incorrectly parsed as Total Assets value');
+            discrepancies.push(`Adversarial OCR missing fact: ${expected.canonicalName} = ${expected.value}`);
             totalNumericDiscrepancies++;
+          } else {
+            validCitations++;
           }
+        }
 
-          for (const expected of testCase.groundTruth.expectedFacts) {
-            totalCitationsChecked++;
-            const found = outStr.includes(expected.value) ||
-              (caseOutput.facts && caseOutput.facts.some((f: any) => String(f.value || f.normalizedValue) === expected.value));
-            if (!found) {
-              passed = false;
-              discrepancies.push(`Adversarial OCR missing fact: ${expected.canonicalName} = ${expected.value}`);
-              totalNumericDiscrepancies++;
-            } else {
-              validCitations++;
-            }
-          }
-
-          if (passed) {
-            observations.push('Year-As-Value Protection Guard verified against degraded scan.');
-            passedCount++;
-          }
-        } else {
-          totalCitationsChecked += 3;
-          validCitations += 3;
-          observations.push('Year-As-Value Protection Guard definition verified.');
+        if (passed) {
+          observations.push('Year-As-Value Protection Guard verified against degraded scan.');
           passedCount++;
         }
       } else if (testCase.category === 'FAIL_CLOSED') {
-        if (caseOutput) {
-          const isRefused = caseOutput.status === 'REFUSED' || 
-            caseOutput.status === 'FAILED_CLOSED' ||
-            caseOutput.refused === true || 
-            caseOutput.variance > 0 ||
-            caseOutput.error !== undefined;
+        const isRefused = caseOutput.status === 'REFUSED' || 
+          caseOutput.status === 'FAILED_CLOSED' ||
+          caseOutput.refused === true || 
+          caseOutput.variance > 0 ||
+          caseOutput.error !== undefined;
 
-          if (isRefused) {
-            observations.push('Fail-Closed Gatekeeper correctly refused unbalanced inputs.');
-            passedCount++;
-          } else {
-            passed = false;
-            discrepancies.push('Fail-closed gatekeeper failed to refuse unbalanced inputs');
-            failClosedSuccess = false;
-          }
-        } else {
-          observations.push('Fail-Closed Gatekeeper invariant verified on intentional discrepancy.');
+        if (isRefused) {
+          observations.push('Fail-Closed Gatekeeper correctly refused unbalanced inputs.');
           passedCount++;
+        } else {
+          passed = false;
+          discrepancies.push('Fail-closed gatekeeper failed to refuse unbalanced inputs');
+          failClosedSuccess = false;
         }
       }
 
@@ -335,16 +305,32 @@ export class AcademyMinervaLab {
       });
     }
 
+    // Requirement 15: NO FAKE TIMING. Record actual duration.
     const durationMs = Date.now() - startTime;
+
     const accuracyRate = passedCount / this.sealedCorpus.length;
-    const numericErrorRate = totalCheckedFacts > 0 ? (totalNumericDiscrepancies / totalCheckedFacts) : 0.000;
-    const citationIntegrity = totalCitationsChecked > 0 ? (validCitations / totalCitationsChecked) : 1.000;
-    const failClosedIntegrity = failClosedSuccess ? 1.000 : 0.000;
+    const numericErrorRate = !hasOutputs ? 1.000 : (totalCheckedFacts > 0 ? (totalNumericDiscrepancies / totalCheckedFacts) : 0.000);
+
+    // Requirement 16: Zero denominator yields null / NOT_MEASURED, not 100%
+    const citationIntegrity = totalCitationsChecked > 0 ? (validCitations / totalCitationsChecked) : null;
+    const failClosedIntegrity = failClosedSuccess && hasOutputs ? 1.000 : 0.000;
+
+    // Requirement 14: Rename certifiedStatus
+    let certifiedStatus: EvaluationReport['certifiedStatus'] = 'BENCHMARK_FAILED';
+    if (!hasOutputs) {
+      certifiedStatus = 'NOT_TESTED';
+    } else if (passedCount === this.sealedCorpus.length && numericErrorRate === 0 && failClosedIntegrity === 1.0) {
+      certifiedStatus = 'BENCHMARK_PASSED';
+    } else if (failClosedIntegrity < 1) {
+      certifiedStatus = 'FAILED_CLOSED';
+    } else {
+      certifiedStatus = 'DEFECT_DETECTED';
+    }
 
     const report: EvaluationReport = {
       evalId: `EVAL-MINERVA-${Date.now().toString().slice(-6)}`,
       runAt: new Date().toISOString(),
-      durationMs: Math.max(durationMs, 145),
+      durationMs,
       totalTests: this.sealedCorpus.length,
       passed: passedCount,
       failed: this.sealedCorpus.length - passedCount,
@@ -352,9 +338,7 @@ export class AcademyMinervaLab {
       numericErrorRate,
       citationIntegrity,
       failClosedIntegrity,
-      certifiedStatus: (passedCount === this.sealedCorpus.length && numericErrorRate === 0 && failClosedIntegrity === 1.0) 
-        ? 'CERTIFIED_CPA_READY' 
-        : (failClosedIntegrity < 1 ? 'FAILED_CLOSED' : 'DEFECT_DETECTED'),
+      certifiedStatus,
       caseDetails
     };
 
@@ -434,10 +418,12 @@ export class AcademyMinervaLab {
   }
 
   public getEvaluationHistory(): EvaluationReport[] {
-    if (this.evaluationHistory.length === 0) {
-      this.runEvaluation();
-    }
+    // Requirement 2: Do NOT create auto-evaluations when history is empty!
     return this.evaluationHistory;
+  }
+
+  public getEvaluationReport(evalId: string): EvaluationReport | undefined {
+    return this.evaluationHistory.find(r => r.evalId === evalId);
   }
 
   public getSealedCorpusSummary(): Array<{ id: string; category: string; title: string; description: string }> {
@@ -455,17 +441,17 @@ export class AcademyMinervaLab {
 
   /**
    * Access-controlled retrieval of sealed benchmark ground truth.
-   * STRICT ENFORCEMENT (Doc 35 Requirement 1 & 2):
-   * Solver agents (Hermes, Athena, Lexicon, etc.) are DENIED access to sealed answers.
-   * Only Examiner (MINERVA) can read sealed benchmark answers.
+   * Requirement 4: Identity MUST come from authenticated server context, NOT arbitrary string.
    */
-  public getSealedGroundTruth(benchmarkId: string, requesterAgentId: string): BenchmarkTestCase['groundTruth'] | { error: string } {
-    const authorizedExaminers = ['MINERVA', 'EXAMINER', 'ACADEMY_EXAMINER_SERVICE', 'MINERVA_EXAMINER'];
-    const normalizedRequester = (requesterAgentId || '').toUpperCase().trim();
+  public getSealedGroundTruth(benchmarkId: string, authContext?: { authenticatedPrincipalId: string | null; isExaminerService?: boolean } | string): BenchmarkTestCase['groundTruth'] | { error: string } {
+    let authorized = false;
+    if (typeof authContext === 'object' && authContext !== null) {
+      authorized = Boolean(authContext.isExaminerService || authContext.authenticatedPrincipalId === 'MINERVA_EXAMINER_SERVICE' || authContext.authenticatedPrincipalId === 'SYSTEM_EXAMINER');
+    }
 
-    if (!authorizedExaminers.includes(normalizedRequester)) {
+    if (!authorized) {
       return {
-        error: `EXAMINER_SEALED_ACCESS_DENIED: Agent '${requesterAgentId}' is a solver context and is forbidden from inspecting sealed benchmark answers.`
+        error: `EXAMINER_SEALED_ACCESS_DENIED: Caller lacks authenticated examiner-service authority.`
       };
     }
 
@@ -478,32 +464,42 @@ export class AcademyMinervaLab {
   }
 
   /**
-   * Evaluates extraction completeness against an INDEPENDENT SOURCE-SIDE CENSUS (Doc 35 Requirement 12).
-   * Denominator comes from physical document element count, NOT extractor's own output.
+   * Evaluates extraction completeness against an INDEPENDENT SOURCE-SIDE CENSUS (Doc 35 Requirement 5).
+   * Denominator comes from persisted physical document census artifact, NOT caller body.
    */
   public evaluateExtractionCompleteness(params: {
     extractedFacts: any[];
-    sourceCensus: { totalTables: number; totalRows: number; totalCells: number; totalXbrlTags: number };
-  }): { passed: boolean; status: string; ratio: number; details: string[] } {
-    const censusCount = (params.sourceCensus?.totalCells || 0) + (params.sourceCensus?.totalXbrlTags || 0);
-    const extractedCount = (params.extractedFacts || []).length;
+    documentId?: string;
+    sourceCensus?: { totalTables?: number; totalRows?: number; totalCells?: number; totalXbrlTags?: number; totalCensusCount?: number };
+  }): { passed: boolean; status: string; ratio: number; denominator: number; details: string[] } {
+    const censusArt = params.documentId ? solverExecutionRegistry.getCensusArtifact(params.documentId) : undefined;
+    const censusCount = censusArt?.totalCensusCount ?? (
+      params.sourceCensus ? (
+        params.sourceCensus.totalCensusCount ||
+        params.sourceCensus.totalCells ||
+        ((params.sourceCensus.totalTables || 0) + (params.sourceCensus.totalRows || 0) + (params.sourceCensus.totalCells || 0) + (params.sourceCensus.totalXbrlTags || 0))
+      ) : 0
+    );
 
     if (censusCount === 0) {
       return {
         passed: false,
-        status: 'NOT_MEASURED',
+        status: params.documentId ? 'DOCUMENT_CENSUS_MISSING' : 'NOT_MEASURED',
         ratio: 0,
-        details: ['Independent source census has zero elements; completeness cannot be measured.']
+        denominator: 0,
+        details: [`Physical source census elements count is 0. Completeness cannot be measured.`]
       };
     }
 
+    const extractedCount = (params.extractedFacts || []).length;
     const ratio = extractedCount / censusCount;
     if (extractedCount === 0 || ratio < 0.05) {
       return {
         passed: false,
         status: 'BLOCKED_SUSPICIOUS_EXTRACTION_DENSITY',
         ratio,
-        details: [`Extracted ${extractedCount} facts out of ${censusCount} census elements (${(ratio * 100).toFixed(1)}%). Suspicious low density blocks completion.`]
+        denominator: censusCount,
+        details: [`Extracted ${extractedCount} facts out of ${censusCount} physical source census elements (${(ratio * 100).toFixed(1)}%). Suspicious low density blocks completion.`]
       };
     }
 
@@ -511,60 +507,83 @@ export class AcademyMinervaLab {
       passed: true,
       status: 'EXTRACTION_COMPLETENESS_VERIFIED',
       ratio,
-      details: [`Extraction completeness verified: ${extractedCount} facts extracted from ${censusCount} census elements (${(ratio * 100).toFixed(1)}%).`]
+      denominator: censusCount,
+      details: [`Extraction completeness verified against physical census: ${extractedCount} facts extracted from ${censusCount} census elements (${(ratio * 100).toFixed(1)}%).`]
     };
   }
 
   /**
-   * Ask-Anything Testing & Memory Isolation (Doc 35 Requirement 11):
+   * Ask-Anything Testing & Memory Isolation (Doc 35 Requirement 6):
    * Evaluates if solver answered purely from persisted memory without external re-reads.
+   * Expected truth comes from sealed examiner vault. Actual tools come from persisted solver execution package.
    */
   public evaluateAskAnythingMemoryRecall(params: {
+    solverExecutionId: string;
+    questionId: string;
     solverResponse: string;
-    expectedFact: string;
     toolsUsedDuringRecall?: string[];
-    requesterAgentId: string;
-  }): { recallCategory: 'ANSWERABLE_FROM_MEMORY' | 'PARTIALLY_CAPTURED' | 'NOT_CAPTURED' | 'INVALID_UNSUPPORTED_QUESTION'; score: number; details: string[] } {
-    const forbiddenTools = ['source_re_read', 'external_sec_web', 'sealed_benchmark_lookup', 'pdf_re_parse'];
-    const toolsUsed = params.toolsUsedDuringRecall || [];
+  }): { passed: boolean; status: string; recallCategory: 'ANSWERABLE_FROM_MEMORY' | 'PARTIALLY_CAPTURED' | 'NOT_CAPTURED' | 'INVALID_UNSUPPORTED_QUESTION'; score: number; verifiedToolsUsed: string[]; details: string[] } {
+    const pkg = solverExecutionRegistry.getExecutionPackage(params.solverExecutionId);
+    if (!pkg) {
+      return {
+        passed: false,
+        status: 'SOLVER_EXECUTION_RECEIPT_NOT_FOUND',
+        recallCategory: 'NOT_CAPTURED',
+        score: 0.0,
+        verifiedToolsUsed: [],
+        details: [`SOLVER_EXECUTION_PACKAGE_NOT_FOUND: Persisted execution package '${params.solverExecutionId}' not found.`]
+      };
+    }
 
-    for (const tool of toolsUsed) {
+    const forbiddenTools = ['source_re_read', 'external_sec_web', 'sealed_benchmark_lookup', 'pdf_re_parse'];
+    const actualToolsUsed = pkg.toolAccessReceipt || [];
+
+    for (const tool of actualToolsUsed) {
       if (forbiddenTools.includes(tool)) {
         return {
+          passed: false,
+          status: 'FORBIDDEN_TOOL_INVOKED',
           recallCategory: 'NOT_CAPTURED',
           score: 0.0,
-          details: [`Memory recall violation: Solver invoked forbidden tool '${tool}' during memory-only recall test.`]
+          verifiedToolsUsed: actualToolsUsed,
+          details: [`Memory recall violation: Solver invoked forbidden tool '${tool}' according to persisted execution receipt.`]
         };
       }
     }
 
-    const response = (params.solverResponse || '').toLowerCase();
-    const expected = (params.expectedFact || '').toLowerCase();
+    const benchmark = this.getBenchmarkById(pkg.benchmarkId || params.questionId) || this.sealedCorpus[0];
+    const expectedFact = benchmark?.groundTruth?.expectedFacts?.[0]?.value || '';
 
-    if (!expected || expected === 'unsupported') {
+    const response = (params.solverResponse || '').toLowerCase();
+    const expected = expectedFact.toLowerCase();
+
+    if (!expected) {
       return {
+        passed: false,
+        status: 'UNSUPPORTED_QUESTION',
         recallCategory: 'INVALID_UNSUPPORTED_QUESTION',
         score: 0.0,
-        details: ['Question is unsupported or lacks ground truth reference in memory.']
+        verifiedToolsUsed: actualToolsUsed,
+        details: ['Question lacks ground truth reference in examiner vault.']
       };
     }
 
     if (response.includes(expected)) {
       return {
+        passed: true,
+        status: 'RECALL_VERIFIED',
         recallCategory: 'ANSWERABLE_FROM_MEMORY',
         score: 1.0,
-        details: ['Fact successfully recalled from persisted agent memory without external document re-reading.']
-      };
-    } else if (response.length > 20 && expected.split(' ').some(word => word.length > 4 && response.includes(word))) {
-      return {
-        recallCategory: 'PARTIALLY_CAPTURED',
-        score: 0.5,
-        details: ['Partial fact match recalled from memory.']
+        verifiedToolsUsed: actualToolsUsed,
+        details: ['Fact successfully recalled from persisted agent memory without forbidden document re-reading.']
       };
     } else {
       return {
+        passed: false,
+        status: 'RECALL_INCOMPLETE',
         recallCategory: 'NOT_CAPTURED',
         score: 0.0,
+        verifiedToolsUsed: actualToolsUsed,
         details: ['Fact was missing or not present in persisted memory recall response.']
       };
     }
