@@ -44,13 +44,20 @@ export class BackgroundIngestionQueue {
   private onJobCompletedListener?: (job: QueueJob) => void;
   private dbRef?: any;
   private standbyObserver = false;
+  private intakeJobCreationAuthorized: boolean | null = null;
   private queueWriterAuthorized: boolean | null = null;
+  private queueProcessingAuthorized: boolean | null = null;
 
-  constructor() {
+  constructor(isStandbyObserver: boolean = false) {
+    if (isStandbyObserver || process.env.STANDBY_OBSERVER === "true" || process.env.IS_STANDBY_OBSERVER === "true") {
+      this.standbyObserver = true;
+    }
     this.loadQueueFromDisk();
     setInterval(() => {
       this.workerAliveHeartbeat = new Date().toISOString();
-      this.checkStalledJobs();
+      if (this.isQueueProcessingAuthorized()) {
+        this.checkStalledJobs();
+      }
     }, 5000);
   }
 
@@ -62,7 +69,30 @@ export class BackgroundIngestionQueue {
     return this.standbyObserver || process.env.STANDBY_OBSERVER === "true" || process.env.IS_STANDBY_OBSERVER === "true";
   }
 
-  public setQueueWriterAuthority(authorized: boolean): void {
+  public setIntakeJobCreationAuthority(authorized: boolean | null): void {
+    this.intakeJobCreationAuthorized = authorized;
+  }
+
+  public isIntakeJobCreationAuthorized(): boolean {
+    if (this.isStandbyObserver()) {
+      return false;
+    }
+    if (this.intakeJobCreationAuthorized !== null) {
+      return this.intakeJobCreationAuthorized;
+    }
+    if (process.env.TEST_INTAKE_CREATOR_AUTHORITY === "true") {
+      return true;
+    }
+    if (process.env.TEST_INTAKE_CREATOR_AUTHORITY === "false") {
+      return false;
+    }
+    if (this.isQueueWriterAuthorized()) {
+      return true;
+    }
+    return true;
+  }
+
+  public setQueueWriterAuthority(authorized: boolean | null): void {
     this.queueWriterAuthorized = authorized;
   }
 
@@ -73,18 +103,48 @@ export class BackgroundIngestionQueue {
     if (this.queueWriterAuthorized !== null) {
       return this.queueWriterAuthorized;
     }
-    try {
-      const isLeader = runtimeAuthorityManifestManager.isLeader();
-      if (isLeader) return true;
-    } catch {}
-    return !process.env.REQUIRE_STRICT_LEADER_LEASE || process.env.REQUIRE_STRICT_LEADER_LEASE === "false";
+    if (process.env.NODE_ENV === "production") {
+      if (process.env.REQUIRE_STRICT_LEADER_LEASE === "true") {
+        try {
+          return runtimeAuthorityManifestManager.isLeader();
+        } catch {
+          return false;
+        }
+      }
+      return false; // Fail closed by default in production
+    }
+    if (process.env.TEST_QUEUE_AUTHORITY === "true") {
+      return true;
+    }
+    if (process.env.TEST_QUEUE_AUTHORITY === "false") {
+      return false;
+    }
+    if (process.env.REQUIRE_STRICT_LEADER_LEASE === "true") {
+      try {
+        return runtimeAuthorityManifestManager.isLeader();
+      } catch {
+        return false;
+      }
+    }
+
+    return false; // FAIL CLOSED by default
+  }
+
+  public setQueueProcessingAuthority(authorized: boolean | null): void {
+    this.queueProcessingAuthorized = authorized;
   }
 
   public isQueueProcessingAuthorized(): boolean {
     if (this.isStandbyObserver()) {
       return false;
     }
-    if (this.queueWriterAuthorized === false) {
+    if (this.queueProcessingAuthorized !== null) {
+      return this.queueProcessingAuthorized;
+    }
+    if (process.env.TEST_QUEUE_PROCESSING_AUTHORITY === "true") {
+      return true;
+    }
+    if (process.env.TEST_QUEUE_PROCESSING_AUTHORITY === "false") {
       return false;
     }
     return this.isQueueWriterAuthorized();
@@ -119,7 +179,7 @@ export class BackgroundIngestionQueue {
     }
   }
 
-  public saveQueueToDiskAsync(forceNow = false): Promise<void> {
+  public saveQueueToDiskAsync(forceNow = false, allowIntakeCreation = false): Promise<void> {
     if (saveDiskTimeout) {
       clearTimeout(saveDiskTimeout);
       saveDiskTimeout = null;
@@ -129,7 +189,7 @@ export class BackgroundIngestionQueue {
       return new Promise<void>((resolve, reject) => {
         saveDiskTimeout = setTimeout(async () => {
           try {
-            await this.performDiskSave();
+            await this.performDiskSave(allowIntakeCreation);
             resolve();
           } catch (err) {
             reject(err);
@@ -138,11 +198,15 @@ export class BackgroundIngestionQueue {
       });
     }
 
-    return this.performDiskSave();
+    return this.performDiskSave(allowIntakeCreation);
   }
 
-  public async performDiskSave(): Promise<void> {
-    if (!this.isQueueWriterAuthorized()) {
+  public async performDiskSave(): Promise<void>;
+  public async performDiskSave(allowIntakeCreation?: boolean): Promise<void>;
+  public async performDiskSave(allowIntakeCreation = false): Promise<void> {
+    const isWriterAuth = this.isQueueWriterAuthorized();
+    const isIntakeAuth = allowIntakeCreation && this.isIntakeJobCreationAuthorized();
+    if (!isWriterAuth && !isIntakeAuth) {
       throw new Error("[Hermes Queue] UNAUTHORIZED_QUEUE_WRITER: Process is not authorized to write or mutate authoritative queue state.");
     }
 
@@ -214,40 +278,56 @@ export class BackgroundIngestionQueue {
         const raw = fs.readFileSync(queueFile, "utf-8");
         const list: QueueJob[] = JSON.parse(raw);
         if (Array.isArray(list)) {
-          const now = Date.now();
+          // READ / REHYDRATE ONLY (Exact persisted state without rewriting)
           list.forEach(job => {
-            if (job.status === "PROCESSING" || job.status === "WAITING_FOR_LLM" || job.status === "RATE_LIMITED" || job.status === "RECOVERING") {
-              job.status = "QUEUED";
-              job.currentStage = `Resumed for processing (Unit ${job.unitsCompleted + 1}/${job.unitsTotal})`;
-              job.processingUnits.forEach(u => {
-                if (u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING") {
-                  u.status = "QUEUED";
-                }
-              });
-            } else if (job.status === "WAITING_FOR_AI_CAPACITY") {
-              const delay = job.nextRetryAt ? Math.max(10, job.nextRetryAt - now) : 10;
-              console.log(`[Hermes Queue ${job.id}] Loaded persisted WAITING_FOR_AI_CAPACITY job. Resuming in ${Math.round(delay / 1000)}s.`);
-              setTimeout(() => {
-                if (job.status === "WAITING_FOR_AI_CAPACITY") {
-                  job.status = "QUEUED";
-                  this.saveQueueToDiskAsync(true);
-                  this.processNextJob();
-                }
-              }, delay);
-            }
             this.jobs.set(job.id, job);
           });
-          this.saveQueueToDiskAsync(true);
           console.log(`[Hermes Queue] Loaded ${list.length} persisted queue jobs from storage.`);
+
+          // RECOVER / MUTATE ONLY IF QUEUE PROCESSING AUTHORIZED
+          if (this.isQueueProcessingAuthorized()) {
+            const now = Date.now();
+            let mutated = false;
+            for (const job of this.jobs.values()) {
+              if (job.status === "PROCESSING" || job.status === "WAITING_FOR_LLM" || job.status === "RATE_LIMITED" || job.status === "RECOVERING") {
+                job.status = "QUEUED";
+                job.currentStage = `Resumed for processing (Unit ${job.unitsCompleted + 1}/${job.unitsTotal})`;
+                job.processingUnits?.forEach(u => {
+                  if (u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING") {
+                    u.status = "QUEUED";
+                  }
+                });
+                mutated = true;
+              } else if (job.status === "WAITING_FOR_AI_CAPACITY") {
+                const delay = job.nextRetryAt ? Math.max(10, job.nextRetryAt - now) : 10;
+                console.log(`[Hermes Queue ${job.id}] Loaded persisted WAITING_FOR_AI_CAPACITY job. Resuming in ${Math.round(delay / 1000)}s.`);
+                setTimeout(() => {
+                  if (job.status === "WAITING_FOR_AI_CAPACITY" && this.isQueueProcessingAuthorized()) {
+                    job.status = "QUEUED";
+                    if (this.isQueueWriterAuthorized()) {
+                      this.saveQueueToDiskAsync(true);
+                    }
+                    this.processNextJob();
+                  }
+                }, delay);
+              }
+            }
+            if (mutated && this.isQueueWriterAuthorized()) {
+              this.saveQueueToDiskAsync(true);
+            }
+            setTimeout(() => this.processNextJob(), 100);
+          }
         }
       }
     } catch (err) {
       console.error("[Hermes Queue] Failed to load queue from disk:", err);
     }
-    setTimeout(() => this.processNextJob(), 100);
   }
 
   private handleJobCapacityPause(queuedJob: QueueJob, err: any) {
+    if (!this.isQueueProcessingAuthorized()) {
+      return;
+    }
     const errStr = err?.message || String(err);
     const isDaily = err?.isDailyQuotaError || err?.errorType === 'DAILY_QUOTA_EXHAUSTED' || errStr.toLowerCase().includes('daily');
 
@@ -297,10 +377,12 @@ export class BackgroundIngestionQueue {
     );
 
     setTimeout(() => {
-      if (queuedJob.status === "WAITING_FOR_AI_CAPACITY") {
+      if (queuedJob.status === "WAITING_FOR_AI_CAPACITY" && this.isQueueProcessingAuthorized()) {
         console.log(`[Hermes Queue ${queuedJob.id}] Resuming job after capacity pause...`);
         queuedJob.status = "QUEUED";
-        this.saveQueueToDiskAsync(true);
+        if (this.isQueueWriterAuthorized()) {
+          this.saveQueueToDiskAsync(true);
+        }
         this.processNextJob();
       }
     }, retryDelayMs);
@@ -313,6 +395,12 @@ export class BackgroundIngestionQueue {
     description?: string,
     details?: string
   ) {
+    if (this.isStandbyObserver()) {
+      throw new Error("[Hermes Queue] UNAUTHORIZED_STAGE_ADVANCEMENT: Standby/observer process cannot advance or modify persisted job stage.");
+    }
+    if (!this.isQueueWriterAuthorized() && !this.isIntakeJobCreationAuthorized()) {
+      throw new Error("[Hermes Queue] UNAUTHORIZED_STAGE_ADVANCEMENT: Process lacks authority to advance or modify job stage.");
+    }
     job.stage = stage;
     if (description) {
       job.currentStage = description;
@@ -573,8 +661,8 @@ export class BackgroundIngestionQueue {
       this.advanceJobStage(job, "INGESTION_FAILED", "FAILED", "Failed: Physical page inventory required before PDF extraction.", jobLastError);
     }
 
-    if (this.isQueueWriterAuthorized()) {
-      this.saveQueueToDiskAsync(true);
+    if (this.isQueueWriterAuthorized() || this.isIntakeJobCreationAuthorized()) {
+      this.saveQueueToDiskAsync(true, true);
     }
     if (this.isQueueProcessingAuthorized()) {
       setTimeout(() => this.processNextJob(), 10);
@@ -583,7 +671,9 @@ export class BackgroundIngestionQueue {
   }
 
   public getJob(jobId: string): Omit<QueueJob, 'textData'> | undefined {
-    this.checkStalledJobs();
+    if (this.isQueueProcessingAuthorized()) {
+      this.checkStalledJobs();
+    }
     const job = this.jobs.get(jobId);
     if (!job) return undefined;
     const { textData, ...rest } = job;
@@ -591,13 +681,18 @@ export class BackgroundIngestionQueue {
   }
 
   public getAllJobs(workspaceId?: string): Omit<QueueJob, 'textData'>[] {
-    this.checkStalledJobs();
+    if (this.isQueueProcessingAuthorized()) {
+      this.checkStalledJobs();
+    }
     const all = Array.from(this.jobs.values());
     const filtered = workspaceId ? all.filter(j => j.workspaceId === workspaceId) : all;
     return filtered.map(({ textData, ...rest }) => rest);
   }
 
   public deleteWorkspaceJobs(workspaceId: string): void {
+    if (!this.isQueueWriterAuthorized()) {
+      throw new Error("[Hermes Queue] UNAUTHORIZED_QUEUE_WRITER: Standby/unauthorized process cannot mutate or delete workspace jobs.");
+    }
     let deletedCount = 0;
     for (const [jobId, job] of this.jobs.entries()) {
       if (job.workspaceId === workspaceId) {
@@ -611,6 +706,9 @@ export class BackgroundIngestionQueue {
   }
 
   public retryFailedJob(jobId: string): Omit<QueueJob, 'textData'> | undefined {
+    if (!this.isQueueProcessingAuthorized()) {
+      throw new Error("[Hermes Queue] UNAUTHORIZED_QUEUE_PROCESSING: Standby/unauthorized process cannot retry or mutate jobs.");
+    }
     const job = this.jobs.get(jobId);
     if (!job) return undefined;
 

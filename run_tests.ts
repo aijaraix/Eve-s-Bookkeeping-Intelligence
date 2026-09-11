@@ -8,6 +8,7 @@
 
 process.env.NO_SERVER_LISTEN = "true";
 process.env.IS_SCRIPT = "true";
+process.env.TEST_QUEUE_AUTHORITY = "true";
 
 import fs from "fs";
 import path from "path";
@@ -30,6 +31,7 @@ import { runPhasePackageA3BrowserTruthTests } from "./server/tests/phasePackageA
 import { runPhasePackageA4BrowserProofTests } from "./server/tests/phasePackageA4BrowserProof.test.js";
 import { runPhasePackageB1TransactionalIntakeTests } from "./server/tests/phasePackageB1TransactionalIntake.test.js";
 import { runPhasePackageB1_1IntakeHygieneTests } from "./server/tests/phasePackageB1_1IntakeHygiene.test.js";
+import { runPhasePackageB1_2QueueAuthorityTests } from "./server/tests/phasePackageB1_2QueueAuthority.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -732,6 +734,15 @@ assert(
   pkgB11Res.passed === 5 && pkgB11Res.failed === 0,
   `Package B1.1 Suite failed (${pkgB11Res.failed} failures)`,
   "All 5/5 Package B1.1 Intake Hygiene & Queue Authority Boundary tests passed cleanly."
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B1.2: QUEUE LEADER AUTHORITY FAIL-CLOSED CLEANUP (DOC 35)]${colors.reset}`);
+const pkgB12Res = await runPhasePackageB1_2QueueAuthorityTests();
+assert(
+  "Package B1.2 Queue Leader Authority Fail-Closed Cleanup Suite (9/9 Passed)",
+  pkgB12Res.passed === 9 && pkgB12Res.failed === 0,
+  `Package B1.2 Suite failed (${pkgB12Res.failed} failures)`,
+  "All 9/9 Package B1.2 Queue Leader Authority Fail-Closed Cleanup tests passed cleanly."
 );
 
 

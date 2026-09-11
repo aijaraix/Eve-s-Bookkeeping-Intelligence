@@ -11,6 +11,7 @@ const tmpStorage = path.join(fixturesDir, 'tmp_ai_cpa_storage.json');
 const tmpQueue = path.join(fixturesDir, 'tmp_queue_jobs.json');
 
 process.env.NODE_ENV = 'test';
+process.env.TEST_QUEUE_AUTHORITY = 'true';
 process.env.STORAGE_FILE = tmpStorage;
 process.env.QUEUE_FILE = tmpQueue;
 

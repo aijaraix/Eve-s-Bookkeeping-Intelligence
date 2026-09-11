@@ -44,4 +44,10 @@ storage/worker_jobs.json
 storage/forensics/*
 !storage/forensics/.gitkeep
 
+# Runtime Academy Files
+storage/academy/documents/*
+!storage/academy/documents/.gitkeep
+storage/academy/pbc/*
+!storage/academy/pbc/.gitkeep
+
 
