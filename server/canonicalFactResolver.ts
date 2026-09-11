@@ -671,8 +671,8 @@ export class CanonicalFactResolver {
       } else {
         return {
           ...fact,
-          status: fact.status === "APPROVED" || fact.status === "VALIDATED" ? "PROPOSED" : (fact.status || "PROPOSED"),
-          verificationStatus: fact.verificationStatus === "VERIFIED" ? "PROPOSED" : (fact.verificationStatus || "PROPOSED")
+          status: "PROPOSED",
+          verificationStatus: "PROPOSED"
         };
       }
     });

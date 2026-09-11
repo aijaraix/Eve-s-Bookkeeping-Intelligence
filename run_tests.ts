@@ -39,6 +39,7 @@ import { runPhasePackageB3ReportingTruthTests } from "./server/tests/phasePackag
 import { runPhasePackageB3_1HumanApprovalTests } from "./server/tests/phasePackageB3_1HumanApproval.test.js";
 import { runPhasePackageB3_2AuthorityIntegrationTests } from "./server/tests/phasePackageB3_2AuthorityIntegration.test.js";
 import { runPhasePackageB3_3HttpAuthTests } from "./server/tests/phasePackageB3_3HttpAuth.test.js";
+import { runPhasePackageB4GovernanceTests } from "./server/tests/phasePackageB4Governance.test.js";
 
 // ANSI colors for clean test reports
 const colors = {
@@ -795,6 +796,15 @@ assert(
   pkgB33Res.passed === pkgB33Res.total && pkgB33Res.failed === 0,
   `Package B3.3 Suite failed (${pkgB33Res.failed} failures)`,
   `All ${pkgB33Res.total}/${pkgB33Res.total} Package B3.3 Professional Approval HTTP Authentication Boundary tests passed cleanly.`
+);
+
+console.log(`\n${colors.bold}[SUITE PACKAGE B4: MINERVA, ACADEMY, LEARNING GOVERNANCE & REPOSITORY CONFORMANCE]${colors.reset}`);
+const pkgB4Res = await runPhasePackageB4GovernanceTests();
+assert(
+  `Package B4 Minerva & Academy Governance Suite (${pkgB4Res.total}/${pkgB4Res.total} Passed)`,
+  pkgB4Res.passed === pkgB4Res.total && pkgB4Res.failed === 0,
+  `Package B4 Suite failed (${pkgB4Res.failed} failures)`,
+  `All ${pkgB4Res.total}/${pkgB4Res.total} Package B4 Minerva & Academy Governance tests passed cleanly.`
 );
 
 

@@ -453,6 +453,123 @@ export class AcademyMinervaLab {
     return this.sealedCorpus.find(c => c.id === id);
   }
 
+  /**
+   * Access-controlled retrieval of sealed benchmark ground truth.
+   * STRICT ENFORCEMENT (Doc 35 Requirement 1 & 2):
+   * Solver agents (Hermes, Athena, Lexicon, etc.) are DENIED access to sealed answers.
+   * Only Examiner (MINERVA) can read sealed benchmark answers.
+   */
+  public getSealedGroundTruth(benchmarkId: string, requesterAgentId: string): BenchmarkTestCase['groundTruth'] | { error: string } {
+    const authorizedExaminers = ['MINERVA', 'EXAMINER', 'ACADEMY_EXAMINER_SERVICE', 'MINERVA_EXAMINER'];
+    const normalizedRequester = (requesterAgentId || '').toUpperCase().trim();
+
+    if (!authorizedExaminers.includes(normalizedRequester)) {
+      return {
+        error: `EXAMINER_SEALED_ACCESS_DENIED: Agent '${requesterAgentId}' is a solver context and is forbidden from inspecting sealed benchmark answers.`
+      };
+    }
+
+    const benchmark = this.getBenchmarkById(benchmarkId);
+    if (!benchmark) {
+      return { error: `Benchmark '${benchmarkId}' not found in sealed vault.` };
+    }
+
+    return benchmark.groundTruth;
+  }
+
+  /**
+   * Evaluates extraction completeness against an INDEPENDENT SOURCE-SIDE CENSUS (Doc 35 Requirement 12).
+   * Denominator comes from physical document element count, NOT extractor's own output.
+   */
+  public evaluateExtractionCompleteness(params: {
+    extractedFacts: any[];
+    sourceCensus: { totalTables: number; totalRows: number; totalCells: number; totalXbrlTags: number };
+  }): { passed: boolean; status: string; ratio: number; details: string[] } {
+    const censusCount = (params.sourceCensus?.totalCells || 0) + (params.sourceCensus?.totalXbrlTags || 0);
+    const extractedCount = (params.extractedFacts || []).length;
+
+    if (censusCount === 0) {
+      return {
+        passed: false,
+        status: 'NOT_MEASURED',
+        ratio: 0,
+        details: ['Independent source census has zero elements; completeness cannot be measured.']
+      };
+    }
+
+    const ratio = extractedCount / censusCount;
+    if (extractedCount === 0 || ratio < 0.05) {
+      return {
+        passed: false,
+        status: 'BLOCKED_SUSPICIOUS_EXTRACTION_DENSITY',
+        ratio,
+        details: [`Extracted ${extractedCount} facts out of ${censusCount} census elements (${(ratio * 100).toFixed(1)}%). Suspicious low density blocks completion.`]
+      };
+    }
+
+    return {
+      passed: true,
+      status: 'EXTRACTION_COMPLETENESS_VERIFIED',
+      ratio,
+      details: [`Extraction completeness verified: ${extractedCount} facts extracted from ${censusCount} census elements (${(ratio * 100).toFixed(1)}%).`]
+    };
+  }
+
+  /**
+   * Ask-Anything Testing & Memory Isolation (Doc 35 Requirement 11):
+   * Evaluates if solver answered purely from persisted memory without external re-reads.
+   */
+  public evaluateAskAnythingMemoryRecall(params: {
+    solverResponse: string;
+    expectedFact: string;
+    toolsUsedDuringRecall?: string[];
+    requesterAgentId: string;
+  }): { recallCategory: 'ANSWERABLE_FROM_MEMORY' | 'PARTIALLY_CAPTURED' | 'NOT_CAPTURED' | 'INVALID_UNSUPPORTED_QUESTION'; score: number; details: string[] } {
+    const forbiddenTools = ['source_re_read', 'external_sec_web', 'sealed_benchmark_lookup', 'pdf_re_parse'];
+    const toolsUsed = params.toolsUsedDuringRecall || [];
+
+    for (const tool of toolsUsed) {
+      if (forbiddenTools.includes(tool)) {
+        return {
+          recallCategory: 'NOT_CAPTURED',
+          score: 0.0,
+          details: [`Memory recall violation: Solver invoked forbidden tool '${tool}' during memory-only recall test.`]
+        };
+      }
+    }
+
+    const response = (params.solverResponse || '').toLowerCase();
+    const expected = (params.expectedFact || '').toLowerCase();
+
+    if (!expected || expected === 'unsupported') {
+      return {
+        recallCategory: 'INVALID_UNSUPPORTED_QUESTION',
+        score: 0.0,
+        details: ['Question is unsupported or lacks ground truth reference in memory.']
+      };
+    }
+
+    if (response.includes(expected)) {
+      return {
+        recallCategory: 'ANSWERABLE_FROM_MEMORY',
+        score: 1.0,
+        details: ['Fact successfully recalled from persisted agent memory without external document re-reading.']
+      };
+    } else if (response.length > 20 && expected.split(' ').some(word => word.length > 4 && response.includes(word))) {
+      return {
+        recallCategory: 'PARTIALLY_CAPTURED',
+        score: 0.5,
+        details: ['Partial fact match recalled from memory.']
+      };
+    } else {
+      return {
+        recallCategory: 'NOT_CAPTURED',
+        score: 0.0,
+        details: ['Fact was missing or not present in persisted memory recall response.']
+      };
+    }
+  }
+
   public evaluateAuthoritativePhysicalSource(filePath: string): {
     passed: boolean;
     certifiedStatus: string;

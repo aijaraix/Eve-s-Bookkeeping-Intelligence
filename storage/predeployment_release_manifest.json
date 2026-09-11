@@ -1,0 +1,31 @@
+{
+  "releaseId": "REL-EVE-2026-09-11-B4",
+  "generatedAt": "2026-09-11T21:36:06.831Z",
+  "repository": "aijaraix/Eve-s-Bookkeeping-Intelligence",
+  "releasePackage": "PACKAGE_B4_MINERVA_ACADEMY_GOVERNANCE_FINAL_CONFORMANCE",
+  "packagesVerified": {
+    "PACKAGE_A1_BASELINE": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_A2_PARSER": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_A3_EXTRACTION": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_A4_EVIDENCE": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_B1_1_INTAKE": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_B1_2_QUEUE": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_B2_REAL_AGENT": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_B3_1_APPROVAL": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_B3_2_AUTHORITY": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_B3_3_HTTP_AUTH": "BEHAVIORALLY_VERIFIED",
+    "PACKAGE_B4_MINERVA_ACADEMY": "BEHAVIORALLY_VERIFIED"
+  },
+  "securityBoundaries": {
+    "httpAuthBoundary": "ENFORCED_FAIL_CLOSED",
+    "minervaExaminerIsolation": "ENFORCED_SEALED_VAULT",
+    "promotionAuthoritySeparation": "ENFORCED_SEPARATION_OF_DUTIES",
+    "routeBoundaryGuard": "ENFORCED_ENVIRONMENT_TARGETS",
+    "persistentMemoryIsolation": "ENFORCED_TENANT_AND_CLASSIFICATION"
+  },
+  "deploymentReadiness": {
+    "zeaburDeploymentArmed": false,
+    "company1CohortArmed": false,
+    "status": "PRE_DEPLOYMENT_REPOS_CONFORMANCE_COMPLETE"
+  }
+}

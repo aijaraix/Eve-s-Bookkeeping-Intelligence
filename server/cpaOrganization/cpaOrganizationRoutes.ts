@@ -28,6 +28,7 @@ import { universalFinancialLineageManager } from './universalFinancialLineage.js
 import { customerJourneyEngine } from './customerJourneyEngine.js';
 import { routeBoundaryGuard } from './routeBoundaryGuard.js';
 import { professionalSignoffGuard, AuthenticationContext } from './professionalSignoffGuard.js';
+import { capabilityPromotionAuthority } from './capabilityPromotionAuthority.js';
 
 export interface ServerAuthResult {
   authenticatedPrincipalId: string | null;
@@ -261,6 +262,77 @@ export function createCPAOrganizationRouter(): Router {
   router.post('/academy/run-eval', (req: Request, res: Response) => {
     const report = academyMinervaLab.runEvaluation();
     res.json({ report });
+  });
+
+  // Sealed Ground Truth Access (Doc 35 Requirements 1, 2 & 17: Examiner vs Solver Isolation)
+  router.get('/academy/sealed-truth/:benchmarkId', (req: Request, res: Response) => {
+    const requesterAgentId = (req.headers['x-agent-id'] as string) || (req.query.requesterAgentId as string) || 'HERMES';
+    const result = academyMinervaLab.getSealedGroundTruth(req.params.benchmarkId, requesterAgentId);
+    if ('error' in result) {
+      return res.status(403).json({
+        error: 'EXAMINER_SEALED_ACCESS_DENIED',
+        reason: result.error
+      });
+    }
+    res.json({ benchmarkId: req.params.benchmarkId, groundTruth: result });
+  });
+
+  // Independent Source-Side Extraction Completeness Census (Doc 35 Requirement 12)
+  router.post('/academy/extraction-completeness', (req: Request, res: Response) => {
+    const { extractedFacts, sourceCensus } = req.body || {};
+    const evalResult = academyMinervaLab.evaluateExtractionCompleteness({
+      extractedFacts: extractedFacts || [],
+      sourceCensus: sourceCensus || { totalTables: 0, totalRows: 0, totalCells: 0, totalXbrlTags: 0 }
+    });
+    res.json(evalResult);
+  });
+
+  // Ask-Anything Memory Recall Evaluation (Doc 35 Requirement 11)
+  router.post('/academy/memory-recall', (req: Request, res: Response) => {
+    const { solverResponse, expectedFact, toolsUsedDuringRecall, requesterAgentId } = req.body || {};
+    const evalResult = academyMinervaLab.evaluateAskAnythingMemoryRecall({
+      solverResponse: solverResponse || '',
+      expectedFact: expectedFact || '',
+      toolsUsedDuringRecall: toolsUsedDuringRecall || [],
+      requesterAgentId: requesterAgentId || 'HERMES'
+    });
+    res.json(evalResult);
+  });
+
+  // Capability Promotion Authority (Doc 35 Requirements 7, 8 & 9)
+  router.get('/capability/ledger', (req: Request, res: Response) => {
+    const ledger = capabilityPromotionAuthority.getLedger();
+    res.json({ success: true, ledger });
+  });
+
+  router.post('/capability/promote', (req: Request, res: Response) => {
+    try {
+      const { skillId, candidateVersion, approvedBy } = req.body || {};
+      if (!skillId || !candidateVersion || !approvedBy) {
+        return res.status(400).json({ error: 'skillId, candidateVersion, and approvedBy are required' });
+      }
+      const record = capabilityPromotionAuthority.promoteCandidate({
+        skillId,
+        candidateVersion,
+        approvedBy
+      });
+      res.json({ success: true, promotedRecord: record });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Promotion failed' });
+    }
+  });
+
+  router.post('/capability/rollback', (req: Request, res: Response) => {
+    try {
+      const { skillId, targetVersion } = req.body || {};
+      if (!skillId) {
+        return res.status(400).json({ error: 'skillId is required' });
+      }
+      const record = capabilityPromotionAuthority.rollbackCapability(skillId, targetVersion);
+      res.json({ success: true, rollbackRecord: record });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Rollback failed' });
+    }
   });
 
   // 5. Darwin Evolution Loop

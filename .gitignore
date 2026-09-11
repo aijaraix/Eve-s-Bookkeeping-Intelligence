@@ -53,9 +53,7 @@ storage/academy/evaluations/*
 !storage/academy/evaluations/.gitkeep
 storage/academy/results/*
 !storage/academy/results/.gitkeep
-storage/academy/documents/ACADEMY-CASE-001_*
-storage/academy/documents/ACADEMY-CASE-002_*
-storage/academy/pbc/ACADEMY-CASE-001_*
-storage/academy/pbc/ACADEMY-CASE-002_*
+storage/academy/execution_memory/*
+!storage/academy/execution_memory/.gitkeep
 
 

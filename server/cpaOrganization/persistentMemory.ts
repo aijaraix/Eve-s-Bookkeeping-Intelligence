@@ -18,6 +18,17 @@ import path from 'path';
 
 export type MemoryType = 'WORKING' | 'EPISODIC' | 'SEMANTIC' | 'PROCEDURAL' | 'FIRM_SHARED';
 
+export type DataClassification =
+  | 'EXAMINER_SEALED'
+  | 'ACADEMY_TRAINING'
+  | 'ACADEMY_HOLDOUT'
+  | 'PRODUCTION_CUSTOMER'
+  | 'PUBLIC_REFERENCE'
+  | 'FORENSIC'
+  | 'CANARY'
+  | 'TEST'
+  | 'LEGACY';
+
 export interface MemoryEntry {
   id: string;
   namespace: string;
@@ -25,6 +36,7 @@ export interface MemoryEntry {
   key: string;
   value: any;
   tags: string[];
+  classification?: DataClassification;
   createdAt: string;
   updatedAt: string;
   accessCount: number;
@@ -116,8 +128,31 @@ export class PersistentAgentMemory {
     key: string;
     value: any;
     tags?: string[];
+    classification?: DataClassification;
     confidence?: number;
   }): MemoryEntry {
+    const classification = params.classification || 
+      (params.tags?.includes('EXAMINER_SEALED') || params.tags?.includes('golden_standard') ? 'EXAMINER_SEALED' : 'PUBLIC_REFERENCE');
+
+    // Rule 1: Examiner Sealed Isolation (Doc 35 Requirements 1, 2, 3 & 18)
+    const isSolverNamespace = !params.namespace.startsWith('eve/examiner') && !params.namespace.startsWith('eve/minerva');
+    const isSealedContent = classification === 'EXAMINER_SEALED' || 
+      params.tags?.includes('EXAMINER_SEALED') || 
+      params.tags?.includes('golden_standard') || 
+      params.key.includes('sealed_answer');
+
+    if (isSolverNamespace && isSealedContent) {
+      throw new Error(`EXAMINER_SEALED_ISOLATION_VIOLATION: Cannot write examiner sealed benchmark answers into solver agent namespace '${params.namespace}'.`);
+    }
+
+    // Rule 2: Customer Data Isolation (Doc 35 Requirement 5)
+    const isCustomerData = classification === 'PRODUCTION_CUSTOMER' || params.tags?.includes('customer_raw') || params.namespace.includes('tenant-');
+    const isGlobalAcademyNamespace = params.namespace === 'eve/firm' || params.namespace === 'eve/academy/global';
+
+    if (isCustomerData && isGlobalAcademyNamespace && classification !== 'ACADEMY_TRAINING') {
+      throw new Error(`CUSTOMER_DATA_ISOLATION_VIOLATION: Cannot publish customer engagement data into global Academy memory without explicit de-identification and ACADEMY_TRAINING classification.`);
+    }
+
     const id = `${params.namespace}:${params.key}`;
     const now = new Date().toISOString();
 
@@ -129,6 +164,7 @@ export class PersistentAgentMemory {
       key: params.key,
       value: params.value,
       tags: params.tags || [],
+      classification,
       createdAt: existing ? existing.createdAt : now,
       updatedAt: now,
       accessCount: existing ? existing.accessCount + 1 : 1,
@@ -160,10 +196,15 @@ export class PersistentAgentMemory {
     });
   }
 
-  public retrieve(namespace: string, key: string): MemoryEntry | null {
+  public retrieve(namespace: string, key: string, requesterAgentId?: string): MemoryEntry | null {
     const id = `${namespace}:${key}`;
     const entry = this.memoryStore.get(id);
     if (entry) {
+      const requester = (requesterAgentId || '').toUpperCase();
+      const isExaminer = requester === 'MINERVA' || requester === 'EXAMINER';
+      if (entry.classification === 'EXAMINER_SEALED' && !isExaminer) {
+        return null; // Deny access to solver contexts
+      }
       entry.accessCount++;
       return entry;
     }
@@ -175,8 +216,15 @@ export class PersistentAgentMemory {
     type?: MemoryType;
     tag?: string;
     searchTerm?: string;
+    requesterAgentId?: string;
   }): MemoryEntry[] {
     let results = Array.from(this.memoryStore.values());
+    const requester = (params.requesterAgentId || '').toUpperCase();
+    const isExaminer = requester === 'MINERVA' || requester === 'EXAMINER';
+
+    if (!isExaminer) {
+      results = results.filter(e => e.classification !== 'EXAMINER_SEALED' && !e.tags.includes('EXAMINER_SEALED'));
+    }
 
     if (params.namespace) {
       results = results.filter(e => e.namespace === params.namespace || e.namespace.startsWith(`${params.namespace}/`));
