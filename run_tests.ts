@@ -749,10 +749,10 @@ assert(
 console.log(`\n${colors.bold}[SUITE PACKAGE B2: REAL AGENT EXECUTION, SWARM DAG & HANDOFF CONSERVATION (DOC 35)]${colors.reset}`);
 const pkgB2Res = await runPhasePackageB2RealAgentExecutionTests();
 assert(
-  "Package B2 Real Agent Execution & Swarm DAG Suite (19/19 Passed)",
-  pkgB2Res.passed === 19 && pkgB2Res.failed === 0,
+  `Package B2 Real Agent Execution & Swarm DAG Suite (${pkgB2Res.total}/${pkgB2Res.total} Passed)`,
+  pkgB2Res.passed === pkgB2Res.total && pkgB2Res.failed === 0,
   `Package B2 Suite failed (${pkgB2Res.failed} failures)`,
-  "All 19/19 Package B2 Real Agent Execution & Swarm DAG tests passed cleanly."
+  `All ${pkgB2Res.total}/${pkgB2Res.total} Package B2 Real Agent Execution & Swarm DAG tests passed cleanly.`
 );
 
 
