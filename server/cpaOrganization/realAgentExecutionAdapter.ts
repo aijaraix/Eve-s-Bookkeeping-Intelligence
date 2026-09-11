@@ -16,6 +16,16 @@
 
 import crypto from 'crypto';
 import { cpaModelRouter, RouterDecision, ModelExecutionRecord } from './cpaModelRouter.js';
+import { OutputValidationStatus } from './agentOutputContractValidator.js';
+
+export type ModelCallStatus =
+  | 'CALL_SUCCESS'
+  | 'MODEL_UNAVAILABLE'
+  | 'RATE_LIMITED'
+  | 'TIMEOUT'
+  | 'TOOL_FAILURE'
+  | 'CALL_FAILED'
+  | 'NOT_INVOKED';
 
 export interface RealAgentExecutionRequest {
   taskId: string;
@@ -70,6 +80,9 @@ export interface RealAgentExecutionReceipt {
     | 'TOOL_FAILURE'
     | 'INVALID_MODEL_OUTPUT'
     | 'BLOCKED';
+  modelCallStatus?: ModelCallStatus;
+  outputValidationStatus?: OutputValidationStatus;
+  outputValidationErrors?: string[];
   error?: string;
 }
 
@@ -156,6 +169,8 @@ export class RealAgentExecutionAdapter {
           costUsd: 0,
           fallbackState: 'UNAVAILABLE',
           executionStatus: 'MODEL_UNAVAILABLE',
+          modelCallStatus: 'MODEL_UNAVAILABLE',
+          outputValidationStatus: 'NOT_APPLICABLE',
           error: execution.fallbackReason || 'Model runtime unavailable or unconfigured'
         };
       }
@@ -196,7 +211,9 @@ export class RealAgentExecutionAdapter {
         costUsd: execution.costUsd,
         costMeasurement: execution.costUsd > 0 ? 'ESTIMATED' : 'NOT_REPORTED',
         fallbackState: execution.fallback ? 'MODEL_FALLBACK' : 'PRIMARY_SUCCESS',
-        executionStatus: 'SUCCESS'
+        executionStatus: 'SUCCESS',
+        modelCallStatus: 'CALL_SUCCESS',
+        outputValidationStatus: 'PENDING'
       };
     } catch (err: any) {
       const reqCompletedAt = new Date().toISOString();
@@ -215,6 +232,8 @@ export class RealAgentExecutionAdapter {
         costUsd: 0,
         fallbackState: 'UNAVAILABLE',
         executionStatus: 'MODEL_UNAVAILABLE',
+        modelCallStatus: 'CALL_FAILED',
+        outputValidationStatus: 'NOT_APPLICABLE',
         error: err.message
       };
     }
@@ -230,11 +249,16 @@ export class RealAgentExecutionAdapter {
     provider?: string;
     parsedOutput?: Record<string, any>;
     executionStatus?: RealAgentExecutionReceipt['executionStatus'];
+    modelCallStatus?: ModelCallStatus;
+    outputValidationStatus?: OutputValidationStatus;
+    outputValidationErrors?: string[];
     error?: string;
     costUsd?: number;
     costMeasurement?: 'MEASURED' | 'ESTIMATED' | 'NOT_REPORTED';
   }): RealAgentExecutionReceipt {
     const now = new Date().toISOString();
+    const executionStatus = params.executionStatus || 'SUCCESS';
+    const modelCallStatus = params.modelCallStatus || (executionStatus === 'MODEL_UNAVAILABLE' ? 'MODEL_UNAVAILABLE' : 'CALL_SUCCESS');
     return {
       routingDecisionId: `decision-${Date.now()}`,
       modelExecutionId: params.modelExecutionId,
@@ -252,7 +276,10 @@ export class RealAgentExecutionAdapter {
       costUsd: params.costUsd ?? 0,
       costMeasurement: params.costMeasurement || (params.costUsd !== undefined && params.costUsd > 0 ? 'MEASURED' : 'NOT_REPORTED'),
       fallbackState: 'PRIMARY_SUCCESS',
-      executionStatus: params.executionStatus || 'SUCCESS',
+      executionStatus,
+      modelCallStatus,
+      outputValidationStatus: params.outputValidationStatus || 'PENDING',
+      outputValidationErrors: params.outputValidationErrors,
       error: params.error
     };
   }

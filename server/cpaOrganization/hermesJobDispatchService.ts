@@ -35,8 +35,13 @@ import {
   deriveExecutionMechanism,
   realAgentExecutionAdapter,
   RealAgentExecutionReceipt,
-  RealAgentAdapterFn
+  RealAgentAdapterFn,
+  ModelCallStatus
 } from './realAgentExecutionAdapter.js';
+import {
+  validateRoleOutputContract,
+  OutputValidationStatus
+} from './agentOutputContractValidator.js';
 
 export type RoleExecutionClass =
   | 'REAL_AI_AGENT'
@@ -80,7 +85,16 @@ export interface AgentJobExecution {
   persistedArtifactPath: string;
   handoffId?: string;
   handoffAcknowledgement: boolean;
-  status: 'JOB_COMPLETED_SUCCESS' | 'JOB_NEEDS_REVIEW' | 'JOB_FAILED' | 'BLOCKED' | 'MODEL_UNAVAILABLE';
+  status:
+    | 'JOB_COMPLETED_SUCCESS'
+    | 'JOB_NEEDS_REVIEW'
+    | 'JOB_FAILED'
+    | 'BLOCKED'
+    | 'MODEL_UNAVAILABLE'
+    | 'INVALID_MODEL_OUTPUT';
+  modelCallStatus?: ModelCallStatus;
+  outputValidationStatus?: OutputValidationStatus;
+  outputValidationErrors?: string[];
   uncertainties: string[];
   findings: string[];
   startedAt: string;
@@ -216,21 +230,28 @@ export class HermesJobDispatchService {
       const artifactFilename = `${agentExecutionId}.json`;
       const persistedArtifactPath = path.join(this.storageDir, artifactFilename);
 
-      // B2.1 Invariant: derive execution mechanism from authentic receipt, not declaration
+      // B2.1 & B2.2 Invariants:
+      // 1. Execution mechanism derived from authentic receipt, not declaration
+      // 2. REAL_AI_AGENT requires authentic modelExecutionId to claim SUCCESS or REAL_MODEL_INFERENCE
+      // 3. Model execution success is NOT output validation: REAL_AI_AGENT JOB_COMPLETED_SUCCESS requires outputValidationStatus === 'VALIDATED'
       let executionMechanism = executionResult.executionMechanism;
       let jobStatus = executionResult.status;
       const uncertainties = [...executionResult.uncertainties];
       const effectiveRoleClass = executionResult.roleExecutionClass || jobParams.roleExecutionClass;
 
-      // Fail-closed invariant: REAL_AI_AGENT requires authentic modelExecutionId to claim SUCCESS or REAL_MODEL_INFERENCE
-      if (!executionResult.modelExecutionId || executionResult.modelExecutionId.trim().length === 0) {
-        if (executionMechanism === 'REAL_MODEL_INFERENCE') {
-          executionMechanism = 'HEURISTIC_EVALUATION';
-        }
-        if (effectiveRoleClass === 'REAL_AI_AGENT') {
+      if (effectiveRoleClass === 'REAL_AI_AGENT') {
+        if (!executionResult.modelExecutionId || executionResult.modelExecutionId.trim().length === 0) {
+          if (executionMechanism === 'REAL_MODEL_INFERENCE') {
+            executionMechanism = 'HEURISTIC_EVALUATION';
+          }
           if (jobStatus === 'JOB_COMPLETED_SUCCESS') {
             jobStatus = 'JOB_FAILED';
             uncertainties.push('REAL_AI_AGENT failed closed: missing authentic modelExecutionId receipt');
+          }
+        } else if (executionResult.outputValidationStatus !== 'VALIDATED') {
+          if (jobStatus === 'JOB_COMPLETED_SUCCESS') {
+            jobStatus = 'INVALID_MODEL_OUTPUT';
+            uncertainties.push('REAL_AI_AGENT failed closed: model output contract not validated');
           }
         }
       }
@@ -260,6 +281,9 @@ export class HermesJobDispatchService {
         handoffId: jobParams.handoffId,
         handoffAcknowledgement: true,
         status: jobStatus,
+        modelCallStatus: executionResult.modelCallStatus,
+        outputValidationStatus: executionResult.outputValidationStatus,
+        outputValidationErrors: executionResult.outputValidationErrors,
         uncertainties,
         findings: executionResult.findings,
         startedAt,
@@ -592,6 +616,9 @@ export class HermesJobDispatchService {
     roleExecutionClass?: RoleExecutionClass;
     modelExecutionId?: string;
     routingDecisionId?: string;
+    modelCallStatus?: ModelCallStatus;
+    outputValidationStatus?: OutputValidationStatus;
+    outputValidationErrors?: string[];
     provenance: AgentJobExecution['provenance'];
     status: AgentJobExecution['status'];
     uncertainties: string[];
@@ -601,15 +628,15 @@ export class HermesJobDispatchService {
 
     switch (agentId) {
       case 'HERMES': {
-        const materiality = Math.max(1000, Math.round(params.reportedAssets * 0.01));
+        const deterministicMaterialityUsd = Math.max(1000, Math.round(params.reportedAssets * 0.01));
 
         // Physical model execution for engagement scoping & strategy
         const hermesReceipt = await executeRealAgentWork({
           taskId: `task-hermes-scope-${params.engagementId}`,
           agentId: 'HERMES',
           taskType: 'COMPLEX_POLICY_ANALYSIS',
-          systemPrompt: 'You are Hermes, Autonomous Lead Audit Partner and Engagement Director. Establish statutory audit scope, materiality threshold, and risk assessment for Form 10-K engagement.',
-          userPrompt: `Establish statutory audit scope and materiality for ${params.clientName} (${params.ticker}) with reported assets $${params.reportedAssets}.`,
+          systemPrompt: 'You are Hermes, Autonomous Lead Audit Partner and Engagement Director. Establish statutory audit scope, materiality recommendation, risk areas, and orchestration plan for Form 10-K engagement.',
+          userPrompt: `Establish statutory audit scope and materiality recommendation for ${params.clientName} (${params.ticker}) with reported assets $${params.reportedAssets}.`,
           contextData: {
             client: params.clientName,
             ticker: params.ticker,
@@ -625,6 +652,8 @@ export class HermesJobDispatchService {
             executionMechanism: 'HEURISTIC_EVALUATION',
             roleExecutionClass: 'REAL_AI_AGENT',
             modelExecutionId: undefined,
+            modelCallStatus: 'MODEL_UNAVAILABLE',
+            outputValidationStatus: 'NOT_APPLICABLE',
             provenance: {
               agentId: 'HERMES',
               logicalAgentName: 'HERMES',
@@ -646,17 +675,66 @@ export class HermesJobDispatchService {
             outputManifest: {
               auditScope: 'UNAVAILABLE',
               materialityThresholdUsd: 0,
-              scopeAndIndependenceApproved: false,
+              scopeEstablished: false,
+              independenceStatus: 'NOT_EVALUATED',
               orchestrationStatus: 'BLOCKED_MODEL_UNAVAILABLE'
             }
           };
         }
 
+        // Validate HERMES output contract
+        const validation = validateRoleOutputContract('HERMES', hermesReceipt.parsedOutput, {
+          reportedAssets: params.reportedAssets
+        });
+
+        if (!validation.isValid) {
+          return {
+            executionMechanism: 'REAL_MODEL_INFERENCE',
+            roleExecutionClass: 'REAL_AI_AGENT',
+            modelExecutionId: hermesReceipt.modelExecutionId,
+            routingDecisionId: hermesReceipt.routingDecisionId,
+            modelCallStatus: 'CALL_SUCCESS',
+            outputValidationStatus: validation.validationStatus,
+            outputValidationErrors: validation.errors,
+            provenance: {
+              agentId: 'HERMES',
+              logicalAgentName: 'HERMES',
+              model: hermesReceipt.actualModel,
+              actualModel: hermesReceipt.actualModel,
+              tier: 'LEVEL_2_FAST_CLOUD',
+              provider: hermesReceipt.provider,
+              tokensUsed: hermesReceipt.usage ? { promptTokens: hermesReceipt.usage.promptTokens || 0, completionTokens: hermesReceipt.usage.completionTokens || 0 } : undefined,
+              costUsd: hermesReceipt.costUsd || 0,
+              measured: hermesReceipt.costMeasurement === 'MEASURED',
+              costMeasurement: hermesReceipt.costMeasurement
+            },
+            status: 'INVALID_MODEL_OUTPUT',
+            uncertainties: [...validation.errors],
+            findings: ['HERMES output validation failed: ' + validation.errors.join('; ')],
+            outputObjectReferences: [
+              `obj-scope-${params.engagementId}`,
+              `obj-materiality-${params.engagementId}`
+            ],
+            outputManifest: {
+              auditScope: 'INVALID_MODEL_OUTPUT',
+              materialityThresholdUsd: 0,
+              scopeEstablished: false,
+              independenceStatus: 'NOT_EVALUATED',
+              orchestrationStatus: 'INVALID_MODEL_OUTPUT',
+              validationErrors: validation.errors
+            }
+          };
+        }
+
+        const validOut = validation.validatedOutput!;
         return {
           executionMechanism: 'REAL_MODEL_INFERENCE',
           roleExecutionClass: 'REAL_AI_AGENT',
           modelExecutionId: hermesReceipt.modelExecutionId,
           routingDecisionId: hermesReceipt.routingDecisionId,
+          modelCallStatus: 'CALL_SUCCESS',
+          outputValidationStatus: 'VALIDATED',
+          outputValidationErrors: [],
           provenance: {
             agentId: 'HERMES',
             logicalAgentName: 'HERMES',
@@ -671,18 +749,30 @@ export class HermesJobDispatchService {
           },
           status: 'JOB_COMPLETED_SUCCESS',
           uncertainties: [],
-          findings: [`Materiality established at $${materiality.toLocaleString()}`],
+          findings: [
+            `Audit scope established: ${validOut.auditScope}`,
+            `Materiality: deterministic $${deterministicMaterialityUsd.toLocaleString()}, model recommends $${validOut.recommendedMaterialityUsd.toLocaleString()} (pending authorized review)`
+          ],
           outputObjectReferences: [
             `obj-scope-${params.engagementId}`,
             `obj-materiality-${params.engagementId}`
           ],
           outputManifest: {
-            auditScope: `Statutory Form 10-K Audit for ${params.clientName}`,
-            materialityThresholdUsd: materiality,
+            auditScope: validOut.auditScope,
+            materialityThresholdUsd: deterministicMaterialityUsd,
+            materialityAssessment: {
+              deterministicCalculationUsd: deterministicMaterialityUsd,
+              modelRecommendationUsd: validOut.recommendedMaterialityUsd,
+              finalAuthorizedValueUsd: null,
+              status: 'PENDING_AUTHORIZED_REVIEW'
+            },
             reportingFramework: 'US_GAAP',
-            scopeAndIndependenceApproved: true,
-            orchestrationStatus: 'SPECIALIST_SWARM_CONTRACTS_DISPATCHED',
-            scopingDecision: hermesReceipt.parsedOutput || { status: 'SCOPED' }
+            scopeEstablished: true,
+            independenceStatus: 'PENDING_AUTHORIZED_REVIEW',
+            independenceApproved: false,
+            riskAreas: validOut.riskAreas,
+            orchestrationPlan: validOut.orchestrationPlan,
+            orchestrationStatus: 'SPECIALIST_SWARM_CONTRACTS_DISPATCHED'
           }
         };
       }
@@ -695,11 +785,19 @@ export class HermesJobDispatchService {
 
         return {
           executionMechanism: 'DETERMINISTIC_SPECIALIST_ENGINE',
+          roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE',
+          modelExecutionId: undefined,
+          modelCallStatus: 'NOT_INVOKED',
+          outputValidationStatus: 'NOT_APPLICABLE',
+          outputValidationErrors: [],
           provenance: {
+            agentId: 'LEDGER',
+            logicalAgentName: 'LEDGER',
             model: 'deterministic-ledger-engine',
             tier: 'LEVEL_0_DETERMINISTIC',
             costUsd: 0.0,
-            measured: true
+            measured: true,
+            costMeasurement: 'MEASURED'
           },
           status: 'JOB_COMPLETED_SUCCESS',
           uncertainties: totalAccounts === 0 ? ['No balance sheet accounts discovered in filing'] : [],
@@ -743,11 +841,19 @@ export class HermesJobDispatchService {
 
         return {
           executionMechanism: 'DETERMINISTIC_SPECIALIST_ENGINE',
+          roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE',
+          modelExecutionId: undefined,
+          modelCallStatus: 'NOT_INVOKED',
+          outputValidationStatus: 'NOT_APPLICABLE',
+          outputValidationErrors: [],
           provenance: {
+            agentId: 'EUCLID',
+            logicalAgentName: 'EUCLID',
             model: 'deterministic-euclid-engine',
             tier: 'LEVEL_0_DETERMINISTIC',
             costUsd: 0.0,
-            measured: true
+            measured: true,
+            costMeasurement: 'MEASURED'
           },
           status: 'JOB_COMPLETED_SUCCESS',
           uncertainties: balanced ? [] : [`Accounting equation unbalanced: variance of $${variance}`],
@@ -797,11 +903,19 @@ export class HermesJobDispatchService {
 
         return {
           executionMechanism: 'DETERMINISTIC_SPECIALIST_ENGINE',
+          roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE',
+          modelExecutionId: undefined,
+          modelCallStatus: 'NOT_INVOKED',
+          outputValidationStatus: 'NOT_APPLICABLE',
+          outputValidationErrors: [],
           provenance: {
+            agentId: 'VERITAS',
+            logicalAgentName: 'VERITAS',
             model: 'deterministic-veritas-engine',
             tier: 'LEVEL_0_DETERMINISTIC',
             costUsd: 0.0,
-            measured: true
+            measured: true,
+            costMeasurement: 'MEASURED'
           },
           status: 'JOB_COMPLETED_SUCCESS',
           uncertainties: actualSha256Match ? [] : ['Source file hash mismatch or file missing on disk'],
@@ -820,8 +934,6 @@ export class HermesJobDispatchService {
       }
 
       case 'ATHENA': {
-        const factsPresent = params.extractedFactsCount > 0;
-
         // Physical model execution for GAAP technical standards review
         const athenaReceipt = await executeRealAgentWork({
           taskId: `task-athena-standards-${params.engagementId}`,
@@ -844,6 +956,8 @@ export class HermesJobDispatchService {
             executionMechanism: 'HEURISTIC_EVALUATION',
             roleExecutionClass: 'REAL_AI_AGENT',
             modelExecutionId: undefined,
+            modelCallStatus: 'MODEL_UNAVAILABLE',
+            outputValidationStatus: 'NOT_APPLICABLE',
             provenance: {
               agentId: 'ATHENA',
               logicalAgentName: 'ATHENA',
@@ -872,11 +986,59 @@ export class HermesJobDispatchService {
           };
         }
 
+        // Validate ATHENA output contract
+        const validation = validateRoleOutputContract('ATHENA', athenaReceipt.parsedOutput, {
+          extractedFactsCount: params.extractedFactsCount
+        });
+
+        if (!validation.isValid) {
+          return {
+            executionMechanism: 'REAL_MODEL_INFERENCE',
+            roleExecutionClass: 'REAL_AI_AGENT',
+            modelExecutionId: athenaReceipt.modelExecutionId,
+            routingDecisionId: athenaReceipt.routingDecisionId,
+            modelCallStatus: 'CALL_SUCCESS',
+            outputValidationStatus: validation.validationStatus,
+            outputValidationErrors: validation.errors,
+            provenance: {
+              agentId: 'ATHENA',
+              logicalAgentName: 'ATHENA',
+              model: athenaReceipt.actualModel,
+              actualModel: athenaReceipt.actualModel,
+              tier: 'LEVEL_2_FAST_CLOUD',
+              provider: athenaReceipt.provider,
+              tokensUsed: athenaReceipt.usage ? { promptTokens: athenaReceipt.usage.promptTokens || 0, completionTokens: athenaReceipt.usage.completionTokens || 0 } : undefined,
+              costUsd: athenaReceipt.costUsd || 0,
+              measured: athenaReceipt.costMeasurement === 'MEASURED',
+              costMeasurement: athenaReceipt.costMeasurement
+            },
+            status: 'INVALID_MODEL_OUTPUT',
+            uncertainties: [...validation.errors],
+            findings: ['Athena output contract validation failed: ' + validation.errors.join('; ')],
+            outputObjectReferences: [
+              `obj-athena-disclosure-${params.engagementId}`,
+              `obj-athena-standards-${params.engagementId}`
+            ],
+            outputManifest: {
+              asc280SegmentCompliance: 'UNVALIDATED_MODEL_OUTPUT',
+              asc606RevenueDisaggregation: 'UNVALIDATED_MODEL_OUTPUT',
+              asc842LeaseDisclosures: 'UNVALIDATED_MODEL_OUTPUT',
+              substantiveFindingsCount: 0,
+              technicalSignOff: 'UNVALIDATED_MODEL_OUTPUT',
+              validationErrors: validation.errors
+            }
+          };
+        }
+
+        const validOut = validation.validatedOutput!;
         return {
           executionMechanism: 'REAL_MODEL_INFERENCE',
           roleExecutionClass: 'REAL_AI_AGENT',
           modelExecutionId: athenaReceipt.modelExecutionId,
           routingDecisionId: athenaReceipt.routingDecisionId,
+          modelCallStatus: 'CALL_SUCCESS',
+          outputValidationStatus: 'VALIDATED',
+          outputValidationErrors: [],
           provenance: {
             agentId: 'ATHENA',
             logicalAgentName: 'ATHENA',
@@ -891,17 +1053,20 @@ export class HermesJobDispatchService {
           },
           status: 'JOB_COMPLETED_SUCCESS',
           uncertainties: ['Substantive technical accounting review completed via verified model runtime'],
-          findings: athenaReceipt.parsedOutput?.findings || [`Extracted ${params.extractedFactsCount} facts for standards tie-out`],
+          findings: validOut.findings || [`Extracted ${params.extractedFactsCount} facts for standards tie-out`],
           outputObjectReferences: [
             `obj-athena-disclosure-${params.engagementId}`,
             `obj-athena-standards-${params.engagementId}`
           ],
           outputManifest: {
-            asc280SegmentCompliance: athenaReceipt.parsedOutput?.asc280SegmentCompliance || (factsPresent ? 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT' : 'UNVERIFIED'),
-            asc606RevenueDisaggregation: athenaReceipt.parsedOutput?.asc606RevenueDisaggregation || (factsPresent ? 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT' : 'UNVERIFIED'),
-            asc842LeaseDisclosures: athenaReceipt.parsedOutput?.asc842LeaseDisclosures || (factsPresent ? 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT' : 'UNVERIFIED'),
-            substantiveFindingsCount: athenaReceipt.parsedOutput?.substantiveFindingsCount ?? 0,
-            technicalSignOff: athenaReceipt.parsedOutput?.technicalSignOff || 'STANDARDS_REVIEW_COMPLETE_WITH_EVIDENCE_REFERENCES'
+            asc280SegmentCompliance: validOut.asc280SegmentCompliance,
+            asc606RevenueDisaggregation: validOut.asc606RevenueDisaggregation,
+            asc842LeaseDisclosures: validOut.asc842LeaseDisclosures,
+            substantiveFindingsCount: validOut.substantiveFindingsCount,
+            technicalSignOff: validOut.technicalSignOff,
+            evidenceReferences: validOut.evidenceReferences,
+            standardsEvaluated: validOut.standardsEvaluated,
+            reviewStatus: validOut.reviewStatus
           }
         };
       }
@@ -950,6 +1115,9 @@ export class HermesJobDispatchService {
             executionMechanism: 'HEURISTIC_EVALUATION',
             roleExecutionClass: 'REAL_AI_AGENT',
             modelExecutionId: undefined,
+            modelCallStatus: 'MODEL_UNAVAILABLE',
+            outputValidationStatus: 'NOT_APPLICABLE',
+            outputValidationErrors: [],
             provenance: {
               agentId: 'CLARA',
               logicalAgentName: 'CLARA',
@@ -977,11 +1145,62 @@ export class HermesJobDispatchService {
           };
         }
 
+        // Validate CLARA output contract
+        const validation = validateRoleOutputContract('CLARA', claraReceipt.parsedOutput, {
+          actualPersistedRequestsCount: requestsIssued,
+          actualPersistedResponsesCount: responsesReceived,
+          hasCustomerPbc
+        });
+
+        if (!validation.isValid) {
+          return {
+            executionMechanism: 'REAL_MODEL_INFERENCE',
+            roleExecutionClass: 'REAL_AI_AGENT',
+            modelExecutionId: claraReceipt.modelExecutionId,
+            routingDecisionId: claraReceipt.routingDecisionId,
+            modelCallStatus: 'CALL_SUCCESS',
+            outputValidationStatus: validation.validationStatus,
+            outputValidationErrors: validation.errors,
+            provenance: {
+              agentId: 'CLARA',
+              logicalAgentName: 'CLARA',
+              model: claraReceipt.actualModel,
+              actualModel: claraReceipt.actualModel,
+              tier: 'LEVEL_2_FAST_CLOUD',
+              provider: claraReceipt.provider,
+              tokensUsed: claraReceipt.usage ? { promptTokens: claraReceipt.usage.promptTokens || 0, completionTokens: claraReceipt.usage.completionTokens || 0 } : undefined,
+              costUsd: claraReceipt.costUsd || 0,
+              measured: claraReceipt.costMeasurement === 'MEASURED',
+              costMeasurement: claraReceipt.costMeasurement
+            },
+            status: 'INVALID_MODEL_OUTPUT',
+            uncertainties: [...validation.errors],
+            findings: ['Clara output contract validation failed: ' + validation.errors.join('; ')],
+            outputObjectReferences: [
+              `obj-clara-pbc-${params.engagementId}`
+            ],
+            outputManifest: {
+              requestsIssued,
+              responsesReceived,
+              requestsReconciled: 0,
+              responsesReconciled: 0,
+              customerPbcUploaded: hasCustomerPbc,
+              pbcStatus: 'INVALID_MODEL_OUTPUT',
+              reconciliationStatus: 'RECONCILIATION_FAILED',
+              validationErrors: validation.errors
+            }
+          };
+        }
+
+        const validOut = validation.validatedOutput!;
         return {
           executionMechanism: 'REAL_MODEL_INFERENCE',
           roleExecutionClass: 'REAL_AI_AGENT',
           modelExecutionId: claraReceipt.modelExecutionId,
           routingDecisionId: claraReceipt.routingDecisionId,
+          modelCallStatus: 'CALL_SUCCESS',
+          outputValidationStatus: 'VALIDATED',
+          outputValidationErrors: [],
           provenance: {
             agentId: 'CLARA',
             logicalAgentName: 'CLARA',
@@ -1003,8 +1222,12 @@ export class HermesJobDispatchService {
           outputManifest: {
             requestsIssued,
             responsesReceived,
+            requestsReconciled: validOut.requestsReconciled,
+            responsesReconciled: validOut.responsesReconciled,
             customerPbcUploaded: hasCustomerPbc,
-            pbcStatus,
+            pbcStatus: validOut.pbcStatus,
+            summary: validOut.summary,
+            evidenceSufficiency: validOut.evidenceSufficiency,
             reconciliationStatus: hasCustomerPbc
               ? 'CUSTOMER_SCHEDULES_RECONCILED'
               : 'PUBLIC_FILING_AUTONOMOUS_EVIDENCE_SUFFICIENT'
@@ -1017,6 +1240,9 @@ export class HermesJobDispatchService {
           executionMechanism: 'DETERMINISTIC_SPECIALIST_ENGINE',
           roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE',
           modelExecutionId: undefined,
+          modelCallStatus: 'NOT_INVOKED',
+          outputValidationStatus: 'NOT_APPLICABLE',
+          outputValidationErrors: [],
           provenance: {
             agentId: 'SENTINEL',
             logicalAgentName: 'SENTINEL',
@@ -1064,6 +1290,9 @@ export class HermesJobDispatchService {
             executionMechanism: 'HEURISTIC_EVALUATION',
             roleExecutionClass: 'REAL_AI_AGENT',
             modelExecutionId: undefined,
+            modelCallStatus: 'MODEL_UNAVAILABLE',
+            outputValidationStatus: 'NOT_APPLICABLE',
+            outputValidationErrors: [],
             provenance: {
               agentId: 'LEXICON',
               logicalAgentName: 'LEXICON',
@@ -1091,11 +1320,61 @@ export class HermesJobDispatchService {
           };
         }
 
+        // Validate LEXICON output contract
+        const validation = validateRoleOutputContract('LEXICON', lexiconReceipt.parsedOutput, {
+          uniqueConcepts,
+          dimContexts,
+          customExts
+        });
+
+        if (!validation.isValid) {
+          return {
+            executionMechanism: 'REAL_MODEL_INFERENCE',
+            roleExecutionClass: 'REAL_AI_AGENT',
+            modelExecutionId: lexiconReceipt.modelExecutionId,
+            routingDecisionId: lexiconReceipt.routingDecisionId,
+            modelCallStatus: 'CALL_SUCCESS',
+            outputValidationStatus: validation.validationStatus,
+            outputValidationErrors: validation.errors,
+            provenance: {
+              agentId: 'LEXICON',
+              logicalAgentName: 'LEXICON',
+              model: lexiconReceipt.actualModel,
+              actualModel: lexiconReceipt.actualModel,
+              tier: 'LEVEL_1_LOCAL_QWEN',
+              provider: lexiconReceipt.provider,
+              tokensUsed: lexiconReceipt.usage ? { promptTokens: lexiconReceipt.usage.promptTokens || 0, completionTokens: lexiconReceipt.usage.completionTokens || 0 } : undefined,
+              costUsd: lexiconReceipt.costUsd || 0,
+              measured: lexiconReceipt.costMeasurement === 'MEASURED',
+              costMeasurement: lexiconReceipt.costMeasurement
+            },
+            status: 'INVALID_MODEL_OUTPUT',
+            uncertainties: [...validation.errors],
+            findings: ['Lexicon output contract validation failed: ' + validation.errors.join('; ')],
+            outputObjectReferences: [
+              `obj-lexicon-taxonomy-${params.engagementId}`
+            ],
+            outputManifest: {
+              usGaapTaxonomyVersion: '2024/2025',
+              customExtensionsCount: customExts,
+              dimensionContextsMapped: dimContexts,
+              uniqueConceptsCount: uniqueConcepts,
+              semanticAnchorStatus: 'UNVALIDATED_MODEL_OUTPUT',
+              disposition: 'INVALID_MODEL_OUTPUT',
+              validationErrors: validation.errors
+            }
+          };
+        }
+
+        const validOut = validation.validatedOutput!;
         return {
           executionMechanism: 'REAL_MODEL_INFERENCE',
           roleExecutionClass: 'REAL_AI_AGENT',
           modelExecutionId: lexiconReceipt.modelExecutionId,
           routingDecisionId: lexiconReceipt.routingDecisionId,
+          modelCallStatus: 'CALL_SUCCESS',
+          outputValidationStatus: 'VALIDATED',
+          outputValidationErrors: [],
           provenance: {
             agentId: 'LEXICON',
             logicalAgentName: 'LEXICON',
@@ -1115,12 +1394,14 @@ export class HermesJobDispatchService {
             `obj-lexicon-taxonomy-${params.engagementId}`
           ],
           outputManifest: {
-            usGaapTaxonomyVersion: '2024/2025',
+            usGaapTaxonomyVersion: validOut.taxonomyVersion,
             customExtensionsCount: customExts,
             dimensionContextsMapped: dimContexts,
             uniqueConceptsCount: uniqueConcepts,
-            semanticAnchorStatus: 'SEMANTICALLY_ANCHORED_VIA_MODEL',
-            disposition: 'ALL_FACTS_SEMANTICALLY_ANCHORED'
+            semanticAnchorStatus: validOut.semanticAnchorStatus,
+            customExtensionsEvaluated: validOut.customExtensionsEvaluated,
+            semanticAlignments: validOut.semanticAlignments,
+            disposition: validOut.disposition
           }
         };
       }
@@ -1137,6 +1418,9 @@ export class HermesJobDispatchService {
             executionMechanism: 'HEURISTIC_EVALUATION',
             roleExecutionClass: 'REAL_AI_AGENT',
             modelExecutionId: undefined,
+            modelCallStatus: 'NOT_INVOKED',
+            outputValidationStatus: 'NOT_APPLICABLE',
+            outputValidationErrors: [],
             provenance: {
               agentId: 'QUINN',
               logicalAgentName: 'QUINN',
@@ -1194,6 +1478,9 @@ export class HermesJobDispatchService {
             executionMechanism: 'HEURISTIC_EVALUATION',
             roleExecutionClass: 'REAL_AI_AGENT',
             modelExecutionId: undefined,
+            modelCallStatus: 'MODEL_UNAVAILABLE',
+            outputValidationStatus: 'NOT_APPLICABLE',
+            outputValidationErrors: [],
             provenance: {
               agentId: 'QUINN',
               logicalAgentName: 'QUINN',
@@ -1222,18 +1509,61 @@ export class HermesJobDispatchService {
           };
         }
 
-        // Model succeeded: Quinn generates AI review complete, but CANNOT grant physical human sign-off
-        const reviewConclusion = variance > 0
-          ? 'REVIEW_REQUIRED_ARITHMETIC_DISCREPANCY'
-          : (allPriorSucceeded
-            ? 'AI_REVIEW_COMPLETE_READY_FOR_AUTHORIZED_HUMAN_REVIEW'
-            : 'REVIEW_REQUIRED_UPSTREAM_ISSUES');
+        // Validate QUINN output contract
+        const validation = validateRoleOutputContract('QUINN', quinnReceipt.parsedOutput, {
+          priorJobsCount: context.priorJobs.length,
+          variance,
+          allPriorSucceeded
+        });
 
+        if (!validation.isValid) {
+          return {
+            executionMechanism: 'REAL_MODEL_INFERENCE',
+            roleExecutionClass: 'REAL_AI_AGENT',
+            modelExecutionId: quinnReceipt.modelExecutionId,
+            routingDecisionId: quinnReceipt.routingDecisionId,
+            modelCallStatus: 'CALL_SUCCESS',
+            outputValidationStatus: validation.validationStatus,
+            outputValidationErrors: validation.errors,
+            provenance: {
+              agentId: 'QUINN',
+              logicalAgentName: 'QUINN',
+              model: quinnReceipt.actualModel,
+              actualModel: quinnReceipt.actualModel,
+              tier: 'LEVEL_3_HEAVY_CLOUD',
+              provider: quinnReceipt.provider,
+              tokensUsed: quinnReceipt.usage ? { promptTokens: quinnReceipt.usage.promptTokens || 0, completionTokens: quinnReceipt.usage.completionTokens || 0 } : undefined,
+              costUsd: quinnReceipt.costUsd || 0,
+              measured: quinnReceipt.costMeasurement === 'MEASURED',
+              costMeasurement: quinnReceipt.costMeasurement
+            },
+            status: 'INVALID_MODEL_OUTPUT',
+            uncertainties: [...validation.errors],
+            findings: ['Quinn output contract validation failed: ' + validation.errors.join('; ')],
+            outputObjectReferences: [
+              `obj-quinn-eqcr-${params.engagementId}`
+            ],
+            outputManifest: {
+              significantMattersAssessed: 0,
+              consultationsDocumented: false,
+              workpaperAuditTrailIntact: false,
+              concurringApprovalGranted: false,
+              deliveryEligible: false,
+              reviewConclusion: 'INVALID_MODEL_OUTPUT',
+              validationErrors: validation.errors
+            }
+          };
+        }
+
+        const validOut = validation.validatedOutput!;
         return {
           executionMechanism: 'REAL_MODEL_INFERENCE',
           roleExecutionClass: 'REAL_AI_AGENT',
           modelExecutionId: quinnReceipt.modelExecutionId,
           routingDecisionId: quinnReceipt.routingDecisionId,
+          modelCallStatus: 'CALL_SUCCESS',
+          outputValidationStatus: 'VALIDATED',
+          outputValidationErrors: [],
           provenance: {
             agentId: 'QUINN',
             logicalAgentName: 'QUINN',
@@ -1257,13 +1587,15 @@ export class HermesJobDispatchService {
             `obj-quinn-eqcr-${params.engagementId}`
           ],
           outputManifest: {
-            significantMattersAssessed: quinnReceipt.parsedOutput?.significantMattersAssessed ?? (variance > 0 ? 1 : 0),
-            consultationsDocumented: false,
-            workpaperAuditTrailIntact: allPriorSucceeded,
+            significantMattersAssessed: validOut.significantMattersAssessed,
+            consultationsDocumented: validOut.consultationsDocumented,
+            workpaperAuditTrailIntact: validOut.workpaperAuditTrailIntact,
             concurringApprovalGranted: false, // Strict: AI Quinn can never grant physical human partner approval
             deliveryEligible: false,
-            reviewConclusion,
-            memoText: quinnReceipt.parsedOutput?.textResponse || 'EQCR concurring quality review concluded.'
+            humanPartnerSignOffRequired: true,
+            humanPartnerSignOffStatus: 'PENDING_HUMAN_PARTNER_SIGNOFF',
+            reviewConclusion: validOut.reviewConclusion,
+            memoText: validOut.memoText
           }
         };
       }

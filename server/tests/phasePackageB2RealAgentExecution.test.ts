@@ -41,7 +41,7 @@ export async function runPhasePackageB2RealAgentExecutionTests(): Promise<{ pass
 
   let passed = 0;
   let failed = 0;
-  const total = 22;
+  const total = 26;
 
   function assertTest(name: string, condition: boolean, details: string) {
     if (condition) {
@@ -63,6 +63,65 @@ export async function runPhasePackageB2RealAgentExecutionTests(): Promise<{ pass
     const isLexicon = req.agentId === 'LEXICON';
     const isQuinn = req.agentId === 'QUINN';
 
+    let parsedOutput: Record<string, any>;
+    switch (req.agentId) {
+      case 'HERMES':
+        parsedOutput = {
+          auditScope: 'Statutory Form 10-K Audit',
+          recommendedMaterialityUsd: 150000,
+          riskAreas: ['Revenue Recognition', 'Lease Obligations', 'Inventory Valuation'],
+          orchestrationPlan: 'Execute specialist swarm: LEDGER -> EUCLID -> VERITAS -> ATHENA -> CLARA -> LEXICON -> QUINN',
+          scopeEstablished: true,
+          independenceStatus: 'PENDING_AUTHORIZED_REVIEW'
+        };
+        break;
+      case 'ATHENA':
+        parsedOutput = {
+          reviewStatus: 'SUBSTANTIVE_STANDARDS_REVIEW_EXECUTED',
+          standardsEvaluated: ['ASC_280', 'ASC_606', 'ASC_842'],
+          asc280SegmentCompliance: 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT',
+          asc606RevenueDisaggregation: 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT',
+          asc842LeaseDisclosures: 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT',
+          substantiveFindingsCount: 0,
+          technicalSignOff: 'FACTS_EXTRACTED_STANDARDS_REVIEW_PENDING_SUBSTANTIVE_AUDIT',
+          evidenceReferences: ['ref-balance-sheet', 'ref-footnotes'],
+          findings: ['Evaluated disclosure compliance against ASC 280, 606, 842'],
+          uncertainties: []
+        };
+        break;
+      case 'CLARA':
+        parsedOutput = {
+          pbcStatus: 'AUTONOMOUS_PUBLIC_EVIDENCE_ONLY',
+          requestsReconciled: 0,
+          responsesReconciled: 0,
+          summary: 'Evaluated public SEC filings; autonomous public evidence is sufficient.',
+          evidenceSufficiency: 'SUFFICIENT_FOR_STATUTORY_DISCLOSURE'
+        };
+        break;
+      case 'LEXICON':
+        parsedOutput = {
+          semanticAnchorStatus: 'SEMANTICALLY_ANCHORED_VIA_MODEL',
+          taxonomyVersion: '2024/2025',
+          customExtensionsEvaluated: 0,
+          semanticAlignments: ['Assets', 'LiabilitiesAndStockholdersEquity'],
+          disposition: 'ALL_FACTS_SEMANTICALLY_ANCHORED'
+        };
+        break;
+      case 'QUINN':
+        parsedOutput = {
+          significantMattersAssessed: 0,
+          workpaperAuditTrailIntact: true,
+          consultationsDocumented: false,
+          concurringApprovalGranted: false,
+          deliveryEligible: false,
+          reviewConclusion: 'AI_REVIEW_COMPLETE_READY_FOR_AUTHORIZED_HUMAN_REVIEW',
+          memoText: 'EQCR concurring quality review concluded without arithmetic or custody discrepancy.'
+        };
+        break;
+      default:
+        parsedOutput = { textResponse: 'OK' };
+    }
+
     return {
       routingDecisionId: `route-${req.agentId.toLowerCase()}-cloud-${Date.now()}`,
       modelExecutionId: `model-exec-${req.agentId.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -72,14 +131,7 @@ export async function runPhasePackageB2RealAgentExecutionTests(): Promise<{ pass
       executionStartedAt: new Date(Date.now() - 50).toISOString(),
       executionCompletedAt: new Date().toISOString(),
       latencyMs: 50,
-      parsedOutput: {
-        technicalSignOff: 'FACTS_EXTRACTED_STANDARDS_REVIEW_PENDING_SUBSTANTIVE_AUDIT',
-        asc280SegmentCompliance: 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT',
-        asc606RevenueDisaggregation: 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT',
-        asc842LeaseDisclosures: 'DISCLOSURE_REVIEW_CONDUCTED_COMPLIANT',
-        substantiveFindingsCount: 0,
-        significantMattersAssessed: 0
-      },
+      parsedOutput,
       usage: {
         promptTokens: 420,
         completionTokens: 90,
@@ -799,6 +851,188 @@ export async function runPhasePackageB2RealAgentExecutionTests(): Promise<{ pass
         'Test 22: Package B2.1 Deterministic Specialist Separation Invariant',
         pureDeterministic,
         `Invoked for deterministic: ${modelInvokedForDeterministic}, Euclid mechanism: ${euclidJob?.executionMechanism}`
+      );
+    }
+
+    // --------------------------------------------------------------------------
+    // Test 23: Package B2.2 Model Call Succeeded But Invalid Output Triggers INVALID_MODEL_OUTPUT Status (Fail-Closed)
+    // --------------------------------------------------------------------------
+    {
+      // Configure adapter where ATHENA returns invalid unstructured prose missing mandatory disclosure fields
+      hermesJobDispatchService.setExecutionAdapter(async (req) => {
+        const std = createStandardTestReceipt(req);
+        if (req.agentId === 'ATHENA') {
+          return {
+            ...std,
+            parsedOutput: {
+              textResponse: 'I reviewed the disclosures and everything looks standard and compliant.'
+              // Missing reviewStatus, standardsEvaluated, asc280, asc606, asc842, technicalSignOff, evidenceReferences
+            }
+          };
+        }
+        return std;
+      });
+
+      const summary = await hermesJobDispatchService.executeCpaSpecialistSwarm({
+        engagementId: 'eng-b2-invalid-output-test',
+        clientName: 'Invalid Output Corp',
+        ticker: 'IOC',
+        fiscalYear: '2025',
+        reportedAssets: 500000,
+        reportedLiabilities: 200000,
+        reportedEquity: 300000,
+        sourceFilePath: tempFixturePath,
+        sourceSha256: tempFixtureSha256,
+        extractedFactsCount: 25
+      });
+
+      const athenaJob = summary.jobs.find(j => j.agentId === 'ATHENA');
+      const failClosedSuccess =
+        athenaJob?.modelCallStatus === 'CALL_SUCCESS' &&
+        athenaJob?.outputValidationStatus !== 'VALIDATED' &&
+        athenaJob?.status === 'INVALID_MODEL_OUTPUT' &&
+        athenaJob?.outputValidationErrors &&
+        athenaJob.outputValidationErrors.length > 0;
+
+      assertTest(
+        'Test 23: Package B2.2 Invalid Model Output Triggers INVALID_MODEL_OUTPUT Status (Fail-Closed)',
+        !!failClosedSuccess,
+        `Status: ${athenaJob?.status}, ModelCallStatus: ${athenaJob?.modelCallStatus}, ValidationStatus: ${athenaJob?.outputValidationStatus}`
+      );
+    }
+
+    // --------------------------------------------------------------------------
+    // Test 24: Package B2.2 Separation of Audit Scope and Firm Independence Authority
+    // --------------------------------------------------------------------------
+    {
+      hermesJobDispatchService.setExecutionAdapter(async (req) => createStandardTestReceipt(req));
+
+      const summary = await hermesJobDispatchService.executeCpaSpecialistSwarm({
+        engagementId: 'eng-b2-independence-sep-test',
+        clientName: 'Independence Separation Corp',
+        ticker: 'ISC',
+        fiscalYear: '2025',
+        reportedAssets: 600000,
+        reportedLiabilities: 250000,
+        reportedEquity: 350000,
+        sourceFilePath: tempFixturePath,
+        sourceSha256: tempFixtureSha256,
+        extractedFactsCount: 40
+      });
+
+      const hermesJob = summary.jobs.find(j => j.agentId === 'HERMES');
+      const manifest = hermesJob?.outputManifest as any;
+
+      const scopeEstablished = manifest?.scopeEstablished === true;
+      const independencePending = manifest?.independenceStatus === 'PENDING_AUTHORIZED_REVIEW';
+      const noAutomaticApproval =
+        manifest?.scopeAndIndependenceApproved === undefined &&
+        manifest?.independenceApproved === false;
+
+      assertTest(
+        'Test 24: Package B2.2 Separation of Audit Scope and Firm Independence Authority',
+        scopeEstablished && independencePending && noAutomaticApproval,
+        `Scope: ${manifest?.scopeEstablished}, IndependenceStatus: ${manifest?.independenceStatus}, AutoApproved: ${manifest?.scopeAndIndependenceApproved}`
+      );
+    }
+
+    // --------------------------------------------------------------------------
+    // Test 25: Package B2.2 HERMES Automatic Independence Approval Attempt Fails Closed
+    // --------------------------------------------------------------------------
+    {
+      // HERMES model attempts to assert automatic independence approval
+      hermesJobDispatchService.setExecutionAdapter(async (req) => {
+        const std = createStandardTestReceipt(req);
+        if (req.agentId === 'HERMES') {
+          return {
+            ...std,
+            parsedOutput: {
+              auditScope: 'Statutory Form 10-K Audit',
+              recommendedMaterialityUsd: 150000,
+              riskAreas: ['Revenue Recognition'],
+              orchestrationPlan: 'Execute specialist swarm',
+              scopeAndIndependenceApproved: true // FORBIDDEN! Model cannot approve firm independence
+            }
+          };
+        }
+        return std;
+      });
+
+      const summary = await hermesJobDispatchService.executeCpaSpecialistSwarm({
+        engagementId: 'eng-b2-independence-violation-test',
+        clientName: 'Independence Breach Corp',
+        ticker: 'IBC',
+        fiscalYear: '2025',
+        reportedAssets: 600000,
+        reportedLiabilities: 250000,
+        reportedEquity: 350000,
+        sourceFilePath: tempFixturePath,
+        sourceSha256: tempFixtureSha256,
+        extractedFactsCount: 40
+      });
+
+      const hermesJob = summary.jobs.find(j => j.agentId === 'HERMES');
+      const failsClosedOnIndependence =
+        hermesJob?.modelCallStatus === 'CALL_SUCCESS' &&
+        hermesJob?.outputValidationStatus === 'UNSUPPORTED_CONCLUSION' &&
+        hermesJob?.status === 'INVALID_MODEL_OUTPUT' &&
+        hermesJob?.outputValidationErrors?.some((e: string) => e.includes('INDEPENDENCE_AUTHORITY_VIOLATION'));
+
+      assertTest(
+        'Test 25: Package B2.2 HERMES Automatic Independence Approval Attempt Fails Closed',
+        !!failsClosedOnIndependence,
+        `Status: ${hermesJob?.status}, ValidationStatus: ${hermesJob?.outputValidationStatus}, Errors: ${hermesJob?.outputValidationErrors?.join('; ')}`
+      );
+    }
+
+    // --------------------------------------------------------------------------
+    // Test 26: Package B2.2 QUINN Concurring Partner AI Self-Certification Attempt Fails Closed
+    // --------------------------------------------------------------------------
+    {
+      // QUINN model attempts to grant physical concurring sign-off
+      hermesJobDispatchService.setExecutionAdapter(async (req) => {
+        const std = createStandardTestReceipt(req);
+        if (req.agentId === 'QUINN') {
+          return {
+            ...std,
+            parsedOutput: {
+              significantMattersAssessed: 0,
+              workpaperAuditTrailIntact: true,
+              consultationsDocumented: false,
+              concurringApprovalGranted: true, // FORBIDDEN: AI cannot self-certify partner sign-off
+              deliveryEligible: true,          // FORBIDDEN: AI cannot grant delivery eligibility
+              reviewConclusion: 'CONCURRING_APPROVAL_GRANTED_BY_AI',
+              memoText: 'AI Quinn approves report issuance.'
+            }
+          };
+        }
+        return std;
+      });
+
+      const summary = await hermesJobDispatchService.executeCpaSpecialistSwarm({
+        engagementId: 'eng-b2-quinn-selfcert-test',
+        clientName: 'Quinn Self-Cert Corp',
+        ticker: 'QSC',
+        fiscalYear: '2025',
+        reportedAssets: 500000,
+        reportedLiabilities: 200000,
+        reportedEquity: 300000,
+        sourceFilePath: tempFixturePath,
+        sourceSha256: tempFixtureSha256,
+        extractedFactsCount: 30
+      });
+
+      const quinnJob = summary.jobs.find(j => j.agentId === 'QUINN');
+      const failsClosedOnSelfCert =
+        quinnJob?.modelCallStatus === 'CALL_SUCCESS' &&
+        quinnJob?.outputValidationStatus === 'UNSUPPORTED_CONCLUSION' &&
+        quinnJob?.status === 'INVALID_MODEL_OUTPUT' &&
+        quinnJob?.outputValidationErrors?.some((e: string) => e.includes('SELF_CERTIFICATION_VIOLATION'));
+
+      assertTest(
+        'Test 26: Package B2.2 QUINN Concurring Partner AI Self-Certification Attempt Fails Closed',
+        !!failsClosedOnSelfCert,
+        `Status: ${quinnJob?.status}, ValidationStatus: ${quinnJob?.outputValidationStatus}, Errors: ${quinnJob?.outputValidationErrors?.join('; ')}`
       );
     }
 
