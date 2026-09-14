@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import * as XLSX from 'xlsx';
+import { PDFDocument } from 'pdf-lib';
+import { planLexiconBatches, validateLexiconBatch, executeLexiconBatches } from '../cpaOrganization/lexiconBatchExecutionService.js';
+import { boundedOllamaGenerate } from '../cpaOrganization/boundedOllamaGenerate.js';
+import { realAgentExecutionAdapter } from '../cpaOrganization/realAgentExecutionAdapter.js';
+import { reviewRow, buildReviewCsv, renderReviewPdf, renderReviewWorkbook } from '../cpaOrganization/reviewPackageRendering.js';
+
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'eve-bounded-review-'));
+try {
+  const concepts=Array.from({length:33},(_,i)=>`issuer:ExpenseConcept${i}`);
+  const batches=planLexiconBatches(concepts);
+  assert.equal(batches.length,3); assert.deepEqual(batches.flatMap(b=>b.items.map(x=>x.concept)),concepts);
+  assert(batches.every(b=>b.items.length<=16 && b.items.reduce((s,x)=>s+x.concept.length,0)<=2400));
+  assert.throws(()=>planLexiconBatches(['x:a','x:a']));
+  assert.throws(()=>planLexiconBatches(['x'.repeat(2000)]));
+  const valid=(b:any)=>({semanticAnchorStatus:'PROVISIONAL_NAME_REVIEW',taxonomyVersion:'2024',customExtensionsEvaluated:b.items.length,semanticAlignments:b.items.map((x:any)=>`${x.ref}|EXPENSE`),disposition:'DEFINITION_REVIEW_REQUIRED'});
+  assert(validateLexiconBatch(valid(batches[0]),batches[0],'2024'));
+  assert(!validateLexiconBatch({...valid(batches[0]),semanticAlignments:Array(16).fill('0|EXPENSE')},batches[0],'2024'));
+  assert(!validateLexiconBatch({...valid(batches[0]),customExtensionsEvaluated:166},batches[0],'2024'));
+  assert(!validateLexiconBatch({...valid(batches[0]),concurringApprovalGranted:true},batches[0],'2024'));
+  assert(!validateLexiconBatch({...valid(batches[0]),semanticAlignments:['99|ASSET']},batches[0],'2024'));
+  let calls=0;
+  const execute=async(req:any)=>{calls++;assert.equal(req.maxOutputTokens,512);assert.equal(req.localModelTimeoutMs,75000);assert(req.structuredSchema);return realAgentExecutionAdapter.createTestReceipt({agentId:'LEXICON',modelExecutionId:'fixture-inference-'+calls,parsedOutput:valid({items:req.contextData.concepts})});};
+  const input={engagementId:'eng-test-batches',sourceSha256:'a'.repeat(64),taxonomyVersion:'2024',customConcepts:concepts,expectedCount:33,inputObjectReferences:[]};
+  const result=await executeLexiconBatches(input,{rootDir:root,execute});
+  assert.equal(calls,3);assert.equal(result.parsedOutput?.customExtensionsEvaluated,33);
+  assert.equal(new Set(result.parsedOutput?.semanticAlignments.map((x:any)=>x.concept)).size,33);
+  assert(result.parsedOutput?.semanticAlignments.every((x:any)=>x.authoritativeAnchorVerified===false));
+  assert.equal(result.batchReceiptPaths?.length,3); assert.equal(result.modelExecutionIds?.length,3);
+  await executeLexiconBatches(input,{rootDir:root,execute}); assert.equal(calls,3,'restart must reuse persisted validated batches');
+  let failures=0;
+  const bad=async(req:any)=>{failures++;return realAgentExecutionAdapter.createTestReceipt({agentId:'LEXICON',modelExecutionId:'bad-'+failures,parsedOutput:{}});};
+  const badInput={...input,engagementId:'eng-failing-batches'};
+  assert.equal((await executeLexiconBatches(badInput,{rootDir:root,execute:bad})).executionStatus,'INVALID_MODEL_OUTPUT');
+  assert.equal(failures,2);await executeLexiconBatches(badInput,{rootDir:root,execute:bad});assert.equal(failures,2,'exhausted attempts must not reset');
+  const body={format:'json'};
+  const fake=(data:any)=>async()=>({ok:true,json:async()=>data}) as any;
+  await assert.rejects(()=>boundedOllamaGenerate('http://test',body,20,fake({done:true,done_reason:'length',response:'{}'})),/INCOMPLETE/);
+  await assert.rejects(()=>boundedOllamaGenerate('http://test',body,20,fake({done:true,response:''})),/EMPTY/);
+  await assert.rejects(()=>boundedOllamaGenerate('http://test',body,20,fake({done:true,response:'{"truncated"'})));
+  await assert.rejects(()=>boundedOllamaGenerate('http://test',body,5,(async()=>({ok:true,json:()=>new Promise(()=>{})})) as any),/TIMEOUT/,'deadline must cover response body, not just headers');
+  const good=await boundedOllamaGenerate('http://test',body,20,fake({done:true,done_reason:'stop',response:'{"ok":true}'}));assert.equal(good.response,'{"ok":true}');
+  const facts=[{id:'source-fact-2023',canonicalMetric:'cash',label:'Cash, "comparative"',value:10,reportingPeriod:'2023-12-31',statement:'BALANCE_SHEET',sourceDoc:'filing.htm',documentId:'document-real',page:2,verificationStatus:'VERIFIED',evidenceStatus:'CONFIRMED'},
+    {id:'source-fact-2024',canonicalMetric:'cash',label:'Cash',value:20,reportingPeriod:'2024-12-31',statement:'BALANCE_SHEET',sourceDoc:'filing.htm',documentId:'document-real',page:2,verificationStatus:'VERIFIED',evidenceStatus:'CONFIRMED'}];
+  assert.equal(reviewRow(facts[0]).period,'2023-12-31');assert.equal(reviewRow(facts[0]).id,'source-fact-2023');
+  const csv=buildReviewCsv(facts,'USD');assert(csv.includes('2023-12-31'));assert(csv.includes('source-fact-2023'));assert(!csv.includes('FACT-1'));assert(csv.includes('""comparative""'));
+  const params={reportId:'REP-BOUNDED-TEST',version:'v6-test',clientName:'Fixture only',period:'FY 2024',currency:'USD',facts,euclidBalance:{assets:30,liabilities:10,equity:20,variance:0},specialistReview:{jobs:[]},disclosureEvidenceLedger:{records:[]}};
+  const x=renderReviewWorkbook(params,root);const wb=XLSX.readFile(x.filepath);
+  assert.equal(wb.Sheets['Financial Statements'].E2.v,'2023-12-31');assert.equal(wb.Sheets['Financial Statements'].A2.v,'source-fact-2023');assert.equal(wb.Sheets['Executive Summary'].B15.f,'B12-B13-B14');assert.equal(wb.Sheets['Executive Summary'].B15.v,0);
+  const pdf=await renderReviewPdf({...params,facts:Array.from({length:70},(_,i)=>({...facts[i%2],label:'Long label '+i+' '.repeat(2)+'review '.repeat(20)}))},root);
+  assert((await PDFDocument.load(fs.readFileSync(pdf.filepath))).getPageCount()>3,'all rows must paginate instead of silently dropping after 14');
+  console.log('PASS: bounded input/output; exact batch coverage; durable restart; bounded retries; full-body deadline; no fabricated anchors; source IDs; comparative periods; CSV quoting; variance formula; PDF pagination');
+} finally {fs.rmSync(root,{recursive:true,force:true});}
