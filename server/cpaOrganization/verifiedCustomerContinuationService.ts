@@ -6,7 +6,7 @@ import { deliverableArtifactService, DeliverableArtifactRecord } from './deliver
 import { eveInternalAuditEngine } from './eveInternalAuditEngine.js';
 import { academyMinervaLab } from './academyMinervaLab.js';
 
-export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v2-balance-period-aliases';
+export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v3-structured-agent-contracts';
 
 export type VerifiedContinuationStatus =
   | 'READY_FROM_VERIFIED_EXTRACTION'
