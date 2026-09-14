@@ -33,7 +33,13 @@ export type AuthorizedRole =
   | 'CONCURRING_PARTNER'
   | 'QUALITY_REVIEWER'
   | 'AUDIT_STAFF'
-  | 'NON_CERTIFIED';
+  | 'NON_CERTIFIED'
+  | 'INTERNAL_OPERATOR'
+  | 'INTERNAL_SERVICE'
+  | 'CAPABILITY_PROMOTION_AUTHORITY'
+  | 'EXAMINER_SEALED_READ'
+  | 'AGENT_DELEGATE'
+  | string;
 
 export interface AuthenticationContext {
   sessionId: string;
@@ -51,6 +57,8 @@ export interface TrustedPrincipal {
   email?: string;
   isHuman: boolean;
   role: AuthorizedRole;
+  claims?: string[];
+  authorizedAgents?: string[];
   licenseDetails?: {
     licenseNumber: string;
     jurisdiction: string;

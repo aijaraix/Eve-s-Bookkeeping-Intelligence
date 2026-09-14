@@ -58,24 +58,11 @@ function buildAuthResult(params: {
   authorizedEngagements?: string[];
   authorizedAgents?: string[];
   isHuman?: boolean;
-  req?: Request;
 }): ServerAuthResult {
-  let role = params.authorityRole || '';
-  let claims = params.claims || [];
-  let authorizedTenants = params.authorizedTenants || [];
-  let authorizedAgents = params.authorizedAgents || [];
-
-  if (params.req) {
-    const headerRole = params.req.headers['x-authority-role'] as string;
-    const headerClaim = params.req.headers['x-authority-claim'] as string;
-    const headerTenant = params.req.headers['x-tenant-id'] as string;
-    const headerAgent = params.req.headers['x-authorized-agent'] as string;
-
-    if (headerRole && !role) role = headerRole;
-    if (headerClaim && !claims.includes(headerClaim)) claims = [...claims, headerClaim];
-    if (headerTenant && !authorizedTenants.includes(headerTenant)) authorizedTenants = [...authorizedTenants, headerTenant];
-    if (headerAgent && !authorizedAgents.includes(headerAgent)) authorizedAgents = [...authorizedAgents, headerAgent];
-  }
+  const role = params.authorityRole || '';
+  const claims = Array.isArray(params.claims) ? [...params.claims] : [];
+  const authorizedTenants = Array.isArray(params.authorizedTenants) ? [...params.authorizedTenants] : [];
+  const authorizedAgents = Array.isArray(params.authorizedAgents) ? [...params.authorizedAgents] : [];
 
   const isPromotionAuthority = role === 'CAPABILITY_PROMOTION_AUTHORITY' || claims.includes('CAPABILITY_PROMOTION_AUTHORITY');
   const isExaminerService = role === 'EXAMINER_SEALED_READ' || claims.includes('EXAMINER_SEALED_READ');
@@ -112,10 +99,10 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
   const reqUser = (req as any).user || (req as any).auth || (req as any).authenticatedUser;
   if (reqUser && typeof reqUser === 'object') {
     const principalId = reqUser.principalId || reqUser.id || reqUser.userId || reqUser.sub;
-    const sessionId = reqUser.sessionId || (req as any).session?.id || req.headers['x-session-id'] || (req.headers.authorization ? String(req.headers.authorization).replace(/^Bearer\s+/i, '') : null);
-    if (principalId && sessionId) {
+    const sessionId = reqUser.sessionId || (req as any).session?.id || 'session-middleware';
+    if (principalId) {
       const provider = professionalSignoffGuard.getAuthorityProvider();
-      if (provider?.verifySession) {
+      if (provider?.verifySession && sessionId) {
         try {
           const sessionValid = await provider.verifySession(String(sessionId), String(principalId));
           if (!sessionValid) {
@@ -140,13 +127,12 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
         principalId: String(principalId),
         sessionId: String(sessionId),
         authMethod: reqUser.authMethod || 'SESSION_COOKIE',
-        authorityRole: reqUser.role || reqUser.authorityRole,
-        claims: reqUser.claims || (reqUser.claim ? [reqUser.claim] : []),
-        authorizedTenants: reqUser.authorizedTenants || (reqUser.tenantId ? [reqUser.tenantId] : []),
-        authorizedEngagements: reqUser.authorizedEngagements || (reqUser.engagementId ? [reqUser.engagementId] : []),
-        authorizedAgents: reqUser.authorizedAgents || (reqUser.agentId ? [reqUser.agentId] : []),
-        isHuman: reqUser.isHuman,
-        req
+        authorityRole: reqUser.role || reqUser.authorityRole || '',
+        claims: Array.isArray(reqUser.claims) ? reqUser.claims : (reqUser.claim ? [reqUser.claim] : []),
+        authorizedTenants: Array.isArray(reqUser.authorizedTenants) ? reqUser.authorizedTenants : (reqUser.tenantId ? [reqUser.tenantId] : []),
+        authorizedEngagements: Array.isArray(reqUser.authorizedEngagements) ? reqUser.authorizedEngagements : (reqUser.engagementId ? [reqUser.engagementId] : []),
+        authorizedAgents: Array.isArray(reqUser.authorizedAgents) ? reqUser.authorizedAgents : (reqUser.agentId ? [reqUser.agentId] : []),
+        isHuman: reqUser.isHuman
       });
     }
   }
@@ -185,8 +171,7 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
             authorizedTenants: resolvedPrincipal.authorizedTenants || [],
             authorizedEngagements: resolvedPrincipal.authorizedEngagements || [],
             authorizedAgents: (resolvedPrincipal as any).authorizedAgents || [],
-            isHuman: resolvedPrincipal.isHuman,
-            req
+            isHuman: resolvedPrincipal.isHuman
           });
         }
       } catch (err: any) {
@@ -218,28 +203,46 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
           authorizedTenants: testPrincipal.authorizedTenants || [],
           authorizedEngagements: testPrincipal.authorizedEngagements || [],
           authorizedAgents: (testPrincipal as any).authorizedAgents || [],
-          isHuman: testPrincipal.isHuman,
-          req
+          isHuman: testPrincipal.isHuman
         });
       }
     }
   }
 
-  if (req.headers['x-principal-id'] || (req.headers['x-session-id'] && req.headers['x-authority-role'])) {
-    const pId = String(req.headers['x-principal-id'] || req.headers['x-session-id']);
-    const sId = String(req.headers['x-session-id'] || pId);
+  // 3. Authenticated internal service credentials (Section 6)
+  const internalSecret = process.env.EVE_INTERNAL_SERVICE_KEY || process.env.EVE_INTERNAL_SECRET || process.env.EVE_SESSION_SECRET;
+  const providedInternalKey = (req.headers['x-eve-internal-key'] || req.headers['x-internal-service-token']) as string;
+  if (providedInternalKey && internalSecret && providedInternalKey === internalSecret) {
+    return buildAuthResult({
+      principalId: 'svc-internal-operator',
+      sessionId: `sess-internal-${Date.now()}`,
+      authMethod: 'TRUSTED_INTERNAL_SESSION',
+      authorityRole: 'INTERNAL_SERVICE',
+      claims: ['INTERNAL_OPERATOR', 'SYSTEM_SERVICE'],
+      authorizedTenants: ['*'],
+      authorizedEngagements: ['*'],
+      authorizedAgents: ['*'],
+      isHuman: false
+    });
+  }
+
+  // 4. Test-only explicit authority injection (Section 7)
+  // ONLY permitted when in test environment AND x-test-authority-inject header is explicitly true.
+  // Production strictly rejects this path.
+  if (professionalSignoffGuard.isTestEnvironment() && req.headers['x-test-authority-inject'] === 'true') {
+    const pId = String(req.headers['x-principal-id'] || req.headers['x-session-id'] || 'test-injected-principal');
+    const sId = String(req.headers['x-session-id'] || `sess-${pId}`);
     const role = String(req.headers['x-authority-role'] || 'INTERNAL_OPERATOR');
     return buildAuthResult({
       principalId: pId,
       sessionId: sId,
       authMethod: 'TRUSTED_INTERNAL_SESSION',
       authorityRole: role,
-      claims: req.headers['x-claim'] ? String(req.headers['x-claim']).split(',').map(s => s.trim()) : [],
+      claims: req.headers['x-claim'] ? String(req.headers['x-claim']).split(',').map(s => s.trim()) : (req.headers['x-authority-claim'] ? [String(req.headers['x-authority-claim']).trim()] : []),
       authorizedTenants: req.headers['x-tenant-id'] ? [String(req.headers['x-tenant-id'])] : [],
       authorizedEngagements: req.headers['x-engagement-id'] ? [String(req.headers['x-engagement-id'])] : [],
       authorizedAgents: req.headers['x-authorized-agent'] ? [String(req.headers['x-authorized-agent'])] : [],
-      isHuman: false,
-      req
+      isHuman: false
     });
   }
 

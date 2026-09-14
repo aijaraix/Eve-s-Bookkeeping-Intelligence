@@ -11,6 +11,7 @@ import { persistentAgentMemory } from '../cpaOrganization/persistentMemory.js';
 import { capabilityPromotionAuthority } from '../cpaOrganization/capabilityPromotionAuthority.js';
 import { solverExecutionRegistry } from '../cpaOrganization/solverExecutionRegistry.js';
 import { createCPAOrganizationRouter } from '../cpaOrganization/cpaOrganizationRoutes.js';
+import { professionalSignoffGuard } from '../cpaOrganization/professionalSignoffGuard.js';
 
 export async function runPhasePackageB4_2BehavioralVerificationTests(): Promise<{ passed: number; failed: number; total: number }> {
   console.log('====================================================');
@@ -326,12 +327,21 @@ export async function runPhasePackageB4_2BehavioralVerificationTests(): Promise<
   );
 
   // 15. test_http_memory_routes_enforce_tenant_isolation
+  professionalSignoffGuard.registerTestPrincipalInternal({
+    principalId: 'sess-tenant-a',
+    displayName: 'Tenant A Operator',
+    isHuman: false,
+    role: 'INTERNAL_OPERATOR',
+    authorizedTenants: ['tenant-unilever'],
+    sessionValid: true,
+    status: 'ACTIVE'
+  });
+
   const crossTenantRes = await mockRequest({
     method: 'GET',
     path: '/api/cpa/memory',
     headers: {
       'x-session-id': 'sess-tenant-a',
-      'x-authority-role': 'INTERNAL_OPERATOR',
       'x-tenant-id': 'tenant-unilever'
     }
   });
@@ -341,7 +351,6 @@ export async function runPhasePackageB4_2BehavioralVerificationTests(): Promise<
     path: '/api/cpa/memory/eve-hermes',
     headers: {
       'x-session-id': 'sess-tenant-a',
-      'x-authority-role': 'INTERNAL_OPERATOR',
       'x-tenant-id': 'tenant-unilever'
     }
   });
@@ -354,13 +363,21 @@ export async function runPhasePackageB4_2BehavioralVerificationTests(): Promise<
   );
 
   // 16. test_http_skill_execute_rejects_agent_impersonation
+  professionalSignoffGuard.registerTestPrincipalInternal({
+    principalId: 'sess-agent-hermes',
+    displayName: 'Hermes Delegate',
+    isHuman: false,
+    role: 'AGENT_DELEGATE',
+    authorizedAgents: ['eve-hermes'],
+    sessionValid: true,
+    status: 'ACTIVE'
+  });
+
   const impersonateRes = await mockRequest({
     method: 'POST',
     path: '/api/cpa/skills/execute',
     headers: {
-      'x-session-id': 'sess-agent-hermes',
-      'x-authority-role': 'AGENT_DELEGATE',
-      'x-authorized-agent': 'eve-hermes'
+      'x-session-id': 'sess-agent-hermes'
     },
     body: {
       skillId: 'extract_financial_table',
