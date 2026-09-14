@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { isProofCompleteFact, selectProofCompleteFacts, deriveFiscalYear, deriveCurrentBalance, buildVerifiedFactDigest } from "../cpaOrganization/verifiedCustomerContinuationService.js";
+import { isProofCompleteFact, selectProofCompleteFacts, deriveFiscalYear, deriveCurrentBalance, buildVerifiedFactDigest, VERIFIED_CONTINUATION_LOGIC_VERSION } from "../cpaOrganization/verifiedCustomerContinuationService.js";
 import { academyMinervaLab } from "../cpaOrganization/academyMinervaLab.js";
 
 function assert(condition: boolean, message: string): void { if (!condition) throw new Error(message); }
@@ -20,6 +20,23 @@ assert(proof.length === 3, "continuation must exclude review-required facts");
 assert(deriveFiscalYear(proof) === "2024", "fiscal year must derive from persisted fact periods");
 const bal = deriveCurrentBalance(proof, "2024");
 assert(!!bal && bal.variance === 0, "verified Pfizer-class balance sheet must reconcile before continuation");
+
+// Reproduce the physical Pfizer bug: comparative 2023 rows inherited 2024 statement
+// context dates, while reportingPeriod correctly identifies the comparative date.
+const pfizerLike: any[] = [
+  { ...base, id: 'a24', canonicalMetric: 'assets', reportingPeriod: '2024-12-31', periodStart: '2024-01-01', periodEnd: '2024-12-31', normalizedValue: 213396000000 },
+  { ...base, id: 'a23', canonicalMetric: 'assets', reportingPeriod: '2023-12-31', periodStart: '2024-01-01', periodEnd: '2024-12-31', normalizedValue: 226501000000 },
+  { ...base, id: 'l24', canonicalMetric: 'liabilities', reportingPeriod: '2024-12-31', periodStart: '2024-01-01', periodEnd: '2024-12-31', normalizedValue: 124899000000 },
+  { ...base, id: 'l23', canonicalMetric: 'liabilities', reportingPeriod: '2023-12-31', periodStart: '2024-01-01', periodEnd: '2024-12-31', normalizedValue: 137213000000 },
+  { ...base, id: 'e24', canonicalMetric: 'stockholdersEquityIncludingPortionAttributableToNoncontrollingInterest', reportingPeriod: '2024-12-31', periodStart: '2024-01-01', periodEnd: '2024-12-31', normalizedValue: 88497000000 },
+  { ...base, id: 'e23', canonicalMetric: 'stockholdersEquityIncludingPortionAttributableToNoncontrollingInterest', reportingPeriod: '2023-12-31', periodStart: '2024-01-01', periodEnd: '2024-12-31', normalizedValue: 89288000000 }
+];
+assert(deriveFiscalYear(pfizerLike) === '2024', 'current fiscal year must remain 2024');
+const pfizerBalance = deriveCurrentBalance(pfizerLike, '2024');
+assert(!!pfizerBalance, 'Pfizer canonical SEC aliases must produce a current-period balance');
+assert(pfizerBalance!.assets === 213396000000 && pfizerBalance!.liabilities === 124899000000 && pfizerBalance!.equity === 88497000000, 'comparative 2023 rows must not contaminate the 2024 identity');
+assert(pfizerBalance!.variance === 0, 'physical Pfizer 2024 balance sheet must reconcile exactly');
+assert(VERIFIED_CONTINUATION_LOGIC_VERSION === 'v2-balance-period-aliases', 'continuation logic must be versioned so prior terminal evaluations can be safely reconsidered');
 assert(buildVerifiedFactDigest(proof).every(f => f.verificationStatus === "VERIFIED" && f.evidenceStatus === "CONFIRMED"), "fact digest must retain proof lineage");
 
 const deliverable = fs.readFileSync("server/cpaOrganization/deliverableArtifactService.ts", "utf8");
@@ -37,6 +54,8 @@ assert(hermes.includes("evidenceConfirmedFactsCount: verifiedFactCount"), "Verit
 const server = fs.readFileSync("server.ts", "utf8");
 assert(server.includes("runtimeAuthorityManifestManager.isLeader()"), "continuation sweep must be leader-only");
 assert(server.includes("continueCompletedHybridJob(job, db)"), "completed hybrid jobs must flow into verified continuation");
+const continuationSource = fs.readFileSync("server/cpaOrganization/verifiedCustomerContinuationService.ts", "utf8");
+assert(continuationSource.includes("state.logicVersion !== VERIFIED_CONTINUATION_LOGIC_VERSION"), "terminal continuation state must be version-scoped");
 
 const tmp = path.join('/tmp', `eve-minerva-${Date.now()}.txt`);
 fs.writeFileSync(tmp, 'authoritative source');

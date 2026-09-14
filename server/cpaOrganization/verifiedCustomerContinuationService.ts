@@ -6,6 +6,8 @@ import { deliverableArtifactService, DeliverableArtifactRecord } from './deliver
 import { eveInternalAuditEngine } from './eveInternalAuditEngine.js';
 import { academyMinervaLab } from './academyMinervaLab.js';
 
+export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v2-balance-period-aliases';
+
 export type VerifiedContinuationStatus =
   | 'READY_FROM_VERIFIED_EXTRACTION'
   | 'SPECIALIST_SWARM_RUNNING'
@@ -23,6 +25,8 @@ export type VerifiedContinuationStatus =
 
 export interface VerifiedContinuationState {
   continuationId: string;
+  logicVersion?: string;
+  previousStatus?: VerifiedContinuationStatus;
   jobId: string;
   jobAttempt: number;
   sourceSha256: string;
@@ -69,10 +73,15 @@ function metricKey(f: any): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+function yearsIn(value: any): number[] {
+  return [...String(value || '').matchAll(/\b(20\d{2})\b/g)].map(m => Number(m[1]));
+}
+
 function factYear(f: any): number | null {
-  const text = `${f?.reportingPeriod || ''} ${f?.periodEnd || ''} ${f?.periodStart || ''}`;
-  const years = [...text.matchAll(/\b(20\d{2})\b/g)].map(m => Number(m[1]));
-  return years.length ? Math.max(...years) : null;
+  const reportingYears = yearsIn(f?.reportingPeriod);
+  if (reportingYears.length) return Math.max(...reportingYears);
+  const fallbackYears = [...yearsIn(f?.periodEnd), ...yearsIn(f?.periodStart)];
+  return fallbackYears.length ? Math.max(...fallbackYears) : null;
 }
 
 export function deriveFiscalYear(facts: any[]): string | null {
@@ -97,9 +106,14 @@ function uniqueMetricValue(facts: any[], keys: string[], fiscalYear: string): nu
 }
 
 export function deriveCurrentBalance(facts: any[], fiscalYear: string): { assets: number; liabilities: number; equity: number; variance: number } | null {
-  const assets = uniqueMetricValue(facts, ['totalAssets', 'total_assets'], fiscalYear);
-  const liabilities = uniqueMetricValue(facts, ['totalLiabilities', 'total_liabilities'], fiscalYear);
-  const equity = uniqueMetricValue(facts, ['totalEquity', 'total_equity'], fiscalYear);
+  const assets = uniqueMetricValue(facts, ['assets', 'totalAssets', 'total_assets'], fiscalYear);
+  const liabilities = uniqueMetricValue(facts, ['liabilities', 'totalLiabilities', 'total_liabilities'], fiscalYear);
+  const equity = uniqueMetricValue(facts, [
+    'stockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+    'totalEquity',
+    'total_equity',
+    'equityIncludingNoncontrollingInterest'
+  ], fiscalYear);
   if (assets === null || liabilities === null || equity === null) return null;
   return { assets, liabilities, equity, variance: Math.abs(assets - (liabilities + equity)) };
 }
@@ -223,6 +237,7 @@ export class VerifiedCustomerContinuationService {
 
   private isTerminalForSameAttempt(state: VerifiedContinuationState | null, job: any): boolean {
     if (!state) return false;
+    if (state.logicVersion !== VERIFIED_CONTINUATION_LOGIC_VERSION) return false;
     if (state.jobAttempt !== Number(job?.attemptCount || 0) || state.sourceSha256 !== job?.documentHash) return false;
     return [
       'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
@@ -244,6 +259,8 @@ export class VerifiedCustomerContinuationService {
     const startedAt = prior?.startedAt || new Date().toISOString();
     const base: VerifiedContinuationState = {
       continuationId: this.continuationId(job.id),
+      logicVersion: VERIFIED_CONTINUATION_LOGIC_VERSION,
+      previousStatus: prior?.status,
       jobId: job.id,
       jobAttempt: Number(job.attemptCount || 0),
       sourceSha256: String(job.documentHash || ''),
@@ -301,7 +318,7 @@ export class VerifiedCustomerContinuationService {
       });
 
       let swarm: SwarmExecutionSummary;
-      if (prior?.specialistSummary && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
+      if (prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.specialistSummary && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
         swarm = prior.specialistSummary as SwarmExecutionSummary;
       } else {
         swarm = await hermesJobDispatchService.executeCpaSpecialistSwarm({
