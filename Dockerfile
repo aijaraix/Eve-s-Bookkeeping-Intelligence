@@ -31,8 +31,10 @@ RUN npm ci --omit=dev
 # Copy compiled production artifacts from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Create storage directories for local document parsing and worker uploads
-RUN mkdir -p /app/storage/worker_uploads /app/storage/uploads && chmod -R 777 /app/storage
+# Zeabur mounts Eve's durable PVC at /storage. Keep all existing application
+# storage paths canonical by resolving /app/storage onto that physical volume.
+# This preserves current code contracts without duplicating persistence logic.
+RUN mkdir -p /storage && rm -rf /app/storage && ln -s /storage /app/storage
 
 # Default container port (Zeabur passes dynamic PORT at runtime)
 ENV PORT=8080

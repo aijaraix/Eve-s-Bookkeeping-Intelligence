@@ -1,10 +1,9 @@
 /**
  * EVE AUTONOMOUS CPA OPERATING SYSTEM — RUNTIME AUTHORITY & DEPLOYMENT PARITY MANIFEST
- * 
- * Implements authoritative specification:
- * - 23_RUNTIME_AUTHORITY_DEPLOYMENT_AND_ENVIRONMENT_PARITY.md
- * - 27_CURRENT_ZEABUR_RUNTIME_GAP_REGISTER_AND_REMEDIATION_PLAN.md (ZR-001, ZR-003, ZR-012, ZR-014, ZR-015)
- * - 28_ZEABUR_RUNTIME_REPAIR_DEPLOY_VERIFY_AND_OWNER_REPORT_DIRECTIVE.md
+ *
+ * This manifest is an application self-observation surface. It MUST NOT manufacture
+ * deployment identity or promote itself to externally verified proof. Physical
+ * deployment acceptance is performed outside the application runtime.
  */
 
 import fs from 'fs';
@@ -13,13 +12,13 @@ import os from 'os';
 import crypto from 'crypto';
 
 export type EnvironmentClass = 'ZEABUR_PRODUCTION' | 'DEV_PREVIEW' | 'LOCAL_TEST';
-export type ComponentRole = 
+export type ComponentRole =
   | 'ORCHESTRATOR_AND_CPA_PLATFORM'
   | 'EXTRACTION_WORKER'
   | 'LOCAL_AI_SERVICE'
   | 'HERMES_AGENT';
 
-export type ProofLevel = 
+export type ProofLevel =
   | 'CONFIGURED'
   | 'RUNTIME_VERIFIED'
   | 'PRODUCT_VERIFIED'
@@ -43,14 +42,14 @@ export interface RuntimeAuthorityManifest {
     originUrl: string;
     branch: string;
     commitSha: string;
-    cleanWorkingTree: boolean;
+    cleanWorkingTree: boolean | null;
   };
   build: {
     buildId: string;
     builtAt: string;
     artifactDigest: string;
     containerImageDigest: string;
-    deploymentGeneration: number;
+    deploymentGeneration: number | null;
   };
   runtimeInstance: {
     hostname: string;
@@ -65,6 +64,7 @@ export interface RuntimeAuthorityManifest {
     featureFlagSetHash: string;
     persistentStorageIdentity: string;
     storagePath: string;
+    storageMountVerified: boolean;
     proofLevel: ProofLevel;
     owner: string;
   };
@@ -79,6 +79,7 @@ export interface RuntimeAuthorityManifest {
     lastDeploymentAt: string;
     lastRuntimeVerificationAt: string;
     status: 'AUTHENTIC_AUTHORITATIVE' | 'DEGRADED' | 'STANDBY';
+    evidenceSource: 'APPLICATION_SELF_OBSERVATION';
   };
 }
 
@@ -133,32 +134,49 @@ export class RuntimeAuthorityManifestManager {
   private leaseRenewalInterval: NodeJS.Timeout | null = null;
 
   public constructor() {
+    // Zeabur mounts Eve's durable volume at /storage. Prefer that physical mount
+    // before any container-layer fallback. HERMES_PERSISTENT_DATA_DIR remains an
+    // explicit override for deployments that intentionally use another path.
     this.storageDir = process.env.HERMES_PERSISTENT_DATA_DIR ||
-      (fs.existsSync('/opt/data') ? '/opt/data/cpa_organization' : path.join(process.cwd(), 'storage', 'cpa_memory'));
-    
+      (fs.existsSync('/storage')
+        ? path.join('/storage', 'cpa_memory')
+        : (fs.existsSync('/opt/data')
+          ? '/opt/data/cpa_organization'
+          : path.join(process.cwd(), 'storage', 'cpa_memory')));
+
     if (!fs.existsSync(this.storageDir)) {
       try {
         fs.mkdirSync(this.storageDir, { recursive: true });
       } catch {
-        // Fallback handled
+        // Persistence failure is reflected by storageMountVerified=false and
+        // must be handled by external deployment acceptance.
       }
     }
 
     this.manifestFilePath = path.join(this.storageDir, 'runtime_manifest.json');
     this.leaseFilePath = path.join(this.storageDir, 'scheduler_leader_lease.json');
 
-    // Authoritative commit resolution
-    this.commitSha = process.env.ZEABUR_GIT_COMMIT_SHA || 
-                     process.env.GIT_COMMIT || 
-                     process.env.COMMIT_SHA || 
-                     this.resolveGitCommitSha();
-
-    this.buildId = process.env.BUILD_ID || `build-eve-${this.commitSha.substring(0, 8)}-${Date.now()}`;
+    // These are declared provenance inputs, not self-proving evidence. Never
+    // invent a commit or image digest when the platform did not supply one.
+    this.commitSha = this.normalizeCommitSha(
+      process.env.ZEABUR_GIT_COMMIT_SHA ||
+      process.env.SOURCE_GIT_COMMIT_SHA ||
+      process.env.GIT_COMMIT ||
+      process.env.COMMIT_SHA ||
+      this.resolveGitCommitSha()
+    );
+    this.buildId = this.firstNonEmpty(
+      process.env.ZEABUR_BUILD_ID,
+      process.env.BUILD_ID,
+      process.env.ZEABUR_DEPLOYMENT_ID
+    ) || 'UNVERIFIED';
     this.artifactDigest = this.computeArtifactDigest();
-    this.imageDigest = process.env.CONTAINER_IMAGE_DIGEST || process.env.IMAGE_DIGEST || `sha256:${crypto.createHash('sha256').update(this.buildId + this.commitSha).digest('hex')}`;
+    this.imageDigest = this.normalizeImageDigest(
+      process.env.CONTAINER_IMAGE_DIGEST || process.env.IMAGE_DIGEST
+    );
 
-    this.persistManifest();
     this.startSchedulerLeaseManager();
+    this.persistManifest();
   }
 
   public static getInstance(): RuntimeAuthorityManifestManager {
@@ -166,6 +184,23 @@ export class RuntimeAuthorityManifestManager {
       RuntimeAuthorityManifestManager.instance = new RuntimeAuthorityManifestManager();
     }
     return RuntimeAuthorityManifestManager.instance;
+  }
+
+  private firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return undefined;
+  }
+
+  private normalizeCommitSha(value?: string): string {
+    const candidate = (value || '').trim();
+    return /^[0-9a-f]{40}$/i.test(candidate) ? candidate.toLowerCase() : 'UNVERIFIED';
+  }
+
+  private normalizeImageDigest(value?: string): string {
+    const candidate = (value || '').trim();
+    return /^sha256:[0-9a-f]{64}$/i.test(candidate) ? candidate.toLowerCase() : 'UNVERIFIED';
   }
 
   private resolveGitCommitSha(): string {
@@ -182,33 +217,34 @@ export class RuntimeAuthorityManifestManager {
         return head;
       }
     } catch {
-      // Fallback
+      // Fail closed below.
     }
-    return '3b89ef941cpa'; // Fallback authoritative commit hash
+    return 'UNVERIFIED';
   }
 
   private computeArtifactDigest(): string {
     try {
-      const packageJsonPath = path.join(process.cwd(), 'package.json');
-      if (fs.existsSync(packageJsonPath)) {
-        const content = fs.readFileSync(packageJsonPath, 'utf-8');
-        return `sha256:${crypto.createHash('sha256').update(content + this.commitSha).digest('hex')}`;
+      const serverBundlePath = path.join(process.cwd(), 'dist', 'server.cjs');
+      if (fs.existsSync(serverBundlePath)) {
+        const content = fs.readFileSync(serverBundlePath);
+        return `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
       }
     } catch {
-      // Fallback
+      // Fail closed below.
     }
-    return `sha256:${crypto.createHash('sha256').update('eve-bookkeeping-cpa-default').digest('hex')}`;
+    return 'UNVERIFIED';
   }
 
   private computeConfigHash(): string {
     const safeEnvKeys = [
       'NODE_ENV',
       'PORT',
-      'ZEABUR_SERVICE_NAME',
-      'ZEABUR_ENVIRONMENT_NAME',
+      'ZEABUR_SERVICE_ID',
+      'ZEABUR_ENVIRONMENT_ID',
       'HERMES_PERSISTENT_DATA_DIR',
       'EXTRACTION_WORKER_URL',
-      'LOCAL_AI_BASE_URL'
+      'LOCAL_AI_BASE_URL',
+      'ACADEMY_AUTONOMOUS_ENABLED'
     ];
     const pairs = safeEnvKeys.map(k => `${k}=${process.env[k] || ''}`).sort().join(';');
     return crypto.createHash('sha256').update(pairs).digest('hex').substring(0, 16);
@@ -221,9 +257,40 @@ export class RuntimeAuthorityManifestManager {
       HERMES_AUTONOMOUS_SCHEDULER: true,
       LEADER_FENCING_ENFORCEMENT: true,
       SEC_LIVE_EDGAR_DISCOVERY: true,
-      AUDIT_PACKAGE_FACTORY_V1: true
+      AUDIT_PACKAGE_FACTORY_V1: true,
+      ACADEMY_AUTONOMOUS_ENABLED: process.env.ACADEMY_AUTONOMOUS_ENABLED === 'true'
     };
     return crypto.createHash('sha256').update(JSON.stringify(flags)).digest('hex').substring(0, 16);
+  }
+
+  private getCleanWorkingTreeClaim(): boolean | null {
+    const raw = this.firstNonEmpty(process.env.GIT_WORKTREE_CLEAN, process.env.SOURCE_WORKTREE_CLEAN);
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    return null;
+  }
+
+  private getDeploymentGeneration(): number | null {
+    const raw = this.firstNonEmpty(
+      process.env.ZEABUR_DEPLOYMENT_GENERATION,
+      process.env.DEPLOYMENT_GENERATION,
+      process.env.KUBERNETES_DEPLOYMENT_REVISION
+    );
+    if (!raw) return null;
+    const value = Number.parseInt(raw, 10);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+
+  private isStorageOnMountedVolume(): boolean {
+    try {
+      const target = fs.realpathSync(this.storageDir);
+      const mountInfo = fs.readFileSync('/proc/self/mountinfo', 'utf-8');
+      const mountPoints = mountInfo.split('\n').map(line => line.trim().split(/\s+/)[4]).filter(Boolean);
+      return mountPoints.some(mountPoint => target === mountPoint || target.startsWith(`${mountPoint}/`)) &&
+             mountPoints.some(mountPoint => mountPoint === '/storage' && (target === '/storage' || target.startsWith('/storage/')));
+    } catch {
+      return false;
+    }
   }
 
   public getLiveSystemMetrics(): {
@@ -244,8 +311,8 @@ export class RuntimeAuthorityManifestManager {
     const totalRamMb = Math.round(os.totalmem() / (1024 * 1024));
     const freeRamMb = Math.round(os.freemem() / (1024 * 1024));
 
-    let diskFreeGb = 20;
-    let diskTotalGb = 50;
+    let diskFreeGb = 0;
+    let diskTotalGb = 0;
     let isRealDisk = false;
 
     try {
@@ -258,12 +325,12 @@ export class RuntimeAuthorityManifestManager {
         }
       }
     } catch {
-      // Fallback
+      // Leave zero values instead of synthetic capacity defaults.
     }
 
     return {
-      cpuCores: os.cpus()?.length || 4,
-      cpuLoadAvg: os.loadavg ? os.loadavg() : [0.2, 0.2, 0.2],
+      cpuCores: os.cpus()?.length || 1,
+      cpuLoadAvg: os.loadavg ? os.loadavg() : [0, 0, 0],
       ramFreeMb: freeRamMb,
       ramTotalMb: totalRamMb,
       ramHeapUsedMb: heapUsedMb,
@@ -276,36 +343,45 @@ export class RuntimeAuthorityManifestManager {
   }
 
   public getManifest(): RuntimeAuthorityManifest {
-    const isZeabur = !!process.env.ZEABUR_ENVIRONMENT_NAME || fs.existsSync('/opt/data');
+    const isZeabur = !!(
+      process.env.ZEABUR_ENVIRONMENT_ID ||
+      process.env.ZEABUR_SERVICE_ID ||
+      process.env.ZEABUR_PROJECT_ID ||
+      process.env.ZEABUR === 'true'
+    );
     const envClass: EnvironmentClass = isZeabur ? 'ZEABUR_PRODUCTION' : 'DEV_PREVIEW';
-    const uptimeSec = Math.round((Date.now() - new Date(this.startedAt).getTime()) / 1000);
+    const uptimeSec = Math.max(0, Math.round((Date.now() - new Date(this.startedAt).getTime()) / 1000));
+    const storageMountVerified = this.isStorageOnMountedVolume();
+    const isLeader = this.isLeader();
+    const portRaw = Number.parseInt(process.env.PORT || process.env.WEB_PORT || '3000', 10);
+    const port = Number.isFinite(portRaw) && portRaw > 0 ? portRaw : 3000;
 
     return {
-      manifestVersion: '1.4.0',
+      manifestVersion: '1.5.0',
       componentId: 'eve-bookkeeping-cpa-platform',
       componentRole: 'ORCHESTRATOR_AND_CPA_PLATFORM',
       environmentClass: envClass,
       platform: isZeabur ? 'ZEABUR_K3S' : 'CONTAINER_SANDBOX',
-      projectIdentifier: process.env.ZEABUR_PROJECT_NAME || 'eve-bookkeeping-prod-ai',
-      serviceIdentifier: process.env.ZEABUR_SERVICE_NAME || 'eve-s-bookkeeping-intelligence',
-      region: process.env.ZEABUR_REGION || process.env.HOST_REGION || 'asia-east-1',
+      projectIdentifier: process.env.ZEABUR_PROJECT_ID || process.env.ZEABUR_PROJECT_NAME || 'UNVERIFIED',
+      serviceIdentifier: process.env.ZEABUR_SERVICE_ID || process.env.ZEABUR_SERVICE_NAME || 'eve-s-bookkeeping-intelligence',
+      region: process.env.ZEABUR_REGION || process.env.HOST_REGION || 'UNVERIFIED',
       networkIdentity: {
-        internalDns: 'eve-s-bookkeeping-intelligence.zeabur.internal',
-        publicUrl: process.env.PUBLIC_URL || 'https://ai.studio',
-        port: 3000
+        internalDns: process.env.EVE_S_BOOKKEEPING_INTELLIGENCE_HOST || 'UNVERIFIED',
+        publicUrl: process.env.ZEABUR_WEB_URL || process.env.PUBLIC_URL || 'UNVERIFIED',
+        port
       },
       repository: {
         originUrl: 'https://github.com/aijaraix/Eve-s-Bookkeeping-Intelligence',
         branch: process.env.GIT_BRANCH || 'main',
         commitSha: this.commitSha,
-        cleanWorkingTree: true
+        cleanWorkingTree: this.getCleanWorkingTreeClaim()
       },
       build: {
         buildId: this.buildId,
-        builtAt: this.startedAt,
+        builtAt: process.env.BUILD_TIMESTAMP || process.env.BUILT_AT || 'UNVERIFIED',
         artifactDigest: this.artifactDigest,
         containerImageDigest: this.imageDigest,
-        deploymentGeneration: 42
+        deploymentGeneration: this.getDeploymentGeneration()
       },
       runtimeInstance: {
         hostname: os.hostname(),
@@ -315,25 +391,31 @@ export class RuntimeAuthorityManifestManager {
         uptimeSeconds: uptimeSec
       },
       governance: {
-        schemaVersion: '1.4.0',
+        schemaVersion: '1.5.0',
         configurationHash: this.computeConfigHash(),
         featureFlagSetHash: this.computeFeatureFlagsHash(),
-        persistentStorageIdentity: 'pvc-eve-cpa-storage-vol',
+        persistentStorageIdentity: process.env.PERSISTENT_STORAGE_IDENTITY || (storageMountVerified ? 'MOUNTED_VOLUME:/storage' : 'UNVERIFIED'),
         storagePath: this.storageDir,
-        proofLevel: 'RUNTIME_VERIFIED',
-        owner: 'Google DeepMind / Autonomous CPA Organism'
+        storageMountVerified,
+        // The application can describe its own runtime but cannot independently
+        // certify itself. SentinelX/operator acceptance promotes proof externally.
+        proofLevel: 'CONFIGURED',
+        owner: process.env.RUNTIME_OWNER || 'Eve Bookkeeping'
       },
       endpoints: {
         healthEndpoint: '/api/health',
         readinessEndpoint: '/api/health',
-        manifestEndpoint: '/api/runtime/manifest',
-        fingerprintEndpoint: '/api/runtime/fingerprint',
-        classification: 'PUBLIC_AND_INTERNAL'
+        // These routes are not physically exposed in the current server and must
+        // not be advertised as live until they are independently verified.
+        manifestEndpoint: 'UNAVAILABLE',
+        fingerprintEndpoint: 'UNAVAILABLE',
+        classification: 'INTERNAL_ONLY'
       },
       verification: {
-        lastDeploymentAt: this.startedAt,
-        lastRuntimeVerificationAt: new Date().toISOString(),
-        status: this.isLeader() ? 'AUTHENTIC_AUTHORITATIVE' : 'STANDBY'
+        lastDeploymentAt: process.env.DEPLOYED_AT || 'UNVERIFIED',
+        lastRuntimeVerificationAt: 'UNVERIFIED',
+        status: isLeader ? 'DEGRADED' : 'STANDBY',
+        evidenceSource: 'APPLICATION_SELF_OBSERVATION'
       }
     };
   }
@@ -368,13 +450,13 @@ export class RuntimeAuthorityManifestManager {
       const tmpPath = `${this.manifestFilePath}.tmp.${Date.now()}`;
       fs.writeFileSync(tmpPath, JSON.stringify(manifest, null, 2), 'utf-8');
       fs.renameSync(tmpPath, this.manifestFilePath);
-    } catch {
-      // Non-blocking
+    } catch (err) {
+      console.warn('[RuntimeAuthority] Failed to persist self-observation manifest:', err);
     }
   }
 
   // =========================================================================
-  // SCHEDULER LEADER LEASE & FENCING (ZR-003)
+  // SCHEDULER LEADER LEASE & FENCING
   // =========================================================================
 
   private startSchedulerLeaseManager() {
@@ -384,85 +466,97 @@ export class RuntimeAuthorityManifestManager {
     }, Math.floor(this.leaseTtlMs / 3));
   }
 
+  private readPersistedLease(): SchedulerLeaderLease | null {
+    try {
+      if (!fs.existsSync(this.leaseFilePath)) return null;
+      const raw = fs.readFileSync(this.leaseFilePath, 'utf-8');
+      return JSON.parse(raw) as SchedulerLeaderLease;
+    } catch {
+      return null;
+    }
+  }
+
   public acquireOrRenewLease(): SchedulerLeaderLease {
     const now = Date.now();
     const instanceId = `pod-${os.hostname()}-${process.pid}`;
-    let existingLease: SchedulerLeaderLease | null = null;
+    const existingLease = this.readPersistedLease();
+    const existingExpiry = existingLease ? new Date(existingLease.expiresAt).getTime() : Number.NaN;
+    const isExistingExpired = !existingLease || !Number.isFinite(existingExpiry) || existingExpiry <= now;
+    const isMeCurrentLeader = !!existingLease && existingLease.leaderInstanceId === instanceId;
 
-    try {
-      if (fs.existsSync(this.leaseFilePath)) {
-        const raw = fs.readFileSync(this.leaseFilePath, 'utf-8');
-        existingLease = JSON.parse(raw);
-      }
-    } catch {
-      existingLease = null;
+    if (existingLease && !isExistingExpired && !isMeCurrentLeader) {
+      // Fail closed. A valid lease owned by another runtime is authoritative.
+      // Never manufacture an in-memory ACTIVE_LEADER state for this process.
+      this.currentLease = { ...existingLease, state: 'STANDBY' };
+      return this.currentLease;
     }
 
-    const isExistingExpired = !existingLease || new Date(existingLease.expiresAt).getTime() < now;
-    const isMeCurrentLeader = existingLease && existingLease.leaderInstanceId === instanceId;
+    const fencingToken = existingLease?.fencingToken
+      ? existingLease.fencingToken + 1
+      : this.fencingCounter++;
+    const lease: SchedulerLeaderLease = {
+      leaseId: `lease-sched-${fencingToken}`,
+      schedulerDomain: 'HERMES_CPA_SCHEDULER',
+      leaderInstanceId: instanceId,
+      leaderHostname: os.hostname(),
+      leaderPid: process.pid,
+      fencingToken,
+      acquiredAt: isMeCurrentLeader && existingLease ? existingLease.acquiredAt : new Date().toISOString(),
+      renewedAt: new Date().toISOString(),
+      expiresAt: new Date(now + this.leaseTtlMs).toISOString(),
+      ttlMs: this.leaseTtlMs,
+      state: 'ACTIVE_LEADER'
+    };
 
-    if (isMeCurrentLeader || isExistingExpired || !existingLease) {
-      // Renew or claim leadership
-      const fencingToken = (existingLease?.fencingToken ? existingLease.fencingToken + 1 : this.fencingCounter++);
-      const lease: SchedulerLeaderLease = {
-        leaseId: `lease-sched-${fencingToken}`,
-        schedulerDomain: 'HERMES_CPA_SCHEDULER',
-        leaderInstanceId: instanceId,
-        leaderHostname: os.hostname(),
-        leaderPid: process.pid,
-        fencingToken,
-        acquiredAt: isMeCurrentLeader && existingLease ? existingLease.acquiredAt : new Date().toISOString(),
-        renewedAt: new Date().toISOString(),
-        expiresAt: new Date(now + this.leaseTtlMs).toISOString(),
-        ttlMs: this.leaseTtlMs,
-        state: 'ACTIVE_LEADER'
-      };
-
-      try {
-        const tmp = `${this.leaseFilePath}.tmp.${now}`;
-        fs.writeFileSync(tmp, JSON.stringify(lease, null, 2), 'utf-8');
-        fs.renameSync(tmp, this.leaseFilePath);
-        this.currentLease = lease;
-      } catch (err) {
-        console.warn('[RuntimeAuthority] Failed writing scheduler lease:', err);
-      }
-      return this.currentLease || lease;
-    } else {
-      // In same process or test run, claim active leadership
-      const fencingToken = existingLease.fencingToken + 1;
-      const lease: SchedulerLeaderLease = {
-        leaseId: `lease-sched-${fencingToken}`,
-        schedulerDomain: 'HERMES_CPA_SCHEDULER',
-        leaderInstanceId: instanceId,
-        leaderHostname: os.hostname(),
-        leaderPid: process.pid,
-        fencingToken,
-        acquiredAt: new Date().toISOString(),
-        renewedAt: new Date().toISOString(),
-        expiresAt: new Date(now + this.leaseTtlMs).toISOString(),
-        ttlMs: this.leaseTtlMs,
-        state: 'ACTIVE_LEADER'
-      };
+    try {
+      const tmp = `${this.leaseFilePath}.tmp.${now}.${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify(lease, null, 2), { encoding: 'utf-8', flag: 'wx' });
+      fs.renameSync(tmp, this.leaseFilePath);
       this.currentLease = lease;
       return lease;
+    } catch (err) {
+      console.warn('[RuntimeAuthority] Failed writing scheduler lease; remaining standby:', err);
+      const persisted = this.readPersistedLease();
+      if (persisted) {
+        this.currentLease = { ...persisted, state: 'STANDBY' };
+        return this.currentLease;
+      }
+      const standby: SchedulerLeaderLease = {
+        ...lease,
+        state: 'STANDBY',
+        expiresAt: new Date(now).toISOString()
+      };
+      this.currentLease = standby;
+      return standby;
     }
   }
 
   public isLeader(): boolean {
-    if (!this.currentLease) {
-      this.acquireOrRenewLease();
-    }
-    return this.currentLease?.state === 'ACTIVE_LEADER' &&
-           this.currentLease.leaderInstanceId === `pod-${os.hostname()}-${process.pid}` &&
-           new Date(this.currentLease.expiresAt).getTime() > Date.now();
+    const persisted = this.readPersistedLease();
+    if (!persisted) return false;
+    const instanceId = `pod-${os.hostname()}-${process.pid}`;
+    const expiresAt = new Date(persisted.expiresAt).getTime();
+    return persisted.state === 'ACTIVE_LEADER' &&
+      persisted.leaderInstanceId === instanceId &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > Date.now();
   }
 
   public getLeaseStatus(): SchedulerLeaderLease | null {
+    const persisted = this.readPersistedLease();
+    if (!persisted) return this.currentLease;
+    const instanceId = `pod-${os.hostname()}-${process.pid}`;
+    const expiresAt = new Date(persisted.expiresAt).getTime();
+    if (persisted.leaderInstanceId === instanceId && persisted.state === 'ACTIVE_LEADER' && Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+      this.currentLease = persisted;
+      return persisted;
+    }
+    this.currentLease = { ...persisted, state: 'STANDBY' };
     return this.currentLease;
   }
 
   // =========================================================================
-  // CREDENTIAL SCRUBBING & PROCESS SAFETY (ZR-014)
+  // CREDENTIAL SCRUBBING & PROCESS SAFETY
   // =========================================================================
 
   public sanitizeStringForSecrets(input: string): string {
@@ -475,7 +569,6 @@ export class RuntimeAuthorityManifestManager {
 
   public static sanitizeStringForSecrets(input: string): string {
     if (!input) return input;
-    // Replace API keys, tokens, bearer headers
     return input
       .replace(/(AIzaSy[A-Za-z0-9_-]{15,})/g, '[REDACTED_GEMINI_KEY]')
       .replace(/(sk-[A-Za-z0-9_-]{10,})/g, '[REDACTED_SECRET_KEY]')

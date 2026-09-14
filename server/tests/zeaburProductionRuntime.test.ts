@@ -1,10 +1,8 @@
 /**
  * EVE AUTONOMOUS CPA OPERATING SYSTEM — ZEABUR PRODUCTION RUNTIME REPAIR TEST SUITE
- * 
- * Verifies:
- * - Document 23: Runtime Authority Manifest & Deployment Fingerprint
- * - Document 27: Zeabur Gap Register (ZR-001 through ZR-022)
- * - Document 28: Zeabur Runtime Repair, Negative Bypass Tests & Owner Closure Standards
+ *
+ * Application tests validate fail-closed self-observation behavior only.
+ * They do not certify the production deployment; external physical acceptance does.
  */
 
 import { runtimeAuthorityManifestManager } from '../cpaOrganization/runtimeAuthorityManifest.js';
@@ -15,25 +13,27 @@ export async function runZeaburProductionRuntimeTests(): Promise<{ passed: boole
   let count = 0;
 
   try {
-    // 1. Manifest
+    // 1. Manifest must fail closed rather than self-promote to verified proof.
     count++;
     const manifest = runtimeAuthorityManifestManager.getManifest();
-    if (!manifest.componentId || !manifest.build.artifactDigest || manifest.governance.proofLevel !== 'RUNTIME_VERIFIED') {
-      failures.push('Runtime Authority Manifest invalid properties');
+    if (!manifest.componentId || manifest.governance.proofLevel !== 'CONFIGURED' || manifest.verification.status === 'AUTHENTIC_AUTHORITATIVE') {
+      failures.push('Runtime manifest must remain CONFIGURED/self-observed until external physical acceptance');
     }
 
-    // 2. Fingerprint
+    // 2. Fingerprint may contain UNVERIFIED platform identity, but the local
+    // executable artifact digest must be a physical SHA-256 when built.
     count++;
     const fingerprint = runtimeAuthorityManifestManager.getFingerprint();
-    if (!fingerprint.commitSha || !fingerprint.artifactDigest || !fingerprint.buildId) {
-      failures.push('Runtime Fingerprint missing required provenance fields');
+    if (!fingerprint.artifactDigest || (fingerprint.artifactDigest !== 'UNVERIFIED' && !/^sha256:[0-9a-f]{64}$/i.test(fingerprint.artifactDigest))) {
+      failures.push('Runtime Fingerprint artifact digest is malformed');
     }
 
-    // 3. Scheduler Leader Lease
+    // 3. Scheduler lease may be leader or standby. A test must never assume it
+    // is entitled to leadership merely because it can call the lease function.
     count++;
     const lease = runtimeAuthorityManifestManager.acquireOrRenewLease();
-    if (!lease || lease.state !== 'ACTIVE_LEADER' || typeof lease.fencingToken !== 'number') {
-      failures.push('Scheduler Leader Lease did not grant active leadership with fencing token');
+    if (!lease || !['ACTIVE_LEADER', 'STANDBY'].includes(lease.state) || typeof lease.fencingToken !== 'number') {
+      failures.push('Scheduler Leader Lease returned an invalid fail-closed state');
     }
 
     // 4. Credential Scrubbing
@@ -50,14 +50,16 @@ export async function runZeaburProductionRuntimeTests(): Promise<{ passed: boole
       failures.push('Live OS metrics returned invalid values');
     }
 
-    // 6. Zeabur Gap Register (22 gaps audited)
+    // 6. Legacy gap-register shape is still checked for compatibility, but its
+    // internal claims are not treated as independent production proof.
     count++;
     const report = zeaburRuntimeGapRegister.getGapRegisterReport();
-    if (report.totalGapsAudited !== 22 || report.resolvedGapsCount !== 22 || !report.allP0GapsResolved) {
-      failures.push(`Zeabur Gap Register audit incomplete: ${report.resolvedGapsCount}/${report.totalGapsAudited} resolved`);
+    if (report.totalGapsAudited !== 22) {
+      failures.push(`Zeabur Gap Register schema incomplete: ${report.totalGapsAudited}/22 gaps present`);
     }
 
-    // 7. Negative Bypass Tests
+    // 7. Negative bypass test runner must execute without reporting failures;
+    // production acceptance remains external to this test process.
     count++;
     const bypass = zeaburRuntimeGapRegister.runNegativeBypassTests();
     if (!bypass.allPassed || bypass.failedTests > 0) {
