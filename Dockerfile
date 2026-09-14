@@ -21,6 +21,9 @@ FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# Production queue mutations/processing are authorized only by the persisted
+# fenced scheduler lease. Keep this fail-closed across Zeabur redeployments.
+ENV REQUIRE_STRICT_LEADER_LEASE=true
 
 # Copy package manifests and canonical lockfile
 COPY package.json package-lock.json ./
