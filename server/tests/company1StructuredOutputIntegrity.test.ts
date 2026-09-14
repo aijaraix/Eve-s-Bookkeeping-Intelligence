@@ -41,19 +41,19 @@ export async function runCompany1StructuredOutputIntegrityTests(): Promise<void>
   assert(isCapacityProviderErrorType('AUTHENTICATION_ERROR') === false, 'Authentication error must not be mislabeled as capacity');
 
   const parser = new AnyDocParser();
+  // Reproduce the production caller bug: HybridExtractionOrchestrator historically
+  // passed application/pdf for a real .htm filing. Filename/HTML semantics must win.
   const parsedHtml = await parser.parse({
-    filename: 'pfe-20241231.htm', originalName: 'pfe-20241231.htm', mimeType: 'text/html',
+    filename: 'pfe-20241231.htm', originalName: 'pfe-20241231.htm', mimeType: 'application/pdf',
     size: Buffer.byteLength(rawHtml), buffer: Buffer.from(rawHtml)
   });
+  assert(parsedHtml.source?.format === 'html', 'SEC .htm filename must override an incorrect application/pdf MIME hint');
   assert(Array.isArray(parsedHtml.sourceBlocks) && parsedHtml.sourceBlocks.length >= 3, 'HTML parser must materialize line-level deterministic source blocks');
   const revenueBlock = parsedHtml.sourceBlocks.find((b: any) => String(b.raw_text).includes('Product revenues')) as any;
   assert(!!revenueBlock, 'HTML evidence blocks must contain the visible revenue line');
   assert(String(revenueBlock.evidence_scope) === 'DOCUMENT', 'SEC HTML evidence must be explicitly document-scoped');
   assert(!parsedHtml.sourceBlocks.some((b: any) => String(b.raw_text).includes('machine-only duplicate facts')), 'Source blocks must exclude ix:hidden machine-only payload');
 
-  // Gemini may report the printed filing page (e.g. 51) even though HTML has
-  // no physical PDF page boundary. The exact line+amount can still be
-  // confirmed document-wide without inventing a physical page assertion.
   const evidence = EvidenceCrossCheckEngine.verifyCandidateAgainstSource({
     physicalPage: 51,
     sourceQuote: 'Product revenues $ 53,816 $ 50,914 $ 91,793',
@@ -92,7 +92,7 @@ export async function runCompany1StructuredOutputIntegrityTests(): Promise<void>
   const oversized = { ...validMap, importantNotes: Array.from({ length: 49 }, (_, i) => ({ title: `Note ${i + 1}`, category: 'Other', physicalPages: [1] })) };
   expectStructuredFailure(() => parseAndValidateDocumentMapResponse({ text: JSON.stringify(oversized), candidates: [{ finishReason: 'STOP' }] }), 'Oversized Document Map');
 
-  console.log('✓ Company 1 structured-output and document-scoped evidence tests passed');
+  console.log('✓ Company 1 structured-output, parser precedence, and document-scoped evidence tests passed');
 }
 
 await runCompany1StructuredOutputIntegrityTests();
