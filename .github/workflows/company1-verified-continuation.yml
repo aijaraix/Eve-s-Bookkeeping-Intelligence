@@ -20,6 +20,19 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Normalize patch anchor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('server/cpaOrganization/hermesJobDispatchService.ts')
+          s = p.read_text()
+          old = "            provenanceStatus: actualSha256Match ? 'FULL_CRYPTOGRAPHIC_PROVENANCE_PROVED' : 'HASH_MISMATCH_FAIL'\n"
+          new = "            provenanceStatus: actualSha256Match ? 'FULL_CRYPTOGRAPHIC_PROVENANCE_PROVED' : 'HASH_MISMATCH_FAIL' \n"
+          if old not in s:
+              raise SystemExit('Veritas normalization anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
       - name: Apply verified continuation patch
         run: python3 .github/scripts/company1_verified_continuation.py
       - name: Install dependencies
