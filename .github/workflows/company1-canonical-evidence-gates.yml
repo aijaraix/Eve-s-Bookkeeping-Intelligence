@@ -1,0 +1,125 @@
+name: Company 1 canonical evidence-gate repair
+
+on:
+  push:
+    branches:
+      - fix/company1-canonical-evidence-gates
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/company1-canonical-evidence-gates
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Patch hybrid canonical evidence gates
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          p = Path('server/hybridExtraction/HybridExtractionOrchestrator.ts')
+          s = p.read_text()
+
+          old = '''          statementType: c.statementType as any,
+                    valueOriginal: c.rawValue,'''
+          new = '''          statementType: c.statementType as any,
+                    reportingEntity: c.reportingEntity,
+                    reportingScope: c.reportingScope,
+                    valueOriginal: c.rawValue,'''
+          if old not in s:
+              raise SystemExit('statement provenance patch anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''      // Resolve Canonical Facts
+                const canonicalFacts = CanonicalFactResolver.promotePrimaryStatementFacts(rawFactList);
+
+                // Step 6: Accounting Equation Validations (live engine — previously imported unused)
+                const workspaceValidation = AccountingValidationEngine.validateWorkspace(params.workspaceId, canonicalFacts);
+                const accountingValidations: any[] = workspaceValidation ? [workspaceValidation] : [];'''
+          new = '''      // Resolve Canonical Facts. Evidence is an explicit authority gate:
+                // only source-confirmed facts may enter canonical promotion. Review-required
+                // facts remain persisted for review but cannot be promoted by structural gates.
+                const evidenceEligibleFacts = rawFactList.filter(f => String(f.status || '').toLowerCase() === 'approved');
+                const reviewRequiredFacts = rawFactList.filter(f => String(f.status || '').toLowerCase() !== 'approved');
+                const promotedFacts = CanonicalFactResolver.promotePrimaryStatementFacts(evidenceEligibleFacts);
+                const verifiedCanonicalFacts = promotedFacts.filter(f =>
+                  String(f.status || '').toLowerCase() === 'approved' &&
+                  String(f.verificationStatus || '').toUpperCase() === 'VERIFIED'
+                );
+                const nonPromotedEvidenceFacts = promotedFacts.filter(f => !verifiedCanonicalFacts.includes(f));
+                const canonicalFacts = [...verifiedCanonicalFacts, ...nonPromotedEvidenceFacts, ...reviewRequiredFacts];
+
+                // Accounting identities may consume verified canonical truth only.
+                const workspaceValidation = AccountingValidationEngine.validateWorkspace(params.workspaceId, verifiedCanonicalFacts);
+                const accountingValidations: any[] = workspaceValidation ? [workspaceValidation] : [];'''
+          if old not in s:
+              raise SystemExit('canonical evidence-gate patch anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''      const durationMs = Date.now() - startTime;
+                console.log(`[HybridExtractionOrchestrator] Completed Hybrid Pipeline in ${durationMs} ms. Resolved ${canonicalFacts.length} canonical facts.`);'''
+          new = '''      const durationMs = Date.now() - startTime;
+                const reviewRequiredCount = canonicalFacts.length - verifiedCanonicalFacts.length;
+                console.log(`[HybridExtractionOrchestrator] Completed Hybrid Pipeline in ${durationMs} ms. Extracted ${canonicalFacts.length} facts; ${verifiedCanonicalFacts.length} verified canonical; ${reviewRequiredCount} review-required.`);'''
+          if old not in s:
+              raise SystemExit('truthful completion patch anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        factsCandidateCount: allExtractedCandidates.length,
+                  factsConfirmedCount: confirmedCount,
+                  factsCanonicalCount: canonicalFacts.length,
+                  canonicalFacts,'''
+          new = '''        factsCandidateCount: allExtractedCandidates.length,
+                  factsConfirmedCount: confirmedCount,
+                  factsCanonicalCount: verifiedCanonicalFacts.length,
+                  canonicalFacts,'''
+          if old not in s:
+              raise SystemExit('canonical count patch anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          test = Path('server/tests/company1CanonicalPromotionIntegrity.test.ts')
+          test.write_text('''import fs from "fs";\nimport { CanonicalFactResolver } from "../canonicalFactResolver.js";\n\nfunction assert(condition: boolean, message: string): void { if (!condition) throw new Error(message); }\n\nconst confirmed: any = {\n  id: "fact-confirmed", workspaceId: "ws", documentId: "doc",\n  status: "approved", verificationStatus: "EVIDENCE_CONFIRMED",\n  statementType: "CONSOLIDATED_INCOME_STATEMENT", reportingScope: "CONSOLIDATED_GROUP",\n  labelOriginal: "Total revenues", canonicalMetric: "revenue",\n  currency: "USD", functionalCurrency: "USD", reportingPeriod: "2024-FY",\n  pageNumber: 51, sourceText: "Total revenues $ 63,627", normalizedValue: 63627000000\n};\nconst promoted = CanonicalFactResolver.promotePrimaryStatementFacts([confirmed]);\nassert(promoted.length === 1, "confirmed primary fact should survive promotion");\nassert(String(promoted[0].status).toLowerCase() === "approved", "confirmed primary fact should promote to approved");\nassert(String(promoted[0].verificationStatus).toUpperCase() === "VERIFIED", "confirmed primary fact should become VERIFIED only after canonical gates");\n\nconst src = fs.readFileSync("server/hybridExtraction/HybridExtractionOrchestrator.ts", "utf8");\nassert(src.includes("reportingScope: c.reportingScope"), "hybrid fact must preserve reporting scope");\nassert(src.includes("const evidenceEligibleFacts = rawFactList.filter"), "hybrid pipeline must have explicit evidence eligibility gate");\nassert(src.includes("const reviewRequiredFacts = rawFactList.filter"), "review-required facts must remain separate from promotion candidates");\nassert(src.includes("validateWorkspace(params.workspaceId, verifiedCanonicalFacts)"), "accounting validation must consume verified canonical facts only");\nassert(src.includes("factsCanonicalCount: verifiedCanonicalFacts.length"), "canonical count must count verified canonical facts only");\nconsole.log("✓ Company 1 canonical evidence-promotion integrity tests passed");\n''')
+
+          pkg = json.loads(Path('package.json').read_text())
+          marker = 'tsx server/tests/company1CanonicalPromotionIntegrity.test.ts'
+          if marker not in pkg['scripts']['test']:
+              pkg['scripts']['test'] += ' && ' + marker
+          Path('package.json').write_text(json.dumps(pkg, indent=2) + '\n')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript lint
+        run: npm run lint
+
+      - name: Full regression suite
+        run: npm test
+
+      - name: Production build and hashes
+        run: |
+          npm run build
+          sha256sum dist/server.cjs dist/worker.cjs
+
+      - name: Commit validated repair and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add server/hybridExtraction/HybridExtractionOrchestrator.ts server/tests/company1CanonicalPromotionIntegrity.test.ts package.json
+          git rm .github/workflows/company1-canonical-evidence-gates.yml
+          git commit -m "fix(company1): enforce evidence-gated canonical promotion"
+          git push origin HEAD:fix/company1-canonical-evidence-gates
