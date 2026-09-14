@@ -1,6 +1,8 @@
 import { inferGeminiMimeType, normalizeHtmlForGemini, MAX_NORMALIZED_HTML_CHARS } from '../hybridExtraction/GeminiFileService.js';
 import { parseAndValidateDocumentMapResponse } from '../hybridExtraction/DocumentMapService.js';
 import { isCapacityProviderErrorType } from '../hybridExtraction/geminiRetryHelper.js';
+import { EvidenceCrossCheckEngine } from '../hybridExtraction/EvidenceCrossCheckEngine.js';
+import { AnyDocParser } from '../../src/lib/parser/anydocParser.js';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -17,7 +19,7 @@ function expectStructuredFailure(fn: () => unknown, label: string): void {
   assert(caught.isStructuredOutputError === true, `${label}: failure was not classified as structured-output integrity error`);
 }
 
-export function runCompany1StructuredOutputIntegrityTests(): void {
+export async function runCompany1StructuredOutputIntegrityTests(): Promise<void> {
   assert(inferGeminiMimeType('/storage/uploads/pfe-20241231.htm') === 'text/html', 'SEC .htm MIME must remain text/html');
   assert(inferGeminiMimeType('/storage/uploads/annual-report.html') === 'text/html', 'HTML MIME must remain text/html');
   assert(inferGeminiMimeType('/storage/uploads/report.pdf') === 'application/pdf', 'PDF MIME must remain application/pdf');
@@ -41,6 +43,35 @@ export function runCompany1StructuredOutputIntegrityTests(): void {
   assert(isCapacityProviderErrorType('SERVICE_UNAVAILABLE') === true, '503 service unavailable must remain capacity-retryable');
   assert(isCapacityProviderErrorType('INVALID_REQUEST') === false, 'Permanent invalid request must not be mislabeled as capacity');
   assert(isCapacityProviderErrorType('AUTHENTICATION_ERROR') === false, 'Authentication error must not be mislabeled as capacity');
+
+  const parser = new AnyDocParser();
+  const parsedHtml = await parser.parse({
+    filename: 'pfe-20241231.htm',
+    originalName: 'pfe-20241231.htm',
+    mimeType: 'text/html',
+    size: Buffer.byteLength(rawHtml),
+    buffer: Buffer.from(rawHtml)
+  });
+  assert(Array.isArray(parsedHtml.sourceBlocks) && parsedHtml.sourceBlocks.length === 1, 'HTML parser must materialize deterministic native source blocks');
+  assert(parsedHtml.sourceBlocks[0].raw_text.includes('Total revenues $63.6 billion'), 'Source block must contain visible financial evidence');
+  assert(!parsedHtml.sourceBlocks[0].raw_text.includes('machine-only duplicate facts'), 'Source block must exclude ix:hidden machine-only payload');
+
+  const evidence = EvidenceCrossCheckEngine.verifyCandidateAgainstSource({
+    physicalPage: 1,
+    sourceQuote: 'Total revenues $63.6 billion',
+    rowLabel: 'Total revenues',
+    rawValue: '63.6',
+    confidence: 0.99
+  } as any, parsedHtml.pageManifests, parsedHtml.sourceBlocks);
+  assert(evidence.evidenceStatus === 'CONFIRMED', 'Visible HTML financial evidence should confirm an exact extracted candidate');
+
+  const missingEvidence = EvidenceCrossCheckEngine.verifyCandidateAgainstSource({
+    physicalPage: 1,
+    rowLabel: 'Total revenues',
+    rawValue: '63.6',
+    confidence: 0.99
+  } as any, undefined, undefined);
+  assert(missingEvidence.evidenceStatus === 'UNCONFIRMED', 'Missing evidence arrays must fail closed instead of crashing');
 
   const validMap = {
     documentType: 'SEC_10_K',
@@ -84,7 +115,7 @@ export function runCompany1StructuredOutputIntegrityTests(): void {
     'Oversized Document Map'
   );
 
-  console.log('✓ Company 1 structured-output integrity regression tests passed');
+  console.log('✓ Company 1 structured-output and evidence-integrity regression tests passed');
 }
 
-runCompany1StructuredOutputIntegrityTests();
+await runCompany1StructuredOutputIntegrityTests();
