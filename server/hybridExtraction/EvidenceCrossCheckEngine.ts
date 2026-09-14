@@ -4,24 +4,27 @@ import { amountAppearsInSourceBlock } from '../failClosedGuards.js';
 export class EvidenceCrossCheckEngine {
   /**
    * Cross-check an AI-extracted FactCandidate against deterministic page manifests and native text source blocks.
-   * Fail closed: scanned pages and amounts missing from the source block are UNCONFIRMED / REVIEW_REQUIRED.
+   * Fail closed: missing evidence never confirms a fact and must never crash the pipeline.
    */
   public static verifyCandidateAgainstSource(
     candidate: StatementFactCandidate,
-    pageManifests: any[],
-    sourceBlocks: any[]
+    pageManifests: any[] | undefined | null,
+    sourceBlocks: any[] | undefined | null
   ): EvidenceCrossCheckResult {
-    const pageNum = candidate.physicalPage;
-    const pageManifest = pageManifests.find(pm => (pm.physical_page_number === pageNum || pm.page_number === pageNum));
-    const pageBlocks = sourceBlocks.filter(sb => sb.page_number === pageNum);
+    const manifests = Array.isArray(pageManifests) ? pageManifests : [];
+    const blocks = Array.isArray(sourceBlocks) ? sourceBlocks : [];
+    const pageNum = candidate?.physicalPage;
+    const pageManifest = manifests.find(pm => (pm?.physical_page_number === pageNum || pm?.page_number === pageNum));
+    const pageBlocks = blocks.filter(sb => (sb?.page_number === pageNum || sb?.pageNumber === pageNum));
 
-    const targetQuote = (candidate.sourceQuote || "").toLowerCase().trim();
-    const targetLabel = (candidate.rowLabel || candidate.metricLabel || "").toLowerCase().trim();
-    const rawValue = candidate.rawValue || "";
+    const targetQuote = (candidate?.sourceQuote || "").toLowerCase().trim();
+    const targetLabel = (candidate?.rowLabel || candidate?.metricLabel || "").toLowerCase().trim();
+    const rawValue = candidate?.rawValue || "";
 
+    const blockText = (block: any): string => String(block?.raw_text || block?.text_content || block?.text || "");
     const hasNativeText = pageManifest
       ? Boolean(pageManifest.native_text_available)
-      : pageBlocks.some(sb => String(sb.raw_text || "").trim().length > 0);
+      : pageBlocks.some(sb => blockText(sb).trim().length > 0);
 
     if (!hasNativeText) {
       return {
@@ -29,7 +32,7 @@ export class EvidenceCrossCheckEngine {
         evidenceStatus: 'UNCONFIRMED',
         matchedPageNumber: pageNum,
         confidenceScore: 0,
-        notes: `REVIEW_REQUIRED: Page ${pageNum} has no native text layer. Scanned/image-only pages cannot be auto-confirmed.`
+        notes: `REVIEW_REQUIRED: Page ${pageNum ?? 'UNKNOWN'} has no native text evidence. Missing evidence cannot auto-confirm a fact.`
       };
     }
 
@@ -39,15 +42,15 @@ export class EvidenceCrossCheckEngine {
     let matchedBlockText = "";
 
     pageBlocks.forEach(block => {
-      const blockTextRaw = block.raw_text || "";
-      const blockText = blockTextRaw.toLowerCase();
+      const blockTextRaw = blockText(block);
+      const blockTextLower = blockTextRaw.toLowerCase();
 
-      if (targetQuote && blockText.includes(targetQuote)) {
+      if (targetQuote && blockTextLower.includes(targetQuote)) {
         exactQuoteMatch = true;
         matchedBlockText = blockTextRaw;
       }
 
-      if (targetLabel && blockText.includes(targetLabel)) {
+      if (targetLabel && blockTextLower.includes(targetLabel)) {
         labelMatch = true;
         if (!matchedBlockText) matchedBlockText = blockTextRaw;
       }
@@ -65,7 +68,7 @@ export class EvidenceCrossCheckEngine {
         matchedSourceText: matchedBlockText || undefined,
         matchedPageNumber: pageNum,
         confidenceScore: 0,
-        notes: `REVIEW_REQUIRED: Amount "${rawValue}" is not a substring of any source block on Page ${pageNum}.`
+        notes: `REVIEW_REQUIRED: Amount "${rawValue}" is not present in any deterministic source block on Page ${pageNum ?? 'UNKNOWN'}.`
       };
     }
 
@@ -75,7 +78,7 @@ export class EvidenceCrossCheckEngine {
         evidenceStatus: 'CONFIRMED',
         matchedSourceText: matchedBlockText,
         matchedPageNumber: pageNum,
-        confidenceScore: candidate.confidence,
+        confidenceScore: candidate?.confidence ?? 0,
         notes: `Exact evidence corroborated on physical Page ${pageNum}.`
       };
     }
@@ -86,7 +89,7 @@ export class EvidenceCrossCheckEngine {
         evidenceStatus: 'PARTIAL',
         matchedSourceText: matchedBlockText,
         matchedPageNumber: pageNum,
-        confidenceScore: candidate.confidence,
+        confidenceScore: candidate?.confidence ?? 0,
         notes: `Partial evidence matched on physical Page ${pageNum} (${labelMatch ? 'Label' : 'Value'} found). REVIEW_REQUIRED.`
       };
     }
@@ -96,7 +99,7 @@ export class EvidenceCrossCheckEngine {
       evidenceStatus: 'UNCONFIRMED',
       matchedPageNumber: pageNum,
       confidenceScore: 0,
-      notes: `Fact unconfirmed against native text layer on physical Page ${pageNum}. Marked for review.`
+      notes: `Fact unconfirmed against native text layer on physical Page ${pageNum ?? 'UNKNOWN'}. Marked for review.`
     };
   }
 }
