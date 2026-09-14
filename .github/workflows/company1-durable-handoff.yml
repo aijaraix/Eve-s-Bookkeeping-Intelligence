@@ -37,6 +37,14 @@ jobs:
           lines = original[start:end].splitlines()
           script = "\n".join(line[10:] if line.startswith('          ') else line for line in lines)
           script = script.replace(
+              "  public performDiskSave(): Promise<void>;\\n",
+              "  public async performDiskSave(): Promise<void>;\\n"
+          )
+          script = script.replace(
+              "  public performDiskSave(allowIntakeCreation?: boolean): Promise<void>;\\n",
+              "  public async performDiskSave(allowIntakeCreation?: boolean): Promise<void>;\\n"
+          )
+          script = script.replace(
               "  public performDiskSave(allowIntakeCreation = false): Promise<void> {\\n",
               "  public async performDiskSave(allowIntakeCreation = false): Promise<void> {\\n"
           )
@@ -50,6 +58,7 @@ jobs:
 
           test -f server/tests/company1DurableHandoff.test.ts
           grep -q 'private diskSaveChain: Promise<void> = Promise.resolve()' server/backgroundQueue.ts
+          grep -q 'public async performDiskSave(): Promise<void>' server/backgroundQueue.ts
           grep -q 'recoverPersistedJobsAfterAuthorityAcquired' server/backgroundQueue.ts
           grep -q 'evidenceStatus: f.evidenceStatus' server.ts
           grep -q 'verificationStatus: f.verificationStatus' server.ts
