@@ -1,0 +1,48 @@
+name: Eve Byte-Exact Heartbeat Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/eve-byte-exact-heartbeat-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Fetch exact verified heartbeat source
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error 'https://drop.pensa.ar/f/3-kw7IchciZgo/hermesHeartbeat.ts' -o server/cpaOrganization/hermesHeartbeat.ts
+          echo '53f38b37e88564ce1d94edc48d6082ca369c43024a9dcc0943964b69bd0d6469  server/cpaOrganization/hermesHeartbeat.ts' | sha256sum -c -
+          test "$(git hash-object server/cpaOrganization/hermesHeartbeat.ts)" = '01a915decb868cab66204feb07df83fd90ca44a5'
+      - name: Validate exact source
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+          test "$(sha256sum dist/server.cjs | awk '{print $1}')" = 'b8b5b14a4af1f28fb3f738974b0e32c8c274c342b360fb5af6402d34184c8463'
+          test "$(sha256sum dist/worker.cjs | awk '{print $1}')" = '6909383e44ad612089a6700e82068205fbd4d52272d51987fa6891161fbf320c'
+      - name: Commit exact source and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/eve-byte-exact-heartbeat-repair.yml
+          git config user.name 'Eve Runtime Repair'
+          git config user.email 'actions@users.noreply.github.com'
+          git add server/cpaOrganization/hermesHeartbeat.ts .github/workflows/eve-byte-exact-heartbeat-repair.yml
+          git commit -m 'fix(runtime): publish byte-exact fail-closed heartbeat health'
+          git push origin HEAD:main
