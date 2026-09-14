@@ -613,7 +613,11 @@ function saveStorage() {
 backgroundIngestionQueue.setOnJobCompleted((job) => {
   if (job.result && job.result.facts && job.result.facts.length > 0) {
     const ws = db.workspaces.find(w => w.id === job.workspaceId);
-    const wsCurrency = ws?.currency || "EUR";
+    const resolvedWorkspaceCurrency = String(job.functionalCurrency || ws?.currency || '').trim().toUpperCase();
+    if (ws && resolvedWorkspaceCurrency) {
+      ws.currency = resolvedWorkspaceCurrency;
+    }
+    const wsCurrency = resolvedWorkspaceCurrency || ws?.currency || '';
 
     job.result.facts.forEach((f: any) => {
       const existingIdx = db.facts.findIndex(ef => ef.id === f.id || (ef.workspaceId === job.workspaceId && ef.labelNormalized?.toLowerCase() === (f.labelNormalized || '').toLowerCase() && ef.valueFunctional === String(f.valueFunctional)));
@@ -672,6 +676,7 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     if (doc) {
       doc.extractedFactsCount = db.facts.filter(f => f.documentId === job.documentId).length;
       doc.status = "Completed";
+      if (resolvedWorkspaceCurrency) doc.currency = resolvedWorkspaceCurrency;
       if ((job as any).pagesTotal) doc.pageCount = (job as any).pagesTotal;
     }
 

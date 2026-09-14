@@ -901,6 +901,16 @@ export class BackgroundIngestionQueue {
         });
 
         if (hybridRes.success) {
+          const resolvedReportingCurrency = String(
+            hybridRes.documentMap?.primaryReportingCurrency ||
+            hybridRes.documentMap?.currencies?.[0] ||
+            queuedJob.functionalCurrency ||
+            ''
+          ).trim().toUpperCase();
+          if (resolvedReportingCurrency) {
+            queuedJob.functionalCurrency = resolvedReportingCurrency;
+          }
+
           const canonicalFacts = hybridRes.canonicalFacts.map(f => ({
             ...f,
             extractionEngine: 'HYBRID_GEMINI_NATIVE'
