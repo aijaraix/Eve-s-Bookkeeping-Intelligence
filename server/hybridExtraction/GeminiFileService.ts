@@ -10,6 +10,15 @@ interface CachedFileHandle {
   expiresAt: number;
 }
 
+export function inferGeminiMimeType(filePath: string): string {
+  const ext = path.extname(filePath || '').toLowerCase();
+  if (ext === '.html' || ext === '.htm' || ext === '.xhtml') return 'text/html';
+  if (ext === '.txt') return 'text/plain';
+  if (ext === '.csv') return 'text/csv';
+  if (ext === '.json') return 'application/json';
+  return 'application/pdf';
+}
+
 export class GeminiFileService {
   private static instance: GeminiFileService;
   private fileCache: Map<string, CachedFileHandle> = new Map();
@@ -38,17 +47,17 @@ export class GeminiFileService {
   }
 
   /**
-   * Get or Upload PDF file to Gemini Files API.
-   * Reuses existing upload if still active within cache window.
+   * Get or upload a document to Gemini Files API while preserving the source MIME type.
+   * Reuses an existing upload only when both the document hash and cached MIME are valid.
    */
   public async getOrUploadPdfFile(filePath: string, documentHash: string): Promise<{ fileUri: string | null; inlineBase64?: string; mimeType: string }> {
-    const mimeType = "application/pdf";
+    const mimeType = inferGeminiMimeType(filePath);
 
     // 1. Check active cache
     const existing = this.fileCache.get(documentHash);
     if (existing && Date.now() < existing.expiresAt) {
       console.log(`[GeminiFileService] Reusing active Gemini File URI for hash ${documentHash.substring(0, 8)}... (${existing.fileUri})`);
-      return { fileUri: existing.fileUri, mimeType };
+      return { fileUri: existing.fileUri, mimeType: existing.mimeType };
     }
 
     // 2. Read file buffer
@@ -66,18 +75,18 @@ export class GeminiFileService {
 
     if (this.aiClient) {
       try {
-        console.log(`[GeminiFileService] Uploading PDF (${(fileBuffer.length / 1024 / 1024).toFixed(2)} MB) to Gemini Files API...`);
+        console.log(`[GeminiFileService] Uploading ${mimeType} document (${(fileBuffer.length / 1024 / 1024).toFixed(2)} MB) to Gemini Files API...`);
         const uploadResult = await this.aiClient.files.upload({
           file: filePath,
           config: {
-            mimeType: "application/pdf"
+            mimeType
           }
         });
 
         if (uploadResult && uploadResult.uri) {
           const cachedHandle: CachedFileHandle = {
             fileUri: uploadResult.uri,
-            mimeType: "application/pdf",
+            mimeType,
             documentHash,
             createdAt: Date.now(),
             expiresAt: Date.now() + (48 * 60 * 60 * 1000) // 48 hours validity
@@ -91,15 +100,15 @@ export class GeminiFileService {
       }
     }
 
-    // Fallback: Inline Base64 payload for files under size limits
+    // Fallback: Inline Base64 payload. Preserve the real MIME type here as well.
     const inlineBase64 = fileBuffer.toString('base64');
     return { fileUri: null, inlineBase64, mimeType };
   }
 
-  public setCachedFileUri(documentHash: string, fileUri: string, ttlMs = 48 * 60 * 60 * 1000): void {
+  public setCachedFileUri(documentHash: string, fileUri: string, ttlMs = 48 * 60 * 60 * 1000, mimeType = 'application/pdf'): void {
     this.fileCache.set(documentHash, {
       fileUri,
-      mimeType: "application/pdf",
+      mimeType,
       documentHash,
       createdAt: Date.now(),
       expiresAt: Date.now() + ttlMs
