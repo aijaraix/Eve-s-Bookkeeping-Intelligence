@@ -2,7 +2,7 @@ name: Company 1 bounded Lexicon and review package
 on:
   push:
     branches: [fix/company1-bounded-lexicon-review-package]
-    paths: ['.github/workflows/company1-bounded-lexicon-review.yml', '.github/scripts/apply_bounded_lexicon_review.py']
+    paths: ['.github/workflows/company1-bounded-lexicon-review.yml', '.github/scripts/apply_bounded_lexicon_review.py', '.github/scripts/finalize_bounded_review_tests.py']
 permissions:
   contents: write
 jobs:
@@ -19,14 +19,14 @@ jobs:
           node-version: '22'
           cache: npm
       - name: Apply narrow integration repair
-        run: python3 .github/scripts/apply_bounded_lexicon_review.py
+        run: |
+          python3 .github/scripts/apply_bounded_lexicon_review.py
+          python3 .github/scripts/finalize_bounded_review_tests.py
       - run: npm ci
       - name: TypeScript
         run: npm run lint
-      - name: Existing regressions
+      - name: Existing and new behavioral regressions
         run: npm test
-      - name: Bounded execution and report behavior
-        run: npx tsx server/tests/company1BoundedLexiconReview.test.ts
       - name: Production build
         run: |
           npm run build
@@ -35,7 +35,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/scripts/apply_bounded_lexicon_review.py .github/workflows/company1-bounded-lexicon-review.yml
-          git add server/cpaOrganization server/tests/company1VerifiedContinuation.test.ts
+          git rm .github/scripts/apply_bounded_lexicon_review.py .github/scripts/finalize_bounded_review_tests.py .github/workflows/company1-bounded-lexicon-review.yml
+          git add package.json server/cpaOrganization server/tests/company1VerifiedContinuation.test.ts server/tests/company1BoundedLexiconReview.test.ts
           git commit -m 'fix(company1): bounded Lexicon execution and period-faithful review package'
           git push origin HEAD:fix/company1-bounded-lexicon-review-package
