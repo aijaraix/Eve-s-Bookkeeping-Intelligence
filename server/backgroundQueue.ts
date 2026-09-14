@@ -33,10 +33,6 @@ export interface QueueJob extends Omit<QueueJobRecord, 'processingUnits'> {
   lastProgressAt?: string;
 }
 
-// Global persistence lock and debounce timer
-let isSavingDisk = false;
-let saveDiskTimeout: NodeJS.Timeout | null = null;
-
 export class BackgroundIngestionQueue {
   private jobs: Map<string, QueueJob> = new Map();
   private isProcessingQueue = false;
@@ -47,15 +43,34 @@ export class BackgroundIngestionQueue {
   private intakeJobCreationAuthorized: boolean | null = null;
   private queueWriterAuthorized: boolean | null = null;
   private queueProcessingAuthorized: boolean | null = null;
+  // Durable writes are serialized per queue instance. A later state snapshot
+  // can never be overwritten by an older async write finishing afterward.
+  private diskSaveChain: Promise<void> = Promise.resolve();
+  private saveDiskTimeout: NodeJS.Timeout | null = null;
+  private pendingSavePromise: Promise<void> | null = null;
+  private pendingSaveResolve: (() => void) | null = null;
+  private pendingSaveReject: ((err: any) => void) | null = null;
+  private pendingSaveAllowIntakeCreation = false;
+  private lastProcessingAuthority = false;
+  private persistedRetryTimers: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(isStandbyObserver: boolean = false) {
     if (isStandbyObserver || process.env.STANDBY_OBSERVER === "true" || process.env.IS_STANDBY_OBSERVER === "true") {
       this.standbyObserver = true;
     }
     this.loadQueueFromDisk();
+    this.lastProcessingAuthority = this.isQueueProcessingAuthorized();
+    if (this.lastProcessingAuthority) {
+      void this.recoverPersistedJobsAfterAuthorityAcquired();
+    }
     setInterval(() => {
       this.workerAliveHeartbeat = new Date().toISOString();
-      if (this.isQueueProcessingAuthorized()) {
+      const authorized = this.isQueueProcessingAuthorized();
+      if (authorized && !this.lastProcessingAuthority) {
+        void this.recoverPersistedJobsAfterAuthorityAcquired();
+      }
+      this.lastProcessingAuthority = authorized;
+      if (authorized) {
         this.checkStalledJobs();
       }
     }, 5000);
@@ -179,31 +194,60 @@ export class BackgroundIngestionQueue {
     }
   }
 
+  private flushPendingDiskSave(allowIntakeCreation = false): Promise<void> {
+    const mergedAllowIntakeCreation = allowIntakeCreation || this.pendingSaveAllowIntakeCreation;
+    const resolvePending = this.pendingSaveResolve;
+    const rejectPending = this.pendingSaveReject;
+    this.pendingSavePromise = null;
+    this.pendingSaveResolve = null;
+    this.pendingSaveReject = null;
+    this.pendingSaveAllowIntakeCreation = false;
+
+    const writePromise = this.performDiskSave(mergedAllowIntakeCreation);
+    if (resolvePending || rejectPending) {
+      writePromise.then(() => resolvePending?.(), err => rejectPending?.(err));
+    }
+    return writePromise;
+  }
+
   public saveQueueToDiskAsync(forceNow = false, allowIntakeCreation = false): Promise<void> {
-    if (saveDiskTimeout) {
-      clearTimeout(saveDiskTimeout);
-      saveDiskTimeout = null;
+    this.pendingSaveAllowIntakeCreation = this.pendingSaveAllowIntakeCreation || allowIntakeCreation;
+
+    if (forceNow) {
+      if (this.saveDiskTimeout) {
+        clearTimeout(this.saveDiskTimeout);
+        this.saveDiskTimeout = null;
+      }
+      return this.flushPendingDiskSave(allowIntakeCreation);
     }
 
-    if (!forceNow) {
-      return new Promise<void>((resolve, reject) => {
-        saveDiskTimeout = setTimeout(async () => {
-          try {
-            await this.performDiskSave(allowIntakeCreation);
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        }, 500);
+    if (!this.pendingSavePromise) {
+      this.pendingSavePromise = new Promise<void>((resolve, reject) => {
+        this.pendingSaveResolve = resolve;
+        this.pendingSaveReject = reject;
       });
     }
 
-    return this.performDiskSave(allowIntakeCreation);
+    if (this.saveDiskTimeout) clearTimeout(this.saveDiskTimeout);
+    this.saveDiskTimeout = setTimeout(() => {
+      this.saveDiskTimeout = null;
+      void this.flushPendingDiskSave().catch(() => undefined);
+    }, 500);
+
+    return this.pendingSavePromise;
   }
 
   public async performDiskSave(): Promise<void>;
   public async performDiskSave(allowIntakeCreation?: boolean): Promise<void>;
   public async performDiskSave(allowIntakeCreation = false): Promise<void> {
+    const queuedWrite = this.diskSaveChain.then(() => this.performDiskSaveNow(allowIntakeCreation));
+    // Keep the chain alive after a failed write while returning the real error
+    // to the caller that requested this particular persistence operation.
+    this.diskSaveChain = queuedWrite.catch(() => undefined);
+    return await queuedWrite;
+  }
+
+  private async performDiskSaveNow(allowIntakeCreation = false): Promise<void> {
     const isWriterAuth = this.isQueueWriterAuthorized();
     const isIntakeAuth = allowIntakeCreation && this.isIntakeJobCreationAuthorized();
     if (!isWriterAuth && !isIntakeAuth) {
@@ -271,56 +315,91 @@ export class BackgroundIngestionQueue {
     }
   }
 
+  private schedulePersistedCapacityResume(job: QueueJob): void {
+    const existingTimer = this.persistedRetryTimers.get(job.id);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    const nextRetryAt = Number(job.nextRetryAt || Date.now());
+    const delay = Math.min(2_147_000_000, Math.max(10, nextRetryAt - Date.now()));
+    console.log(`[Hermes Queue ${job.id}] Persisted ${job.status} job will be reconsidered in ${Math.round(delay / 1000)}s after leader recovery.`);
+
+    const timer = setTimeout(() => {
+      this.persistedRetryTimers.delete(job.id);
+      if (!this.isQueueProcessingAuthorized()) return;
+      if (job.status !== 'WAITING_FOR_AI_CAPACITY' && job.status !== 'WAITING_FOR_DAILY_CAPACITY') return;
+
+      const remaining = Number(job.nextRetryAt || 0) - Date.now();
+      if (remaining > 10) {
+        this.schedulePersistedCapacityResume(job);
+        return;
+      }
+
+      job.status = 'QUEUED';
+      job.currentStage = 'Resumed persisted AI-capacity job after scheduler leadership recovery';
+      job.updatedAt = new Date().toISOString();
+      void this.saveQueueToDiskAsync(true)
+        .then(() => this.processNextJob())
+        .catch(err => console.error(`[Hermes Queue ${job.id}] Failed to persist recovered capacity job:`, err));
+    }, delay);
+    this.persistedRetryTimers.set(job.id, timer);
+  }
+
+  private async recoverPersistedJobsAfterAuthorityAcquired(): Promise<void> {
+    if (!this.isQueueProcessingAuthorized()) return;
+
+    const now = Date.now();
+    let mutated = false;
+    let runnable = false;
+
+    for (const job of this.jobs.values()) {
+      if (job.status === 'PROCESSING' || job.status === 'WAITING_FOR_LLM' || job.status === 'RATE_LIMITED' || job.status === 'RECOVERING' || job.status === 'STALLED') {
+        job.status = 'QUEUED';
+        job.currentStage = `Recovered persisted in-flight job after scheduler leadership acquisition`;
+        job.updatedAt = new Date().toISOString();
+        job.processingUnits?.forEach(u => {
+          if (u.status === 'PROCESSING' || u.status === 'WAITING_FOR_LLM' || u.status === 'RATE_LIMITED' || u.status === 'RETRYING') u.status = 'QUEUED';
+        });
+        mutated = true;
+        runnable = true;
+        continue;
+      }
+
+      if (job.status === 'WAITING_FOR_AI_CAPACITY' || job.status === 'WAITING_FOR_DAILY_CAPACITY') {
+        const due = !job.nextRetryAt || Number(job.nextRetryAt) <= now;
+        if (due) {
+          job.status = 'QUEUED';
+          job.currentStage = 'Resumed due persisted AI-capacity job after scheduler leadership acquisition';
+          job.updatedAt = new Date().toISOString();
+          mutated = true;
+          runnable = true;
+        } else {
+          this.schedulePersistedCapacityResume(job);
+        }
+        continue;
+      }
+
+      if (job.status === 'QUEUED') runnable = true;
+    }
+
+    if (mutated && this.isQueueWriterAuthorized()) {
+      await this.saveQueueToDiskAsync(true);
+    }
+    if (runnable) setTimeout(() => this.processNextJob(), 10);
+  }
+
   private loadQueueFromDisk() {
     try {
       const queueFile = getQueueFile();
-      if (fs.existsSync(queueFile)) {
-        const raw = fs.readFileSync(queueFile, "utf-8");
-        const list: QueueJob[] = JSON.parse(raw);
-        if (Array.isArray(list)) {
-          // READ / REHYDRATE ONLY (Exact persisted state without rewriting)
-          list.forEach(job => {
-            this.jobs.set(job.id, job);
-          });
-          console.log(`[Hermes Queue] Loaded ${list.length} persisted queue jobs from storage.`);
-
-          // RECOVER / MUTATE ONLY IF QUEUE PROCESSING AUTHORIZED
-          if (this.isQueueProcessingAuthorized()) {
-            const now = Date.now();
-            let mutated = false;
-            for (const job of this.jobs.values()) {
-              if (job.status === "PROCESSING" || job.status === "WAITING_FOR_LLM" || job.status === "RATE_LIMITED" || job.status === "RECOVERING") {
-                job.status = "QUEUED";
-                job.currentStage = `Resumed for processing (Unit ${job.unitsCompleted + 1}/${job.unitsTotal})`;
-                job.processingUnits?.forEach(u => {
-                  if (u.status === "PROCESSING" || u.status === "WAITING_FOR_LLM" || u.status === "RATE_LIMITED" || u.status === "RETRYING") {
-                    u.status = "QUEUED";
-                  }
-                });
-                mutated = true;
-              } else if (job.status === "WAITING_FOR_AI_CAPACITY") {
-                const delay = job.nextRetryAt ? Math.max(10, job.nextRetryAt - now) : 10;
-                console.log(`[Hermes Queue ${job.id}] Loaded persisted WAITING_FOR_AI_CAPACITY job. Resuming in ${Math.round(delay / 1000)}s.`);
-                setTimeout(() => {
-                  if (job.status === "WAITING_FOR_AI_CAPACITY" && this.isQueueProcessingAuthorized()) {
-                    job.status = "QUEUED";
-                    if (this.isQueueWriterAuthorized()) {
-                      this.saveQueueToDiskAsync(true);
-                    }
-                    this.processNextJob();
-                  }
-                }, delay);
-              }
-            }
-            if (mutated && this.isQueueWriterAuthorized()) {
-              this.saveQueueToDiskAsync(true);
-            }
-            setTimeout(() => this.processNextJob(), 100);
-          }
-        }
-      }
+      if (!fs.existsSync(queueFile)) return;
+      const raw = fs.readFileSync(queueFile, 'utf-8');
+      const list: QueueJob[] = JSON.parse(raw);
+      if (!Array.isArray(list)) return;
+      list.forEach(job => this.jobs.set(job.id, job));
+      console.log(`[Hermes Queue] Loaded ${list.length} persisted queue jobs from storage.`);
+      // Rehydration is read-only. Mutation/retry recovery is deliberately
+      // deferred until this process physically owns the fenced scheduler lease.
     } catch (err) {
-      console.error("[Hermes Queue] Failed to load queue from disk:", err);
+      console.error('[Hermes Queue] Failed to load queue from disk:', err);
     }
   }
 

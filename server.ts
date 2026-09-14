@@ -475,6 +475,9 @@ interface ExtractedFact {
   accountingRole?: string;
   normalizedSign?: number;
   verificationStatus?: string;
+  evidenceStatus?: string;
+  reportingScope?: string;
+  reportingEntity?: string;
 
   // Stage 2: Corporate Group & Multilingual fields
   entityId?: string;
@@ -621,9 +624,13 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
         periodStart: f.periodStart,
         periodEnd: f.periodEnd,
         reportingPeriod: f.reportingPeriod,
+        reportingScope: f.reportingScope,
+        reportingEntity: f.reportingEntity,
         pageNumber: f.pageNumber || f.page,
         sourceText: f.sourceText || f.source_text || "",
         confidence: persistFactConfidence(f.confidence),
+        evidenceStatus: f.evidenceStatus,
+        verificationStatus: f.verificationStatus,
         status: persistFactStatus(f.status, f.evidenceStatus),
         extractionMethod: f.extractionMethod,
         extractionEngine: f.extractionEngine,

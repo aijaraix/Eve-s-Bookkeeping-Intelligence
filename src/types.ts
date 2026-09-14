@@ -185,6 +185,9 @@ export interface ExtractedFact {
   statementType?: string;
   status?: string;
   verificationStatus?: string;
+  evidenceStatus?: string;
+  reportingScope?: string;
+  reportingEntity?: string;
   confidence?: number;
   extractionMethod?: string;
   continuingOrDiscontinued?: string;
