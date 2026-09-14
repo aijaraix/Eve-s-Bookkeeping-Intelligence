@@ -17,32 +17,20 @@ export class AnyDocParser {
     const safeOriginalName = typeof fileInput?.originalName === "string" ? fileInput.originalName : safeFilename;
     const buffer = Buffer.isBuffer(fileInput?.buffer) ? fileInput.buffer : Buffer.alloc(0);
     const mime = typeof fileInput?.mimeType === "string" ? fileInput.mimeType : "text/plain";
+    const lowerFilename = safeFilename.toLowerCase();
+    const isHtml = mime.includes("html") || lowerFilename.endsWith(".htm") || lowerFilename.endsWith(".html") || lowerFilename.endsWith(".xhtml");
+    const isPdf = !isHtml && (mime.includes("pdf") || lowerFilename.endsWith(".pdf"));
+    const isWord = !isHtml && (mime.includes("word") || lowerFilename.endsWith(".docx"));
 
     let text = "";
     let detectedFormat = inspection?.detectedType || "txt";
     const extractedTables: any[] = [];
 
     if (buffer.length > 0) {
-      if (mime.includes("pdf") || safeFilename.toLowerCase().endsWith(".pdf")) {
-        detectedFormat = "pdf";
-        try {
-          const pdfModule: any = await import("pdf-parse");
-          const pdfParse = pdfModule.default || pdfModule;
-          const pdfData = await pdfParse(buffer);
-          text = pdfData.text || "";
-        } catch {
-          text = buffer.toString("utf-8");
-        }
-      } else if (mime.includes("word") || safeFilename.toLowerCase().endsWith(".docx")) {
-        detectedFormat = "docx";
-        try {
-          const mammoth = (await import("mammoth")).default;
-          const docxData = await mammoth.extractRawText({ buffer });
-          text = docxData.value || "";
-        } catch {
-          text = buffer.toString("utf-8");
-        }
-      } else if (mime.includes("html") || safeFilename.toLowerCase().endsWith(".htm") || safeFilename.toLowerCase().endsWith(".html")) {
+      // File extension is an authoritative format signal for SEC .htm/.html
+      // filings. Some upstream callers historically supplied application/pdf
+      // for all non-spreadsheet documents; do not let that misclassify iXBRL.
+      if (isHtml) {
         detectedFormat = "html";
         const raw = buffer.toString("utf-8");
         const visibleRaw = raw
@@ -90,6 +78,25 @@ export class AnyDocParser {
           .replace(/[ \t]+/g, " ")
           .replace(/ *\n+ */g, "\n")
           .trim();
+      } else if (isPdf) {
+        detectedFormat = "pdf";
+        try {
+          const pdfModule: any = await import("pdf-parse");
+          const pdfParse = pdfModule.default || pdfModule;
+          const pdfData = await pdfParse(buffer);
+          text = pdfData.text || "";
+        } catch {
+          text = buffer.toString("utf-8");
+        }
+      } else if (isWord) {
+        detectedFormat = "docx";
+        try {
+          const mammoth = (await import("mammoth")).default;
+          const docxData = await mammoth.extractRawText({ buffer });
+          text = docxData.value || "";
+        } catch {
+          text = buffer.toString("utf-8");
+        }
       } else {
         text = buffer.toString("utf-8");
       }
@@ -99,10 +106,6 @@ export class AnyDocParser {
     const docId = `doc-${Date.now()}`;
     const pages = [{ page_number: 1, text, tables: extractedTables }];
 
-    // HTML/iXBRL has printed-page references but no reliable physical PDF page
-    // boundaries. Preserve deterministic line-level evidence and mark it as
-    // document-scoped so verifiers can corroborate quotes/amounts without
-    // falsely asserting a physical page match.
     const sourceBlocks = detectedFormat === "html"
       ? lines.map((line, idx) => ({
           source_block_id: `SB-${docId}-DOC-${idx + 1}`,
