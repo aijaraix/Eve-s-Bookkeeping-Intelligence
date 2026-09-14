@@ -38,7 +38,7 @@ const pfizerBalance = deriveCurrentBalance(pfizerLike, '2024');
 assert(!!pfizerBalance, 'Pfizer canonical SEC aliases must produce a current-period balance');
 assert(pfizerBalance!.assets === 213396000000 && pfizerBalance!.liabilities === 124899000000 && pfizerBalance!.equity === 88497000000, 'comparative 2023 rows must not contaminate the 2024 identity');
 assert(pfizerBalance!.variance === 0, 'physical Pfizer 2024 balance sheet must reconcile exactly');
-assert(VERIFIED_CONTINUATION_LOGIC_VERSION === 'v5-disclosure-evidence-ledger', 'continuation logic must be versioned so prior terminal evaluations can be safely reconsidered');
+assert(VERIFIED_CONTINUATION_LOGIC_VERSION === 'v6-bounded-lexicon-review-package', 'continuation logic must be versioned so prior terminal evaluations can be safely reconsidered');
 assert(buildVerifiedFactDigest(proof).every(f => f.verificationStatus === "VERIFIED" && f.evidenceStatus === "CONFIRMED"), "fact digest must retain proof lineage");
 
 const disclosureHtml = `<html xmlns:ix="http://www.xbrl.org/2013/inlineXBRL" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi">
@@ -93,7 +93,7 @@ const continuationSourceForDisclosure = fs.readFileSync("server/cpaOrganization/
 assert(continuationSourceForDisclosure.includes('disclosureEvidenceLedgerService.buildAndPersist'), 'continuation must build a hash-bound disclosure evidence ledger from the existing source');
 assert(continuationSourceForDisclosure.includes('sourceBlocks: Array.isArray(db?.sourceBlocks)'), 'disclosure evidence must derive from persisted source blocks rather than manufactured note facts');
 assert(continuationSourceForDisclosure.includes('prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.deliverable?.reportId'), 'deliverable reuse must be scoped to the current continuation logic version');
-assert(routerSource.includes('controller.abort(), 30000'), 'local model timeout must allow real inference instead of forcing a 2-second deterministic fallback');
+assert(routerSource.includes('boundedOllamaGenerate') && routerSource.includes('num_predict'), 'local model must use a whole-response deadline and finite output budget');
 assert(routerSource.includes("? 'CUSTOMER_PRIORITY' : 'SYNTHETIC_ACADEMY'"), 'production specialist model events must be classified as customer-priority work');
 
 const hermes = fs.readFileSync("server/cpaOrganization/hermesJobDispatchService.ts", "utf8");

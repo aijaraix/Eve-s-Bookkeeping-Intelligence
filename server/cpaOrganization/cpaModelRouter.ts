@@ -14,6 +14,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import { boundedOllamaGenerate } from './boundedOllamaGenerate.js';
 import { observatoryEventLedger } from './observatoryEventLedger.js';
 import { operationalRecoveryController } from './operationalRecoveryController.js';
 
@@ -237,6 +238,9 @@ export class CPAModelRouter {
     caseId?: string;
     jsonMode?: boolean;
     requireRealModel?: boolean;
+    structuredSchema?: Record<string, any>;
+    maxOutputTokens?: number;
+    localModelTimeoutMs?: number;
   }): Promise<{
     decision: RouterDecision;
     execution: ModelExecutionRecord;
@@ -259,7 +263,7 @@ export class CPAModelRouter {
     let actualModel = decision.selectedModel;
     let executionStatus: 'PRIMARY_MODEL_SUCCESS' | 'MODEL_FALLBACK' | 'DETERMINISTIC_FALLBACK' | 'MODEL_UNAVAILABLE' = 'PRIMARY_MODEL_SUCCESS';
     let costUsd = decision.estimatedCostUsd;
-    let tokensUsed = { promptTokens: 0, completionTokens: 0 };
+    let tokensUsed: { promptTokens: number; completionTokens: number } | undefined;
 
     if (decision.selectedTier === 'LEVEL_0_DETERMINISTIC') {
       // Deterministic processing (<1ms)
@@ -271,32 +275,21 @@ export class CPAModelRouter {
       // Level 1: Attempt local Ollama / qwen3.5:4b-q4_K_M
       const ollamaUrl = process.env.LOCAL_AI_BASE_URL || 'http://localhost:11434';
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
-
-        const res = await fetch(`${ollamaUrl}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M',
-            prompt: `${params.systemPrompt ? params.systemPrompt + '\n\n' : ''}${promptText}`,
-            stream: false,
-            ...(params.jsonMode ? { format: 'json', think: false } : {})
-          }),
-          signal: controller.signal
-        });
-        clearTimeout(timeout);
-
-        if (res.ok) {
-          const data = await res.json();
-          outputText = data.response || '';
-          tokensUsed = { promptTokens: data.prompt_eval_count || 120, completionTokens: data.eval_count || 85 };
-          costUsd = 0.0; // Local on-prem zero token cost
-          actualModel = process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M';
-          executionStatus = 'PRIMARY_MODEL_SUCCESS';
-        } else {
-          throw new Error(`Ollama HTTP ${res.status}`);
-        }
+        const data = await boundedOllamaGenerate(`${ollamaUrl}/api/generate`, {
+          model: process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M',
+          prompt: `${params.systemPrompt ? params.systemPrompt + '\n\n' : ''}${promptText}`,
+          stream: false,
+          ...(params.jsonMode ? { format: 'json', think: false } : {}),
+          ...(params.structuredSchema ? { format: params.structuredSchema } : {}),
+          keep_alive: '10m',
+          options: { temperature: 0, num_ctx: 4096, num_predict: Math.max(64, Math.min(1024, params.maxOutputTokens || 1024)) }
+        }, Math.max(1000, Math.min(90000, params.localModelTimeoutMs || 30000)));
+        outputText = data.response;
+        tokensUsed = typeof data.prompt_eval_count === 'number' && typeof data.eval_count === 'number'
+          ? { promptTokens: data.prompt_eval_count, completionTokens: data.eval_count } : undefined;
+        costUsd = 0.0;
+        actualModel = process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M';
+        executionStatus = 'PRIMARY_MODEL_SUCCESS';
       } catch (err: any) {
         fallback = true;
         if (params.requireRealModel) {
@@ -336,7 +329,7 @@ export class CPAModelRouter {
             config: params.jsonMode ? { responseMimeType: 'application/json' } : undefined
           });
           outputText = response.text || '';
-          tokensUsed = { promptTokens: 350, completionTokens: 180 };
+          tokensUsed = response.usageMetadata && typeof response.usageMetadata.promptTokenCount === 'number' && typeof response.usageMetadata.candidatesTokenCount === 'number' ? { promptTokens: response.usageMetadata.promptTokenCount, completionTokens: response.usageMetadata.candidatesTokenCount } : undefined;
           costUsd = decision.selectedTier === 'LEVEL_3_HEAVY_CLOUD' ? 0.002 : 0.0005;
           actualModel = targetModel;
           executionStatus = 'PRIMARY_MODEL_SUCCESS';
@@ -351,7 +344,7 @@ export class CPAModelRouter {
                 config: params.jsonMode ? { responseMimeType: 'application/json' } : undefined
               });
               outputText = fbResponse.text || '';
-              tokensUsed = { promptTokens: 250, completionTokens: 120 };
+              tokensUsed = fbResponse.usageMetadata && typeof fbResponse.usageMetadata.promptTokenCount === 'number' && typeof fbResponse.usageMetadata.candidatesTokenCount === 'number' ? { promptTokens: fbResponse.usageMetadata.promptTokenCount, completionTokens: fbResponse.usageMetadata.candidatesTokenCount } : undefined;
               costUsd = 0.0005;
               fallback = true;
               fallbackReason = `Primary model ${targetModel} failed (${err.message}); recovered via ${fallbackModel}.`;

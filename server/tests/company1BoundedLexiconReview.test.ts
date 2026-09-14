@@ -49,8 +49,12 @@ try {
   assert.equal(reviewRow(facts[0]).period,'2023-12-31');assert.equal(reviewRow(facts[0]).id,'source-fact-2023');
   const csv=buildReviewCsv(facts,'USD');assert(csv.includes('2023-12-31'));assert(csv.includes('source-fact-2023'));assert(!csv.includes('FACT-1'));assert(csv.includes('""comparative""'));
   const params={reportId:'REP-BOUNDED-TEST',version:'v6-test',clientName:'Fixture only',period:'FY 2024',currency:'USD',facts,euclidBalance:{assets:30,liabilities:10,equity:20,variance:0},specialistReview:{jobs:[]},disclosureEvidenceLedger:{records:[]}};
-  const x=renderReviewWorkbook(params,root);const wb=XLSX.readFile(x.filepath);
+  const x=renderReviewWorkbook(params,root);const wb=XLSX.read(fs.readFileSync(x.filepath),{type:'buffer'});
   assert.equal(wb.Sheets['Financial Statements'].E2.v,'2023-12-31');assert.equal(wb.Sheets['Financial Statements'].A2.v,'source-fact-2023');assert.equal(wb.Sheets['Executive Summary'].B15.f,'B12-B13-B14');assert.equal(wb.Sheets['Executive Summary'].B15.v,0);
+  const longOutput={description:'evidence '.repeat(6000)};
+  const large=renderReviewWorkbook({...params,version:'v6-large-test',specialistReview:{jobs:[{agentId:'LEXICON',status:'JOB_COMPLETED_SUCCESS',outputManifest:longOutput}]}},root);
+  const lw=XLSX.read(fs.readFileSync(large.filepath),{type:'buffer'});const lr=XLSX.utils.sheet_to_json(lw.Sheets['Specialist Review'],{header:1}) as any[][];
+  assert.equal(lr.slice(1).map(r=>r[5]).join(''),JSON.stringify(longOutput),'long specialist output must survive workbook cell limits without truncation');
   const pdf=await renderReviewPdf({...params,facts:Array.from({length:70},(_,i)=>({...facts[i%2],label:'Long label '+i+' '.repeat(2)+'review '.repeat(20)}))},root);
   assert((await PDFDocument.load(fs.readFileSync(pdf.filepath))).getPageCount()>3,'all rows must paginate instead of silently dropping after 14');
   console.log('PASS: bounded input/output; exact batch coverage; durable restart; bounded retries; full-body deadline; no fabricated anchors; source IDs; comparative periods; CSV quoting; variance formula; PDF pagination');

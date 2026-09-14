@@ -122,7 +122,11 @@ export function renderReviewWorkbook(params:any, dir:string){
   ],[48,34,28,38,27,20,50,90]);
   add('Specialist Review',[
     ['Agent','Execution Status','Output Contract','Model','Review Limitations','Actual Output'],
-    ...(params.specialistReview?.jobs||[]).map((j:any)=>[j.agentId,j.status,j.outputValidationStatus,j.provenance?.actualModel||j.provenance?.model,(j.uncertainties||[]).map(display).join(';'),JSON.stringify(j.outputManifest)])
+    ...(params.specialistReview?.jobs||[]).flatMap((j:any)=>{
+      const serialized=JSON.stringify(j.outputManifest||{});
+      const chunks=serialized.match(/[\s\S]{1,24000}/g)||[''];
+      return chunks.map((chunk:string,index:number)=>[`${j.agentId} [part ${index+1}/${chunks.length}]`,j.status,j.outputValidationStatus,j.provenance?.actualModel||j.provenance?.model,(j.uncertainties||[]).map(display).join(';'),chunk]);
+    })
   ],[14,30,25,30,70,100]);
   add('Disclosure Evidence',[
     ['Evidence ID','Topic','Document ID','Source Block IDs','Excerpt','Excerpt SHA256'],
