@@ -235,6 +235,8 @@ export class CPAModelRouter {
     purpose?: string;
     engagementId?: string;
     caseId?: string;
+    jsonMode?: boolean;
+    requireRealModel?: boolean;
   }): Promise<{
     decision: RouterDecision;
     execution: ModelExecutionRecord;
@@ -270,7 +272,7 @@ export class CPAModelRouter {
       const ollamaUrl = process.env.LOCAL_AI_BASE_URL || 'http://localhost:11434';
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
+        const timeout = setTimeout(() => controller.abort(), 30000);
 
         const res = await fetch(`${ollamaUrl}/api/generate`, {
           method: 'POST',
@@ -278,7 +280,8 @@ export class CPAModelRouter {
           body: JSON.stringify({
             model: process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M',
             prompt: `${params.systemPrompt ? params.systemPrompt + '\n\n' : ''}${promptText}`,
-            stream: false
+            stream: false,
+            ...(params.jsonMode ? { format: 'json' } : {})
           }),
           signal: controller.signal
         });
@@ -296,10 +299,18 @@ export class CPAModelRouter {
         }
       } catch (err: any) {
         fallback = true;
-        fallbackReason = `Ollama unreachable (${err.message}). Recovered via deterministic semantic classifier.`;
-        actualModel = 'Deterministic Semantic Entity Classifier';
-        executionStatus = 'DETERMINISTIC_FALLBACK';
-        outputText = `[LEVEL_1_FALLBACK]: Semantic entity mapping categorized table successfully: ${params.taskType} confirmed for ${params.taskId}.`;
+        if (params.requireRealModel) {
+          fallbackReason = `Ollama real-model inference unavailable (${err.message}). Deterministic substitute is prohibited for REAL_AI_AGENT work.`;
+          actualModel = 'None (Required Real Model Unavailable)';
+          executionStatus = 'MODEL_UNAVAILABLE';
+          success = false;
+          outputText = `[MODEL_UNAVAILABLE]: Required local model unavailable for ${params.taskId}; no deterministic substitute was accepted as agent output.`;
+        } else {
+          fallbackReason = `Ollama unreachable (${err.message}). Recovered via deterministic semantic classifier.`;
+          actualModel = 'Deterministic Semantic Entity Classifier';
+          executionStatus = 'DETERMINISTIC_FALLBACK';
+          outputText = `[LEVEL_1_FALLBACK]: Semantic entity mapping categorized table successfully: ${params.taskType} confirmed for ${params.taskId}.`;
+        }
 
         // Register recovery with OperationalRecoveryController
         operationalRecoveryController.executeRecovery({
@@ -321,7 +332,8 @@ export class CPAModelRouter {
           const fullPrompt = `${params.systemPrompt ? params.systemPrompt + '\n\n' : ''}${promptText}`;
           const response = await ai.models.generateContent({
             model: targetModel,
-            contents: fullPrompt
+            contents: fullPrompt,
+            config: params.jsonMode ? { responseMimeType: 'application/json' } : undefined
           });
           outputText = response.text || '';
           tokensUsed = { promptTokens: 350, completionTokens: 180 };
@@ -335,7 +347,8 @@ export class CPAModelRouter {
               const fullPrompt = `${params.systemPrompt ? params.systemPrompt + '\n\n' : ''}${promptText}`;
               const fbResponse = await ai.models.generateContent({
                 model: fallbackModel,
-                contents: fullPrompt
+                contents: fullPrompt,
+                config: params.jsonMode ? { responseMimeType: 'application/json' } : undefined
               });
               outputText = fbResponse.text || '';
               tokensUsed = { promptTokens: 250, completionTokens: 120 };
@@ -352,6 +365,7 @@ export class CPAModelRouter {
             fallbackReason = `Gemini call failed (${err.message}). Technical policy review cannot be certified.`;
             actualModel = 'None (Model Unavailable)';
             executionStatus = 'MODEL_UNAVAILABLE';
+            success = false;
             outputText = `[MODEL_UNAVAILABLE]: Cloud inference unavailable (${err.message}). Technical policy review for ${params.taskId} requires manual CPA inspection or cloud model availability; cannot certify zero non-conforming disclosures.`;
           }
         }
@@ -360,6 +374,7 @@ export class CPAModelRouter {
         fallbackReason = 'GEMINI_API_KEY unconfigured in environment.';
         actualModel = 'None (Model Unconfigured)';
         executionStatus = 'MODEL_UNAVAILABLE';
+        success = false;
         outputText = `[MODEL_UNAVAILABLE]: GEMINI_API_KEY is not configured in runtime environment. Note disclosure analysis for ${params.taskId} is BLOCKED awaiting model credentials or CPA review.`;
       }
     } else {
@@ -401,13 +416,13 @@ export class CPAModelRouter {
       sourceId: 'eve-router',
       engagementId: params.engagementId,
       academyCaseId: params.caseId,
-      customerType: 'SYNTHETIC_ACADEMY',
+      customerType: params.engagementId?.startsWith('eng-customer-') ? 'CUSTOMER_PRIORITY' : 'SYNTHETIC_ACADEMY',
       eventReality: 'REAL_OPERATION',
       executionMode: 'FULL_PRACTICE',
       summary: `Model router executed [${decision.selectedTier}] via ${actualModel} (${latencyMs}ms, $${costUsd.toFixed(4)}, status: ${executionStatus}). Fallback: ${fallback ? 'YES' : 'NO'}.`,
       structuredMetadata: { ...execution },
-      status: 'SUCCESS',
-      severity: fallback ? 'WARNING' : 'SUCCESS'
+      status: success && executionStatus !== 'MODEL_UNAVAILABLE' ? 'SUCCESS' : 'FAILED',
+      severity: !success || executionStatus === 'MODEL_UNAVAILABLE' ? 'ERROR' : (fallback ? 'WARNING' : 'SUCCESS')
     });
 
     return { decision, execution, outputText };

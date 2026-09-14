@@ -36,7 +36,7 @@ const pfizerBalance = deriveCurrentBalance(pfizerLike, '2024');
 assert(!!pfizerBalance, 'Pfizer canonical SEC aliases must produce a current-period balance');
 assert(pfizerBalance!.assets === 213396000000 && pfizerBalance!.liabilities === 124899000000 && pfizerBalance!.equity === 88497000000, 'comparative 2023 rows must not contaminate the 2024 identity');
 assert(pfizerBalance!.variance === 0, 'physical Pfizer 2024 balance sheet must reconcile exactly');
-assert(VERIFIED_CONTINUATION_LOGIC_VERSION === 'v2-balance-period-aliases', 'continuation logic must be versioned so prior terminal evaluations can be safely reconsidered');
+assert(VERIFIED_CONTINUATION_LOGIC_VERSION === 'v3-structured-agent-contracts', 'continuation logic must be versioned so prior terminal evaluations can be safely reconsidered');
 assert(buildVerifiedFactDigest(proof).every(f => f.verificationStatus === "VERIFIED" && f.evidenceStatus === "CONFIRMED"), "fact digest must retain proof lineage");
 
 const deliverable = fs.readFileSync("server/cpaOrganization/deliverableArtifactService.ts", "utf8");
@@ -45,6 +45,16 @@ for (const forbidden of ["CLEARED_CONCURRING_PARTNER", "CRYPTOGRAPHICALLY_VERIFI
 }
 assert(deliverable.includes("ALL_ARTIFACT_HASHES_VERIFIED"), "artifact manifest must describe binary integrity, not professional verification");
 assert(deliverable.includes("humanPartnerSignOff: 'PENDING'"), "deliverable must preserve pending human sign-off");
+
+const adapterSource = fs.readFileSync("server/cpaOrganization/realAgentExecutionAdapter.ts", "utf8");
+const routerSource = fs.readFileSync("server/cpaOrganization/cpaModelRouter.ts", "utf8");
+assert(adapterSource.includes('AUTHORITATIVE_CONTEXT_JSON'), 'real-agent adapter must deliver authoritative context data to the physical model');
+assert(adapterSource.includes('getRoleStructuredOutputInstruction'), 'real-agent adapter must attach role-specific structured output contracts');
+assert(adapterSource.includes('requireRealModel: true'), 'REAL_AI_AGENT execution must require a physical model rather than deterministic substitution');
+assert(routerSource.includes("responseMimeType: 'application/json'"), 'Gemini specialist calls must use provider-native JSON response mode');
+assert(routerSource.includes("format: 'json'"), 'Ollama specialist calls must request JSON output');
+assert(routerSource.includes('controller.abort(), 30000'), 'local model timeout must allow real inference instead of forcing a 2-second deterministic fallback');
+assert(routerSource.includes("? 'CUSTOMER_PRIORITY' : 'SYNTHETIC_ACADEMY'"), 'production specialist model events must be classified as customer-priority work');
 
 const hermes = fs.readFileSync("server/cpaOrganization/hermesJobDispatchService.ts", "utf8");
 assert(hermes.includes("verifiedFacts?: Array<Record<string, any>>"), "Hermes swarm must accept actual verified fact digest");
