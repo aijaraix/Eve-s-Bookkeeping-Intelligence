@@ -32,8 +32,11 @@ export async function runPhasePackageB4_2BehavioralVerificationTests(): Promise<
   }
 
   // 1. test_minerva_live_engagement_returns_technical_validation_passed_not_certified_cpa
-  const pkgBytes = fs.readFileSync('package.json');
-  const pkgHash = crypto.createHash('sha256').update(pkgBytes).digest('hex');
+  const liveSourcePath = 'storage/cpa_memory/b42_live_source.txt';
+  const liveSourceText = 'Turnover 50503000000 EUR FY2025';
+  fs.mkdirSync('storage/cpa_memory', { recursive: true });
+  fs.writeFileSync(liveSourcePath, liveSourceText, 'utf8');
+  const pkgHash = crypto.createHash('sha256').update(fs.readFileSync(liveSourcePath)).digest('hex');
   const liveResult = academyMinervaLab.evaluateLiveEngagement({
     facts: [
       {
@@ -42,17 +45,23 @@ export async function runPhasePackageB4_2BehavioralVerificationTests(): Promise<
         value: 50503000000,
         period: 'FY2025',
         currency: 'EUR',
-        sourcePage: 98,
-        sourceDocumentId: 'unilever-2025-20f.pdf'
+        sourcePage: 1,
+        documentId: 'unilever-2025-20f.pdf',
+        sourceDocumentId: 'unilever-2025-20f.pdf',
+        sourceText: liveSourceText,
+        status: 'APPROVED',
+        verificationStatus: 'VERIFIED',
+        evidenceStatus: 'CONFIRMED'
       }
     ],
     assets: 100,
     liabilities: 60,
     equity: 40,
     variance: 0,
-    physicalFilePath: 'package.json',
+    physicalFilePath: liveSourcePath,
     physicalSha256: pkgHash
   });
+  try { fs.unlinkSync(liveSourcePath); } catch (_) {}
   assert(
     'B4.2-TEST-01: Live Minerva Returns TECHNICAL_VALIDATION_PASSED, NEVER CERTIFIED_CPA_READY',
     (liveResult.certifiedStatus as any) === 'TECHNICAL_VALIDATION_PASSED' && (liveResult.certifiedStatus as any) !== 'CERTIFIED_CPA_READY',

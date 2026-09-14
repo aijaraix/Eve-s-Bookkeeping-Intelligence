@@ -412,13 +412,21 @@ export class AcademyMinervaLab {
       details.push(`Accounting identity discrepancy: Variance = $${params.variance}`);
     }
 
-    // 3. Extracted facts count check
-    const factsCount = (params.facts || []).length;
-    if (factsCount > 0) {
-      details.push(`Extracted ${factsCount} authoritative financial facts with source-to-pixel citations`);
+    // 3. Live fact evidence integrity check. A non-empty array is not proof.
+    const facts = params.facts || [];
+    const factsCount = facts.length;
+    const proofCompleteCount = facts.filter((fact: any) =>
+      String(fact?.status || '').toUpperCase() === 'APPROVED' &&
+      String(fact?.verificationStatus || fact?.verification_status || '').toUpperCase() === 'VERIFIED' &&
+      String(fact?.evidenceStatus || fact?.evidence_status || '').toUpperCase() === 'CONFIRMED' &&
+      Boolean(fact?.documentId || fact?.document_id) &&
+      Boolean(String(fact?.sourceText || fact?.source_text || '').trim())
+    ).length;
+    if (factsCount > 0 && proofCompleteCount === factsCount) {
+      details.push(`Validated ${proofCompleteCount} source-evidence-corroborated financial facts (VERIFIED + CONFIRMED).`);
     } else {
       passed = false;
-      details.push('Zero financial facts extracted from filing');
+      details.push(`Fact evidence integrity failed: ${proofCompleteCount}/${factsCount} facts are APPROVED + VERIFIED + CONFIRMED with source evidence.`);
     }
 
     const report: LiveEngagementValidationReport = {
