@@ -179,9 +179,18 @@ export async function runPhaseH944ConformanceTests(): Promise<{ passed: number; 
     `Expected Minerva to reject unrelated output, got ${minervaUnrelatedResult.certifiedStatus}`
   );
 
-  // Test 9: Minerva Live Engagement Validation checks accounting identities without forcing Unilever values
+  // Test 9: Minerva Live Engagement Validation checks accounting identities without forcing Unilever values.
+  // This is a positive fixture, so its facts must carry the same proof contract required in production.
+  const liveProofFacts = nonPltrExtraction.atomicDataPoints.map((fact: any) => ({
+    ...fact,
+    status: 'APPROVED',
+    verificationStatus: 'VERIFIED',
+    evidenceStatus: 'CONFIRMED',
+    documentId: fact.documentId || 'doc-acme-live',
+    sourceText: fact.sourceText || dummyNonPalantirFiling
+  }));
   const liveVal = academyMinervaLab.evaluateLiveEngagement({
-    facts: nonPltrExtraction.atomicDataPoints,
+    facts: liveProofFacts,
     assets: 1250000000,
     liabilities: 750000000,
     equity: 500000000,

@@ -176,15 +176,24 @@ export class HermesJobDispatchService {
     };
     customerPbcUploaded?: boolean;
     customerPbcFilesCount?: number;
+    verifiedFacts?: Array<Record<string, any>>;
+    verifiedFactsDigestSha256?: string;
+    reportingCurrency?: string;
+    workspaceId?: string;
+    documentId?: string;
   }): Promise<SwarmExecutionSummary> {
     const jobs: AgentJobExecution[] = [];
     const jobMap = new Map<string, AgentJobExecution>();
 
     // Initial references from client engagement
+    const verifiedFactCount = Array.isArray(params.verifiedFacts) ? params.verifiedFacts.length : 0;
     const initialReferences = [
       `ref-source-file-${params.engagementId}`,
       `ref-sec-metadata-${params.ticker}`,
-      `ref-facts-count-${params.extractedFactsCount}`
+      `ref-facts-count-${params.extractedFactsCount}`,
+      ...(params.workspaceId ? [`ref-workspace-${params.workspaceId}`] : []),
+      ...(params.documentId ? [`ref-document-${params.documentId}`] : []),
+      ...(params.verifiedFactsDigestSha256 ? [`ref-verified-facts-${params.verifiedFactsDigestSha256}`] : [])
     ];
 
     // Build the dynamic dependency DAG
@@ -625,6 +634,7 @@ export class HermesJobDispatchService {
     findings: string[];
   }> {
     const { params } = context;
+    const verifiedFactCount = Array.isArray(params.verifiedFacts) ? params.verifiedFacts.length : 0;
 
     switch (agentId) {
       case 'HERMES': {
@@ -636,12 +646,18 @@ export class HermesJobDispatchService {
           agentId: 'HERMES',
           taskType: 'COMPLEX_POLICY_ANALYSIS',
           systemPrompt: 'You are Hermes, Autonomous Lead Audit Partner and Engagement Director. Establish statutory audit scope, materiality recommendation, risk areas, and orchestration plan for Form 10-K engagement.',
-          userPrompt: `Establish statutory audit scope and materiality recommendation for ${params.clientName} (${params.ticker}) with reported assets $${params.reportedAssets}.`,
+          userPrompt: `Establish statutory audit scope and materiality recommendation for ${params.clientName} (${params.ticker}) with reported assets $${params.reportedAssets}. Use the supplied ${verifiedFactCount} VERIFIED + CONFIRMED financial facts as the engagement evidence set; do not invent missing values.`,
           contextData: {
             client: params.clientName,
             ticker: params.ticker,
             fiscalYear: params.fiscalYear,
-            reportedAssets: params.reportedAssets
+            reportedAssets: params.reportedAssets,
+            reportedLiabilities: params.reportedLiabilities,
+            reportedEquity: params.reportedEquity,
+            reportingCurrency: params.reportingCurrency,
+            verifiedFactCount,
+            verifiedFactsDigestSha256: params.verifiedFactsDigestSha256,
+            verifiedFacts: params.verifiedFacts || []
           },
           inputObjectReferences: context.inputObjectReferences,
           engagementId: params.engagementId
@@ -927,8 +943,10 @@ export class HermesJobDispatchService {
           outputManifest: {
             physicalFileVerified: actualPhysicalFileVerified,
             sha256Match: actualSha256Match,
-            citedFactsCount: params.extractedFactsCount,
-            provenanceStatus: actualSha256Match ? 'FULL_CRYPTOGRAPHIC_PROVENANCE_PROVED' : 'HASH_MISMATCH_FAIL'
+            citedFactsCount: verifiedFactCount,
+            evidenceConfirmedFactsCount: verifiedFactCount,
+            verifiedFactsDigestSha256: params.verifiedFactsDigestSha256 || null,
+            provenanceStatus: actualSha256Match ? 'FULL_CRYPTOGRAPHIC_PROVENANCE_PROVED' : 'HASH_MISMATCH_FAIL' 
           }
         };
       }
@@ -940,11 +958,15 @@ export class HermesJobDispatchService {
           agentId: 'ATHENA',
           taskType: 'COMPLEX_POLICY_ANALYSIS',
           systemPrompt: 'You are Athena, Technical Accounting Director (IFRS & US-GAAP Specialist). Perform substantive technical accounting and disclosure review against ASC 280, ASC 606, ASC 842 based on extracted facts and evidence references.',
-          userPrompt: `Evaluate GAAP technical disclosure compliance for ${params.clientName} (${params.fiscalYear}). Extracted facts: ${params.extractedFactsCount}. Prior evidence references: ${context.inputObjectReferences.join(', ')}.`,
+          userPrompt: `Evaluate GAAP technical disclosure compliance for ${params.clientName} (${params.fiscalYear}) using the supplied VERIFIED + CONFIRMED fact digest. Do not infer compliance from fact counts alone. Flag standards that cannot be evaluated from the provided evidence. Prior evidence references: ${context.inputObjectReferences.join(', ')}.`,
           contextData: {
             client: params.clientName,
             fiscalYear: params.fiscalYear,
+            reportingCurrency: params.reportingCurrency,
             extractedFactsCount: params.extractedFactsCount,
+            verifiedFactCount,
+            verifiedFactsDigestSha256: params.verifiedFactsDigestSha256,
+            verifiedFacts: params.verifiedFacts || [],
             evidenceReferences: context.inputObjectReferences
           },
           inputObjectReferences: context.inputObjectReferences,
@@ -1462,11 +1484,15 @@ export class HermesJobDispatchService {
           agentId: 'QUINN',
           taskType: 'COMPLEX_POLICY_ANALYSIS',
           systemPrompt: 'You are Quinn, Concurring Engagement Quality Review Partner (EQCR). Conduct independent quality review of all upstream specialist workpapers. Final concurring approval requires an authorized human CPA.',
-          userPrompt: `Conduct EQCR quality review on ${context.priorJobs.length} workpapers for ${params.clientName}. Euclid variance: $${variance}. All prior succeeded: ${allPriorSucceeded}.`,
+          userPrompt: `Conduct AI EQCR quality review on ${context.priorJobs.length} workpapers for ${params.clientName}. Euclid variance: $${variance}. All prior succeeded: ${allPriorSucceeded}. Review the supplied VERIFIED + CONFIRMED financial fact digest and identify unresolved matters. This AI review cannot grant human partner approval.`,
           contextData: {
             workpapersCount: context.priorJobs.length,
             euclidVariance: variance,
             allPriorSucceeded,
+            reportingCurrency: params.reportingCurrency,
+            verifiedFactCount,
+            verifiedFactsDigestSha256: params.verifiedFactsDigestSha256,
+            verifiedFacts: params.verifiedFacts || [],
             priorJobIds: context.priorJobs.map(j => j.agentExecutionId)
           },
           inputObjectReferences: context.inputObjectReferences,

@@ -14,6 +14,7 @@ export interface ArtifactManifestItem {
   createdAt: string;
   verified: boolean;
   verificationDetails?: string;
+  verificationScope?: 'BINARY_INTEGRITY_ONLY';
 }
 
 export interface DeliverableManifest {
@@ -29,7 +30,7 @@ export interface DeliverableManifest {
     json: ArtifactManifestItem;
     csv: ArtifactManifestItem;
   };
-  overallStatus: 'ALL_VERIFIED' | 'PARTIAL' | 'FAILED';
+  overallStatus: 'ALL_ARTIFACT_HASHES_VERIFIED' | 'ALL_VERIFIED' | 'PARTIAL' | 'FAILED';
 }
 
 export interface DeliverableArtifactRecord {
@@ -194,12 +195,12 @@ export class DeliverableArtifactService {
                   verified: fs.existsSync(csvPath)
                 }
               },
-              overallStatus: 'ALL_VERIFIED'
+              overallStatus: 'ALL_ARTIFACT_HASHES_VERIFIED'
             },
             branding: {
-              firmName: "Eve's CPA & Advisory LLP",
-              partnerName: "Managing Partner, CPA / CA",
-              licenseNumber: "CPA-PCAOB-982410",
+              firmName: data.firmName || 'Eve Autonomous CPA System',
+              partnerName: data.partnerName || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
+              licenseNumber: data.licenseNumber || '',
               clientName: data.clientName || 'Client Entity',
               primaryColor: '#0f172a'
             },
@@ -229,10 +230,10 @@ export class DeliverableArtifactService {
                 sha256: csvSha
               } : undefined
             },
-            canonicalFactHash: data.quinnSignoff || '',
+            canonicalFactHash: data.canonicalFactHash || crypto.createHash('sha256').update(JSON.stringify(data.facts || [])).digest('hex'),
             numericFactsCount: data.facts?.length || 0,
             euclidVariance: data.euclidBalance?.variance || 0,
-            quinnReviewStatus: data.quinnReviewStatus || 'AI_REVIEW_COMPLETE',
+            quinnReviewStatus: data.quinnReviewStatus || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
             status: data.approvalObject?.status === 'APPROVED' ? 'FINAL_CERTIFIED' : (data.status || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'),
             isStale: data.isStale || false,
             approvalObject: data.approvalObject,
@@ -429,7 +430,7 @@ export class DeliverableArtifactService {
       thickness: 0.5,
       color: rgb(0.7, 0.7, 0.7)
     });
-    page1.drawText(`Page 1 of 1 | Report ID: ${params.reportId} | Eve Autonomous CPA Firm`, {
+    page1.drawText(`Page 1 of 1 | Report ID: ${params.reportId} | Eve Autonomous CPA System`, {
       x: 50,
       y: 28,
       size: 8,
@@ -472,6 +473,7 @@ export class DeliverableArtifactService {
       sourceDoc: string;
       page: number;
       verificationStatus: string;
+      evidenceStatus?: string;
     }>;
     euclidBalance: {
       assets: number;
@@ -484,8 +486,8 @@ export class DeliverableArtifactService {
 
     // Tab 1: Executive Summary
     const execSummaryData = [
-      ['EVE AUTONOMOUS CPA ASSURANCE & AUDIT STUDIO'],
-      ['STATUTORY DELIVERABLE WORKBOOK'],
+      ['EVE AUTONOMOUS CPA SYSTEM'],
+      ['FINANCIAL REVIEW DRAFT — AUTHORIZED HUMAN REVIEW REQUIRED'],
       ['Report ID', params.reportId],
       ['Version', params.version],
       ['Client Name', params.clientName],
@@ -527,8 +529,8 @@ export class DeliverableArtifactService {
       f.value,
       f.sourceDoc,
       f.page,
-      `SEC_XBRL_BLOCK_${idx + 101}`,
-      'CRYPTOGRAPHICALLY_VERIFIED'
+      `SOURCE_EVIDENCE_${idx + 1}`,
+      `${f.verificationStatus || 'NOT_VERIFIED'}${f.evidenceStatus ? ` / ${f.evidenceStatus}` : ''}`
     ]);
     const ws3 = XLSX.utils.aoa_to_sheet([leadHeaders, ...leadRows]);
     XLSX.utils.book_append_sheet(wb, ws3, 'Lead Schedules');
@@ -574,6 +576,8 @@ export class DeliverableArtifactService {
       sourceDoc?: string;
       page?: number;
       verificationStatus?: string;
+      evidenceStatus?: string;
+      documentId?: string;
     }>;
     canonicalFacts?: any[];
     euclidBalance?: {
@@ -590,7 +594,7 @@ export class DeliverableArtifactService {
     const version = params.version || (existing.length > 0 ? `v${existing.length + 1}.0` : 'v1.0');
     const clientName = params.clientName || params.companyName || 'Corporate Client';
     const title = params.title || `${clientName} Financial Attestation Deliverable`;
-    const firmName = params.firmName || 'Eve Autonomous CPA Assurance LLP';
+    const firmName = params.firmName || 'Eve Autonomous CPA System';
     const partnerName = params.partnerName || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW';
     const licenseNumber = params.licenseNumber || '';
     const period = params.period || 'FY 2025';
@@ -606,7 +610,9 @@ export class DeliverableArtifactService {
       statement: f.statement || f.statementType || 'BALANCE_SHEET',
       sourceDoc: f.sourceDoc || f.documentTitle || 'MISSING_EVIDENCE',
       page: typeof f.page === 'number' ? f.page : (typeof f.sourcePage === 'number' ? f.sourcePage : undefined),
-      verificationStatus: f.verificationStatus || 'NOT_VERIFIED'
+      verificationStatus: f.verificationStatus || 'NOT_VERIFIED',
+      evidenceStatus: f.evidenceStatus || 'NOT_MEASURED',
+      documentId: f.documentId
     }));
 
     // Normalize euclidBalance from real fact numbers rather than fabricated defaults
@@ -665,6 +671,11 @@ export class DeliverableArtifactService {
       euclidBalance
     });
 
+    // Canonical fact hash binds the draft package to the verified fact set.
+    const canonicalFactHash = crypto.createHash('sha256')
+      .update(normalizedFacts.map(f => `${f.canonicalMetric}:${f.value}`).join(';'))
+      .digest('hex');
+
     // 3. Generate JSON deliverable
     const jsonFilename = `audit_package_${reportId}_${version}.json`;
     const jsonFilepath = path.join(this.storageDir, jsonFilename);
@@ -678,8 +689,14 @@ export class DeliverableArtifactService {
       currency,
       generatedAt: new Date().toISOString(),
       euclidBalance,
+      status: reportStatus,
+      firmName,
+      partnerName,
+      licenseNumber,
+      canonicalFactHash,
       facts: normalizedFacts,
-      quinnSignoff: 'CLEARED_CONCURRING_PARTNER'
+      quinnReviewStatus: params.quinnReviewStatus || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
+      quinnReview: params.quinnReview || { aiQualityReview: 'NOT_RUN', humanPartnerSignOff: 'PENDING', concurringApprovalGranted: false, deliveryEligible: false }
     };
     const jsonStr = JSON.stringify(jsonPayload, null, 2);
     fs.writeFileSync(jsonFilepath, jsonStr, 'utf-8');
@@ -696,11 +713,6 @@ export class DeliverableArtifactService {
     fs.writeFileSync(csvFilepath, csvContent, 'utf-8');
     const csvSha = crypto.createHash('sha256').update(csvContent).digest('hex');
 
-    // Canonical fact hash
-    const canonicalFactHash = crypto.createHash('sha256')
-      .update(normalizedFacts.map(f => `${f.canonicalMetric}:${f.value}`).join(';'))
-      .digest('hex');
-
     const manifest: DeliverableManifest = {
       reportId,
       version,
@@ -715,7 +727,9 @@ export class DeliverableArtifactService {
           sizeBytes: pdf.sizeBytes,
           sha256: pdf.sha256,
           createdAt: new Date().toISOString(),
-          verified: true
+          verified: true,
+          verificationScope: 'BINARY_INTEGRITY_ONLY',
+          verificationDetails: 'Artifact file/hash integrity only; not professional approval.'
         },
         xlsx: {
           format: 'XLSX',
@@ -724,7 +738,9 @@ export class DeliverableArtifactService {
           sizeBytes: xlsx.sizeBytes,
           sha256: xlsx.sha256,
           createdAt: new Date().toISOString(),
-          verified: true
+          verified: true,
+          verificationScope: 'BINARY_INTEGRITY_ONLY',
+          verificationDetails: 'Artifact file/hash integrity only; not professional approval.'
         },
         json: {
           format: 'JSON',
@@ -733,7 +749,9 @@ export class DeliverableArtifactService {
           sizeBytes: Buffer.byteLength(jsonStr),
           sha256: jsonSha,
           createdAt: new Date().toISOString(),
-          verified: true
+          verified: true,
+          verificationScope: 'BINARY_INTEGRITY_ONLY',
+          verificationDetails: 'Artifact file/hash integrity only; not professional approval.'
         },
         csv: {
           format: 'CSV',
@@ -745,7 +763,7 @@ export class DeliverableArtifactService {
           verified: true
         }
       },
-      overallStatus: 'ALL_VERIFIED'
+      overallStatus: 'ALL_ARTIFACT_HASHES_VERIFIED'
     };
 
     const record: DeliverableArtifactRecord = {
@@ -795,7 +813,7 @@ export class DeliverableArtifactService {
       canonicalFactHash,
       numericFactsCount: normalizedFacts.length,
       euclidVariance: euclidBalance.variance,
-      quinnReviewStatus: params.quinnReviewStatus || 'AI_REVIEW_COMPLETE',
+      quinnReviewStatus: params.quinnReviewStatus || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
       status: reportStatus,
       isStale: false,
       approvalObject: params.approvalObject,

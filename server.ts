@@ -16,6 +16,8 @@ import { DocumentIntelligenceAgent } from "./src/lib/agents/documentAgents";
 import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
 import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
+import { verifiedCustomerContinuationService } from "./server/cpaOrganization/verifiedCustomerContinuationService.js";
+import { runtimeAuthorityManifestManager } from "./server/cpaOrganization/runtimeAuthorityManifest.js";
 import { getLLMGatewayMetrics, getGeminiDiagnosticStatus } from "./server/llmGateway.js";
 import { DiagnosticsEngine } from "./server/diagnosticsEngine.js";
 import { createReviewerRouter } from "./server/reviewerRoutes.js";
@@ -696,6 +698,38 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     console.log(`[Server] Applied ${job.result.facts.length} facts & reprocessed audit findings for background job ${job.id} to workspace ${job.workspaceId}`);
   }
 });
+
+// Leader-only continuation sweep for completed HYBRID customer jobs.
+// This never creates a new intake and never re-runs extraction. The continuation
+// service is durable/idempotent by job ID + attempt + source hash.
+let verifiedContinuationSweepRunning = false;
+async function sweepVerifiedCustomerContinuations(): Promise<void> {
+  if (verifiedContinuationSweepRunning) return;
+  try {
+    if (!runtimeAuthorityManifestManager.isLeader()) return;
+  } catch {
+    return;
+  }
+
+  verifiedContinuationSweepRunning = true;
+  try {
+    const jobs = backgroundIngestionQueue.getAllJobs();
+    for (const job of jobs) {
+      if (job?.engineMode !== 'HYBRID_GEMINI_NATIVE' || job?.status !== 'COMPLETED') continue;
+      const state = await verifiedCustomerContinuationService.continueCompletedHybridJob(job, db);
+      if (state) {
+        console.log(`[VerifiedCustomerContinuation] ${job.id} -> ${state.status}`);
+      }
+    }
+  } catch (err: any) {
+    console.error('[VerifiedCustomerContinuation] sweep failed closed:', err?.message || err);
+  } finally {
+    verifiedContinuationSweepRunning = false;
+  }
+}
+
+setTimeout(() => { void sweepVerifiedCustomerContinuations(); }, 5000);
+setInterval(() => { void sweepVerifiedCustomerContinuations(); }, 15000);
 
 function reprocessWorkspaceExtraction(workspaceId: string) {
   const ws = db.workspaces.find(w => w.id === workspaceId);
