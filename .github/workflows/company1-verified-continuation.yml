@@ -48,6 +48,32 @@ jobs:
               raise SystemExit('specialist-role scope anchor missing')
           p.write_text(s.replace(old, new, 1))
           PY
+      - name: Make positive Minerva fixtures proof-complete
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # H.9.44 positive live-engagement fixture: keep the real Acme HTML source and
+          # explicitly model the proof state that the test claims is valid.
+          p = Path('server/tests/phaseH944Conformance.test.ts')
+          s = p.read_text()
+          old = """  // Test 9: Minerva Live Engagement Validation checks accounting identities without forcing Unilever values\n  const liveVal = academyMinervaLab.evaluateLiveEngagement({\n    facts: nonPltrExtraction.atomicDataPoints,"""
+          new = """  // Test 9: Minerva Live Engagement Validation checks accounting identities without forcing Unilever values.\n  // This is a positive fixture, so its facts must carry the same proof contract required in production.\n  const liveProofFacts = nonPltrExtraction.atomicDataPoints.map((fact: any) => ({\n    ...fact,\n    status: 'APPROVED',\n    verificationStatus: 'VERIFIED',\n    evidenceStatus: 'CONFIRMED',\n    documentId: fact.documentId || 'doc-acme-live',\n    sourceText: fact.sourceText || dummyNonPalantirFiling\n  }));\n  const liveVal = academyMinervaLab.evaluateLiveEngagement({\n    facts: liveProofFacts,"""
+          if old not in s:
+              raise SystemExit('H944 Minerva positive fixture anchor missing')
+          p.write_text(s.replace(old, new, 1))
+
+          # B4.2 positive fixture: use a real source file containing the claimed fact,
+          # not an unrelated package.json hash, and carry proof-complete fact fields.
+          p = Path('server/tests/phasePackageB4_2BehavioralVerification.test.ts')
+          s = p.read_text()
+          old = """  // 1. test_minerva_live_engagement_returns_technical_validation_passed_not_certified_cpa\n  const pkgBytes = fs.readFileSync('package.json');\n  const pkgHash = crypto.createHash('sha256').update(pkgBytes).digest('hex');\n  const liveResult = academyMinervaLab.evaluateLiveEngagement({\n    facts: [\n      {\n        id: 'fact-rev-1',\n        metric: 'Turnover',\n        value: 50503000000,\n        period: 'FY2025',\n        currency: 'EUR',\n        sourcePage: 98,\n        sourceDocumentId: 'unilever-2025-20f.pdf'\n      }\n    ],\n    assets: 100,\n    liabilities: 60,\n    equity: 40,\n    variance: 0,\n    physicalFilePath: 'package.json',\n    physicalSha256: pkgHash\n  });"""
+          new = """  // 1. test_minerva_live_engagement_returns_technical_validation_passed_not_certified_cpa\n  const liveSourcePath = 'storage/cpa_memory/b42_live_source.txt';\n  const liveSourceText = 'Turnover 50503000000 EUR FY2025';\n  fs.mkdirSync('storage/cpa_memory', { recursive: true });\n  fs.writeFileSync(liveSourcePath, liveSourceText, 'utf8');\n  const pkgHash = crypto.createHash('sha256').update(fs.readFileSync(liveSourcePath)).digest('hex');\n  const liveResult = academyMinervaLab.evaluateLiveEngagement({\n    facts: [\n      {\n        id: 'fact-rev-1',\n        metric: 'Turnover',\n        value: 50503000000,\n        period: 'FY2025',\n        currency: 'EUR',\n        sourcePage: 1,\n        documentId: 'unilever-2025-20f.pdf',\n        sourceDocumentId: 'unilever-2025-20f.pdf',\n        sourceText: liveSourceText,\n        status: 'APPROVED',\n        verificationStatus: 'VERIFIED',\n        evidenceStatus: 'CONFIRMED'\n      }\n    ],\n    assets: 100,\n    liabilities: 60,\n    equity: 40,\n    variance: 0,\n    physicalFilePath: liveSourcePath,\n    physicalSha256: pkgHash\n  });\n  try { fs.unlinkSync(liveSourcePath); } catch (_) {}"""
+          if old not in s:
+              raise SystemExit('B4.2 Minerva positive fixture anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
       - name: Install dependencies
         run: npm ci
       - name: TypeScript lint
