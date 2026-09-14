@@ -453,6 +453,8 @@ export class HybridExtractionOrchestrator {
           labelNormalized: c.canonicalMetricCandidate || c.metricLabel,
           canonicalMetric: c.canonicalMetricCandidate || fType,
           statementType: c.statementType as any,
+          reportingEntity: c.reportingEntity,
+          reportingScope: c.reportingScope,
           valueOriginal: c.rawValue,
           valueFunctional: normalizedVal,
           normalizedValue: normRes.normalizedBaseValue,
@@ -473,11 +475,21 @@ export class HybridExtractionOrchestrator {
         });
       });
 
-      // Resolve Canonical Facts
-      const canonicalFacts = CanonicalFactResolver.promotePrimaryStatementFacts(rawFactList);
+      // Resolve Canonical Facts. Evidence is an explicit authority gate:
+      // only source-confirmed facts may enter canonical promotion. Review-required
+      // facts remain persisted for review but cannot be promoted by structural gates.
+      const evidenceEligibleFacts = rawFactList.filter(f => String(f.status || '').toLowerCase() === 'approved');
+      const reviewRequiredFacts = rawFactList.filter(f => String(f.status || '').toLowerCase() !== 'approved');
+      const promotedFacts = CanonicalFactResolver.promotePrimaryStatementFacts(evidenceEligibleFacts);
+      const verifiedCanonicalFacts = promotedFacts.filter(f =>
+        String(f.status || '').toLowerCase() === 'approved' &&
+        String(f.verificationStatus || '').toUpperCase() === 'VERIFIED'
+      );
+      const nonPromotedEvidenceFacts = promotedFacts.filter(f => !verifiedCanonicalFacts.includes(f));
+      const canonicalFacts = [...verifiedCanonicalFacts, ...nonPromotedEvidenceFacts, ...reviewRequiredFacts];
 
-      // Step 6: Accounting Equation Validations (live engine — previously imported unused)
-      const workspaceValidation = AccountingValidationEngine.validateWorkspace(params.workspaceId, canonicalFacts);
+      // Accounting identities may consume verified canonical truth only.
+      const workspaceValidation = AccountingValidationEngine.validateWorkspace(params.workspaceId, verifiedCanonicalFacts);
       const accountingValidations: any[] = workspaceValidation ? [workspaceValidation] : [];
 
       semanticTaskManager.updateTaskStatus(reconTask.taskId, 'COMPLETED');
@@ -495,7 +507,8 @@ export class HybridExtractionOrchestrator {
       updateProgress('Complete', 100);
 
       const durationMs = Date.now() - startTime;
-      console.log(`[HybridExtractionOrchestrator] Completed Hybrid Pipeline in ${durationMs} ms. Resolved ${canonicalFacts.length} canonical facts.`);
+      const reviewRequiredCount = canonicalFacts.length - verifiedCanonicalFacts.length;
+      console.log(`[HybridExtractionOrchestrator] Completed Hybrid Pipeline in ${durationMs} ms. Extracted ${canonicalFacts.length} facts; ${verifiedCanonicalFacts.length} verified canonical; ${reviewRequiredCount} review-required.`);
 
       return {
         success: true,
@@ -505,7 +518,7 @@ export class HybridExtractionOrchestrator {
         physicalPagesTotal,
         factsCandidateCount: allExtractedCandidates.length,
         factsConfirmedCount: confirmedCount,
-        factsCanonicalCount: canonicalFacts.length,
+        factsCanonicalCount: verifiedCanonicalFacts.length,
         canonicalFacts,
         evidenceResults,
         documentMap: docMap,
