@@ -384,7 +384,7 @@ export class HermesHeartbeat {
 
     // Check Extraction Worker
     try {
-      const workerUrl = process.env.EXTRACTION_WORKER_URL || 'http://service-6a9b137139c2940e7ee0c9c7:8080';
+      const workerUrl = (process.env.EXTRACTION_WORKER_URL || 'http://127.0.0.1:4000').trim().replace(/\/$/, '');
       const t0 = Date.now();
       const ctrl = new AbortController();
       const timeoutId = setTimeout(() => ctrl.abort(), 2000);
@@ -393,9 +393,11 @@ export class HermesHeartbeat {
       if (res && res.ok) {
         this.state.servicesHealth.extractionWorker.verified = true;
         this.state.servicesHealth.extractionWorker.latencyMs = Date.now() - t0;
+      } else {
+        this.state.servicesHealth.extractionWorker.verified = false;
       }
     } catch {
-      // Degraded or worker offline
+      this.state.servicesHealth.extractionWorker.verified = false;
     }
   }
 
@@ -469,6 +471,14 @@ export class HermesHeartbeat {
   public evaluateFullPracticeEligibility(targetCase?: any): { eligible: boolean; reason: string } {
     const now = Date.now();
 
+    // 0. Physical Autonomous Arming Switch
+    if (process.env.ACADEMY_AUTONOMOUS_ENABLED !== 'true') {
+      return {
+        eligible: false,
+        reason: 'ACADEMY_AUTONOMOUS_ENABLED is not set to true'
+      };
+    }
+
     // 1. Customer Priority Queue: no customer-priority work exists
     if (this.state.customerQueueState.pendingJobs > 0) {
       return { eligible: false, reason: `Customer priority queue has ${this.state.customerQueueState.pendingJobs} jobs pending.` };
@@ -524,6 +534,18 @@ export class HermesHeartbeat {
 
   private evaluateStateMachine() {
     const now = Date.now();
+
+    // Rule -1: Physical Autonomous Disarm Switch
+    if (process.env.ACADEMY_AUTONOMOUS_ENABLED !== 'true') {
+      this.state.academyState = 'DISARMED' as any;
+      this.state.lastDecision = {
+        timestamp: new Date().toISOString(),
+        action: 'ACADEMY_AUTONOMOUS_DISARMED' as any,
+        reason: 'ACADEMY_AUTONOMOUS_ENABLED is not set to true'
+      };
+      this.persistState();
+      return;
+    }
 
     // Rule 0: Cooldown expiration check
     if (this.state.academyState === 'COOLDOWN') {
@@ -623,6 +645,17 @@ export class HermesHeartbeat {
   }
 
   private async triggerAutonomousFullPracticeLaunch(schedulerDecisionId: string) {
+    if (process.env.ACADEMY_AUTONOMOUS_ENABLED !== 'true') {
+      console.warn('[HermesHeartbeat] Refusing autonomous full practice launch: ACADEMY_AUTONOMOUS_ENABLED is not true');
+      this.state.academyState = 'DISARMED' as any;
+      this.state.lastDecision = {
+        timestamp: new Date().toISOString(),
+        action: 'ACADEMY_AUTONOMOUS_DISARMED' as any,
+        reason: 'ACADEMY_AUTONOMOUS_ENABLED is not set to true'
+      };
+      this.persistState();
+      return;
+    }
     try {
       const { hermesPrimeAcademyEngine } = await import('./hermesPrimeAcademyEngine.js');
       const nextCase = hermesPrimeAcademyEngine.selectNextCase();
@@ -778,6 +811,17 @@ export class HermesHeartbeat {
   }
 
   private async triggerAutonomousCaseLaunch() {
+    if (process.env.ACADEMY_AUTONOMOUS_ENABLED !== 'true') {
+      console.warn('[HermesHeartbeat] Refusing autonomous case launch: ACADEMY_AUTONOMOUS_ENABLED is not true');
+      this.state.academyState = 'DISARMED' as any;
+      this.state.lastDecision = {
+        timestamp: new Date().toISOString(),
+        action: 'ACADEMY_AUTONOMOUS_DISARMED' as any,
+        reason: 'ACADEMY_AUTONOMOUS_ENABLED is not set to true'
+      };
+      this.persistState();
+      return;
+    }
     try {
       const { hermesPrimeAcademyEngine } = await import('./hermesPrimeAcademyEngine.js');
       const nextCase = hermesPrimeAcademyEngine.selectNextCase();
