@@ -10,7 +10,7 @@ import { executeWithGeminiRetry } from "../hybridExtraction/geminiRetryHelper.js
 export async function runPhaseH94AdversarialTests(): Promise<{ total: number; passed: number; failures: string[] }> {
   const failures: string[] = [];
   let passed = 0;
-  const total = 15;
+  const total = 16;
 
   function assert(condition: boolean, testName: string, detail?: string) {
     if (condition) {
@@ -242,6 +242,68 @@ export async function runPhaseH94AdversarialTests(): Promise<{ total: number; pa
     );
   } catch (e: any) {
     assert(false, "Test N: Admin Diagnostics Matrix Table", e.message);
+  }
+
+  // TEST P: Circuit-Aware Dynamic Free-Tier Fallback
+  try {
+    const modelIds = modelDiscoveryService.getDiscoveredModelsTable().map(r => r.configuredModel);
+    const snapshots = new Map<string, any>();
+    for (const id of modelIds) {
+      const rec = modelDiscoveryService.getModelRecord(id);
+      if (rec) snapshots.set(id, { ...rec });
+    }
+
+    const profileModels = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    for (const id of profileModels) {
+      const rec = modelDiscoveryService.getModelRecord(id);
+      if (rec) {
+        rec.available = true;
+        rec.healthState = 'HEALTHY';
+        rec.circuitState = 'OPEN';
+        rec.openUntil = Date.now() + 60_000;
+      }
+    }
+
+    const healthyFallback = modelDiscoveryService.getModelRecord('gemini-3.5-flash-lite');
+    if (healthyFallback) {
+      healthyFallback.available = true;
+      healthyFallback.healthState = 'HEALTHY';
+      healthyFallback.circuitState = 'CLOSED';
+      healthyFallback.openUntil = 0;
+    }
+
+    const attempted: string[] = [];
+    const mockClient: any = {
+      models: {
+        generateContent: async ({ model }: any) => {
+          attempted.push(model);
+          return { text: '{}' };
+        }
+      }
+    };
+
+    await executeWithGeminiRetry(mockClient, {
+      model: 'gemini-3.6-flash',
+      taskType: 'DOCUMENT_MAP',
+      contents: [{ inlineData: { data: 'AA==', mimeType: 'application/pdf' } }],
+      requiresPdf: true,
+      requiresStructuredOutput: true,
+      maxAttempts: 1
+    });
+
+    const pPass = attempted.length === 1 && attempted[0] === 'gemini-3.5-flash-lite';
+    assert(
+      pPass,
+      "Test P: Circuit-open profile models are bypassed in favor of a healthy discovered free-tier model",
+      `Attempted models: ${attempted.join(', ')}`
+    );
+
+    for (const [id, snapshot] of snapshots) {
+      const rec = modelDiscoveryService.getModelRecord(id);
+      if (rec) Object.assign(rec, snapshot);
+    }
+  } catch (e: any) {
+    assert(false, "Test P: Circuit-Aware Dynamic Free-Tier Fallback", e.message);
   }
 
   // TEST O: Live Discovery Refreshes Matrix
