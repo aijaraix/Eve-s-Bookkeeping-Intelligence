@@ -78,7 +78,9 @@ export function persistFactStatus(incomingStatus?: string | null, evidenceStatus
 
   const upper = status.toUpperCase();
   if (upper === "APPROVED" || upper === "VALIDATED" || upper === "VERIFIED") {
-    if (evidence && evidence !== "CONFIRMED") return "pending_review";
+    // Privileged fact status requires affirmative source-evidence proof.
+    // Missing evidence is not equivalent to confirmed evidence.
+    if (evidence !== "CONFIRMED") return "pending_review";
     return status.toLowerCase();
   }
   if (upper === "REJECTED" || upper === "BLOCKED") return status.toLowerCase();

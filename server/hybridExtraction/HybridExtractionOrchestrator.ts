@@ -470,6 +470,8 @@ export class HybridExtractionOrchestrator {
           pageNumber: c.physicalPage,
           sourceText: ev.matchedSourceText || c.sourceQuote || c.rowLabel,
           confidence: ev.confidenceScore,
+          evidenceStatus: ev.evidenceStatus,
+          verificationStatus: isConfirmedEvidenceStatus(ev.evidenceStatus) ? 'EVIDENCE_CONFIRMED' : 'REVIEW_REQUIRED',
           status: isConfirmedEvidenceStatus(ev.evidenceStatus) ? 'approved' : 'pending_review',
           extractionMethod: `HYBRID_GEMINI_NATIVE_${c.statementType}`
         });
