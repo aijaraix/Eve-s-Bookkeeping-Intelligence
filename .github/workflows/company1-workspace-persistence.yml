@@ -1,0 +1,145 @@
+name: Company 1 workspace persistence repair
+
+on:
+  push:
+    branches:
+      - fix/company1-workspace-persistence
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/company1-workspace-persistence
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Patch durable workspace storage
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          p = Path('server.ts')
+          s = p.read_text()
+
+          old = '''function getStorageFile(): string {
+            return process.env.STORAGE_FILE || path.join(process.cwd(), "ai_cpa_storage.json");
+          }'''
+          new = '''function getStorageFile(): string {
+            // Production workspace/accounting state must live under the same
+            // PVC-backed storage root as the canonical queue. /app/storage is
+            // symlinked to /storage in production and remains portable locally.
+            return process.env.STORAGE_FILE || path.join(process.cwd(), "storage", "ai_cpa_storage.json");
+          }'''
+          if old not in s:
+            raise SystemExit('getStorageFile patch anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''function saveStorage() {
+            try {
+              let jsonStr: string;
+              try {
+                jsonStr = JSON.stringify(db, null, 2);
+              } catch {
+                jsonStr = JSON.stringify(db);
+              }
+              fs.writeFileSync(getStorageFile(), jsonStr);
+            } catch (err) {
+              console.error("Failed to save storage:", err);
+            }
+          }'''
+          new = '''function saveStorage() {
+            const storageFile = getStorageFile();
+            const storageDir = path.dirname(storageFile);
+            let tempFile: string | null = null;
+            try {
+              if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
+              let jsonStr: string;
+              try {
+                jsonStr = JSON.stringify(db, null, 2);
+              } catch {
+                jsonStr = JSON.stringify(db);
+              }
+
+              // Atomic durable replacement: write + fsync temp, rename, then
+              // fsync the parent directory where the platform supports it.
+              tempFile = `${storageFile}.${process.pid}.${Date.now()}.tmp`;
+              fs.writeFileSync(tempFile, jsonStr, "utf-8");
+              const fileFd = fs.openSync(tempFile, "r");
+              try { fs.fsyncSync(fileFd); } finally { fs.closeSync(fileFd); }
+              fs.renameSync(tempFile, storageFile);
+              tempFile = null;
+              try {
+                const dirFd = fs.openSync(storageDir, "r");
+                try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+              } catch {}
+            } catch (err) {
+              try { if (tempFile && fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch {}
+              console.error("Failed to save storage:", err);
+            }
+          }'''
+          if old not in s:
+            raise SystemExit('saveStorage patch anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''  } catch (err) {
+              console.error("Failed to load storage, using default:", err);
+            }
+          }
+
+          loadStorage();'''
+          new = '''  } catch (err) {
+              console.error("Failed to load storage, using default:", err);
+            }
+            // loadStorage replaces the db object. Rebind queue promotion logic
+            // to the physically loaded object instead of the pre-load empty one.
+            backgroundIngestionQueue.setDbRef(db);
+          }
+
+          loadStorage();'''
+          if old not in s:
+            raise SystemExit('loadStorage rebind patch anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          test = Path('server/tests/company1WorkspacePersistence.test.ts')
+          test.write_text('''import fs from "fs";\n\nfunction assert(condition: boolean, message: string): void { if (!condition) throw new Error(message); }\n\nconst src = fs.readFileSync("server.ts", "utf8");\nassert(src.includes('path.join(process.cwd(), "storage", "ai_cpa_storage.json")'), "workspace storage must default under PVC-backed storage root");\nassert(src.includes('fs.renameSync(tempFile, storageFile)'), "workspace persistence must use atomic rename");\nassert(src.includes('fs.fsyncSync(fileFd)'), "workspace persistence must fsync file before rename");\nconst loadStart = src.indexOf('function loadStorage()');\nconst loadCall = src.indexOf('loadStorage();', loadStart);\nconst loadBlock = src.slice(loadStart, loadCall);\nassert(loadStart >= 0 && loadCall > loadStart, "loadStorage function and call must exist");\nassert(loadBlock.includes('backgroundIngestionQueue.setDbRef(db);'), "queue must be rebound after storage object rehydration");\nconsole.log("✓ Company 1 workspace persistence/rebind tests passed");\n''')
+
+          pkg = json.loads(Path('package.json').read_text())
+          marker = 'tsx server/tests/company1WorkspacePersistence.test.ts'
+          if marker not in pkg['scripts']['test']:
+            pkg['scripts']['test'] += ' && ' + marker
+          Path('package.json').write_text(json.dumps(pkg, indent=2) + '\n')
+          PY
+
+          grep -q 'storage", "ai_cpa_storage.json' server.ts
+          grep -q 'fs.renameSync(tempFile, storageFile)' server.ts
+          grep -q 'backgroundIngestionQueue.setDbRef(db);' server.ts
+          test -f server/tests/company1WorkspacePersistence.test.ts
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript lint
+        run: npm run lint
+      - name: Full regression suite
+        run: npm test
+      - name: Production build and hashes
+        run: |
+          npm run build
+          sha256sum dist/server.cjs dist/worker.cjs
+      - name: Commit validated repair and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/company1-workspace-persistence.yml
+          git add -A
+          git commit -m "fix(company1): persist workspace accounting state on PVC"
+          git push origin HEAD:fix/company1-workspace-persistence
