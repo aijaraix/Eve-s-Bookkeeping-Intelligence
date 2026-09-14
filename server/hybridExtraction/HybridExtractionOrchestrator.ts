@@ -19,6 +19,28 @@ import {
 } from '../failClosedGuards.js';
 import { SpreadsheetParser } from '../../src/lib/parser/spreadsheetParser.js';
 
+export function applyPrimaryStatementAuthority(
+  candidates: StatementFactCandidate[],
+  statement: any,
+  documentMapCurrency?: string,
+  fallbackCurrency?: string,
+  documentIssuer?: string
+): StatementFactCandidate[] {
+  const statementType = String(statement?.statementType || '');
+  const authoritativeCurrency = String(statement?.currency || documentMapCurrency || fallbackCurrency || '').trim().toUpperCase();
+  const authoritativeScope = statement?.scope ||
+    (statementType.startsWith('CONSOLIDATED_') ? 'CONSOLIDATED' :
+      (statementType.startsWith('PARENT_COMPANY_') ? 'STANDALONE' : undefined));
+  const authoritativeEntity = statement?.reportingEntity || documentIssuer;
+
+  return candidates.map(candidate => ({
+    ...candidate,
+    ...(authoritativeCurrency ? { currency: authoritativeCurrency } : {}),
+    ...(authoritativeScope ? { reportingScope: authoritativeScope } : {}),
+    ...(!candidate.reportingEntity && authoritativeEntity ? { reportingEntity: authoritativeEntity } : {})
+  }));
+}
+
 export interface HybridExtractionResult {
   success: boolean;
   intakeId: string;
@@ -337,8 +359,15 @@ export class HybridExtractionOrchestrator {
             reportingEntity: statement.reportingEntity || docMap.documentIssuer,
             reportingPeriod: statement.period || periodFromMap
           });
-          allExtractedCandidates.push(...candidates);
-          semanticTaskManager.updateTaskStatus(stmtTask.taskId, 'COMPLETED', { factsProduced: candidates.length });
+          const authoritativeCandidates = applyPrimaryStatementAuthority(
+            candidates,
+            statement,
+            currencyFromMap,
+            params.currency,
+            docMap.documentIssuer
+          );
+          allExtractedCandidates.push(...authoritativeCandidates);
+          semanticTaskManager.updateTaskStatus(stmtTask.taskId, 'COMPLETED', { factsProduced: authoritativeCandidates.length });
         } catch (stmtErr: any) {
           console.warn(`[HybridExtractionOrchestrator] Primary statement extraction warn for ${statement.statementType}:`, stmtErr);
           if (stmtErr?.message?.includes('429') || stmtErr?.message?.includes('RESOURCE_EXHAUSTED')) {
