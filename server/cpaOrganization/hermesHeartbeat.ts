@@ -39,7 +39,7 @@ export interface PersistentHeartbeatState {
   lastHeartbeatAt: string;
   nextHeartbeatAt: string;
   heartbeatSequence: number;
-  academyState: 'IDLE' | 'RUNNING' | 'PAUSED_PREEMPTED' | 'CHECKPOINTING' | 'REGRESSION_TESTING' | 'DARWIN_ANALYSIS' | 'COOLDOWN' | 'COMPLETED';
+  academyState: 'IDLE' | 'RUNNING' | 'PAUSED_PREEMPTED' | 'CHECKPOINTING' | 'REGRESSION_TESTING' | 'DARWIN_ANALYSIS' | 'COOLDOWN' | 'COMPLETED' | 'DISARMED';
   currentCaseId: string | null;
   currentStage: string | null;
   checkpoint: Record<string, any> | null;
@@ -73,7 +73,7 @@ export interface PersistentHeartbeatState {
   currentFullPracticeLock: AcademyExecutionLock | null;
   lastDecision: {
     timestamp: string;
-    action: 'PREEMPT_AND_CHECKPOINT' | 'ADVANCE_CASE_STAGE' | 'START_NEW_CASE' | 'FULL_PRACTICE' | 'RUN_REGRESSION' | 'RUN_DARWIN_ANALYSIS' | 'COOLDOWN_WAIT' | 'REMAIN_IDLE';
+    action: 'PREEMPT_AND_CHECKPOINT' | 'ADVANCE_CASE_STAGE' | 'START_NEW_CASE' | 'FULL_PRACTICE' | 'RUN_REGRESSION' | 'RUN_DARWIN_ANALYSIS' | 'COOLDOWN_WAIT' | 'REMAIN_IDLE' | 'ACADEMY_AUTONOMOUS_DISARMED';
     reason: string;
     decisionId?: string;
   };
@@ -119,8 +119,10 @@ export class HermesHeartbeat {
   }> = [];
 
   private constructor() {
-    this.storageDir = process.env.HERMES_PERSISTENT_DATA_DIR || 
-      (fs.existsSync('/opt/data') ? '/opt/data/cpa_organization' : path.join(process.cwd(), 'storage', 'cpa_memory'));
+    this.storageDir = process.env.HERMES_PERSISTENT_DATA_DIR ||
+      (fs.existsSync('/storage')
+        ? '/storage/cpa_memory'
+        : (fs.existsSync('/opt/data') ? '/opt/data/cpa_organization' : path.join(process.cwd(), 'storage', 'cpa_memory')));
     
     if (!fs.existsSync(this.storageDir)) {
       try {
@@ -221,24 +223,28 @@ export class HermesHeartbeat {
       servicesHealth: {
         ollamaLocalAI: {
           url: process.env.LOCAL_AI_BASE_URL || 'http://eve-local-ai.zeabur.internal:11434',
-          verified: true,
+          verified: false,
           model: process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M',
-          latencyMs: 15
+          latencyMs: 0
         },
         hermesAgent: {
-          gatewayUrl: 'http://eve-hermes.zeabur.internal:8642',
+          gatewayUrl: process.env.EVE_HERMES_HOST
+            ? `http://${process.env.EVE_HERMES_HOST}:8642`
+            : 'http://eve-hermes.zeabur.internal:8642',
           dashboardUrl: 'https://eves-hermes.zeabur.app',
-          verified: true
+          verified: false
         },
         openClawGateway: {
-          gatewayUrl: 'http://eve-openclaw.zeabur.internal:18789',
+          gatewayUrl: process.env.EVE_OPENCLAW_HOST
+            ? `http://${process.env.EVE_OPENCLAW_HOST}:18789`
+            : 'http://eve-openclaw.zeabur.internal:18789',
           dashboardUrl: 'https://eves-openclaw.zeabur.app',
-          verified: true
+          verified: false
         },
         extractionWorker: {
-          url: 'http://eve-s-bookkeeping-intelligence.zeabur.internal:8080',
-          verified: true,
-          latencyMs: 5
+          url: (process.env.EXTRACTION_WORKER_URL || 'http://127.0.0.1:4000').trim().replace(/\/$/, ''),
+          verified: false,
+          latencyMs: 0
         }
       }
     };
@@ -260,8 +266,8 @@ export class HermesHeartbeat {
     const totalRamMb = Math.round(os.totalmem() / (1024 * 1024));
     const freeRamMb = Math.round(os.freemem() / (1024 * 1024));
 
-    let diskFreeGb = 50;
-    let diskTotalGb = 80;
+    let diskFreeGb = 0;
+    let diskTotalGb = 0;
     try {
       if (typeof (fs as any).statfsSync === 'function') {
         const stats = (fs as any).statfsSync(this.storageDir);
@@ -273,14 +279,14 @@ export class HermesHeartbeat {
     }
 
     return {
-      cpuCores: os.cpus()?.length || 4,
-      cpuLoadAvg: os.loadavg ? os.loadavg() : [0.5, 0.5, 0.5],
+      cpuCores: os.cpus()?.length || 1,
+      cpuLoadAvg: os.loadavg ? os.loadavg() : [0, 0, 0],
       ramFreeMb: freeRamMb,
       ramTotalMb: totalRamMb,
       ramUsageMb: memMb,
       diskFreeGb,
       diskTotalGb,
-      hardwareProfile: 'EVE-NODE: 4 vCPU, 16 GB RAM (CPU-only, no GPU)'
+      hardwareProfile: `EVE-NODE: ${os.cpus()?.length || 1} vCPU, ${totalRamMb} MB RAM (CPU-only, no GPU)`
     };
   }
 
@@ -352,50 +358,70 @@ export class HermesHeartbeat {
   }
 
   private async checkInfrastructureHealth() {
+    // Every dependency begins each tick unverified and is promoted only by a
+    // successful physical check in this tick. Persisted/stale success is never
+    // accepted as current health.
+
     // Check Ollama
+    const ollamaUrl = (process.env.LOCAL_AI_BASE_URL || 'http://eve-local-ai.zeabur.internal:11434').trim().replace(/\/$/, '');
+    this.state.servicesHealth.ollamaLocalAI.url = ollamaUrl;
+    this.state.servicesHealth.ollamaLocalAI.verified = false;
     try {
-      const ollamaUrl = process.env.LOCAL_AI_BASE_URL || 'http://eve-local-ai.zeabur.internal:11434';
       const t0 = Date.now();
       const ctrl = new AbortController();
       const timeoutId = setTimeout(() => ctrl.abort(), 2000);
       const res = await fetch(`${ollamaUrl}/api/tags`, { signal: ctrl.signal }).catch(() => null);
       clearTimeout(timeoutId);
-      if (res && res.ok) {
-        this.state.servicesHealth.ollamaLocalAI.verified = true;
-        this.state.servicesHealth.ollamaLocalAI.latencyMs = Date.now() - t0;
-      }
+      this.state.servicesHealth.ollamaLocalAI.latencyMs = Date.now() - t0;
+      this.state.servicesHealth.ollamaLocalAI.verified = Boolean(res && res.ok);
     } catch {
-      // Degraded or local offline mode
+      this.state.servicesHealth.ollamaLocalAI.verified = false;
     }
 
-    // Check OpenClaw
+    // Check Hermes canonical gateway health
+    const hermesUrl = (process.env.EVE_HERMES_HOST
+      ? `http://${process.env.EVE_HERMES_HOST}:8642`
+      : 'http://eve-hermes.zeabur.internal:8642').replace(/\/$/, '');
+    this.state.servicesHealth.hermesAgent.gatewayUrl = hermesUrl;
+    this.state.servicesHealth.hermesAgent.verified = false;
     try {
-      const openClawUrl = 'http://eve-openclaw.zeabur.internal:18789';
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 2000);
+      const res = await fetch(`${hermesUrl}/health`, { signal: ctrl.signal }).catch(() => null);
+      clearTimeout(timeoutId);
+      this.state.servicesHealth.hermesAgent.verified = Boolean(res && res.ok);
+    } catch {
+      this.state.servicesHealth.hermesAgent.verified = false;
+    }
+
+    // Check OpenClaw gateway
+    const openClawUrl = (process.env.EVE_OPENCLAW_HOST
+      ? `http://${process.env.EVE_OPENCLAW_HOST}:18789`
+      : 'http://eve-openclaw.zeabur.internal:18789').replace(/\/$/, '');
+    this.state.servicesHealth.openClawGateway.gatewayUrl = openClawUrl;
+    this.state.servicesHealth.openClawGateway.verified = false;
+    try {
       const ctrl = new AbortController();
       const timeoutId = setTimeout(() => ctrl.abort(), 2000);
       const res = await fetch(`${openClawUrl}/`, { signal: ctrl.signal }).catch(() => null);
       clearTimeout(timeoutId);
-      if (res) {
-        this.state.servicesHealth.openClawGateway.verified = true;
-      }
+      this.state.servicesHealth.openClawGateway.verified = Boolean(res && res.ok);
     } catch {
-      // Gateway offline
+      this.state.servicesHealth.openClawGateway.verified = false;
     }
 
-    // Check Extraction Worker
+    // Check dedicated Extraction Worker
+    const workerUrl = (process.env.EXTRACTION_WORKER_URL || 'http://127.0.0.1:4000').trim().replace(/\/$/, '');
+    this.state.servicesHealth.extractionWorker.url = workerUrl;
+    this.state.servicesHealth.extractionWorker.verified = false;
     try {
-      const workerUrl = (process.env.EXTRACTION_WORKER_URL || 'http://127.0.0.1:4000').trim().replace(/\/$/, '');
       const t0 = Date.now();
       const ctrl = new AbortController();
       const timeoutId = setTimeout(() => ctrl.abort(), 2000);
       const res = await fetch(`${workerUrl}/health`, { signal: ctrl.signal }).catch(() => null);
       clearTimeout(timeoutId);
-      if (res && res.ok) {
-        this.state.servicesHealth.extractionWorker.verified = true;
-        this.state.servicesHealth.extractionWorker.latencyMs = Date.now() - t0;
-      } else {
-        this.state.servicesHealth.extractionWorker.verified = false;
-      }
+      this.state.servicesHealth.extractionWorker.latencyMs = Date.now() - t0;
+      this.state.servicesHealth.extractionWorker.verified = Boolean(res && res.ok);
     } catch {
       this.state.servicesHealth.extractionWorker.verified = false;
     }
@@ -410,7 +436,7 @@ export class HermesHeartbeat {
         const raw = fs.readFileSync(stateFile, 'utf-8');
         const data = JSON.parse(raw);
         const runsByCase = data.runsByCase || {};
-        const cases = ['ACADEMY-CASE-005', 'ACADEMY-CASE-006', 'ACADEMY-CASE-007', 'ACADEMY-CASE-008', 'ACADEMY-CASE-009'];
+        const cases = ['ACADEMY-CASE-005', 'ACADEMY-CASE-006', 'ACADEMY-CASE-007','ACADEMY-CASE-008', 'ACADEMY-CASE-009'];
         for (const c of cases) {
           if (!runsByCase[c] || runsByCase[c] === 0) {
             isUnrunCurriculum = true;
@@ -451,7 +477,7 @@ export class HermesHeartbeat {
     // 3. Worker Service Health factor
     if (!this.state.servicesHealth.extractionWorker.verified) {
       targetMinutes += 30;
-      factors.push('Extraction worker health unverified (+30m)');
+      factors.push('Extraction worker health unverified (+*10*m)');
     }
 
     // 4. Local Model Latency factor
@@ -526,7 +552,7 @@ export class HermesHeartbeat {
       const waitSec = Math.round((new Date(this.state.nextFullPracticeEligibleAt).getTime() - now) / 1000);
       const waitDisplay = waitMin >= 2 ? `${waitMin}m` : `${waitSec}s`;
       const scheduleReason = this.state.reasonForNextSchedule ? ` (${this.state.reasonForNextSchedule})` : '';
-      return { eligible: false, reason: `Full Practice cooldown active (${waitDisplay} remaining until ${this.state.nextFullPracticeEligibleAt})${scheduleReason}.` };
+      return { eligible: false, reason: `Full Practice cooldown active (${waitDisplay} remaining until ${this.state.nextFullPracticeEligibleAt})$ {scheduleReason}.` };
     }
 
     return { eligible: true, reason: 'All 8 autonomous operational gates passed (zero customer work, healthy worker, healthy Hermes, writable storage, safe resources, cooldown expired).' };
@@ -540,655 +566,4 @@ export class HermesHeartbeat {
       this.state.academyState = 'DISARMED' as any;
       this.state.lastDecision = {
         timestamp: new Date().toISOString(),
-        action: 'ACADEMY_AUTONOMOUS_DISARMED' as any,
-        reason: 'ACADEMY_AUTONOMOUS_ENABLED is not set to true'
-      };
-      this.persistState();
-      return;
-    }
-
-    // Rule 0: Cooldown expiration check
-    if (this.state.academyState === 'COOLDOWN') {
-      if (!this.state.cooldownUntil || new Date(this.state.cooldownUntil).getTime() <= now) {
-        this.state.academyState = 'IDLE';
-      }
-    }
-
-    // Rule 1: Customer Priority Queue preempts everything
-    if (this.state.customerQueueState.pendingJobs > 0) {
-      if (this.state.academyState === 'RUNNING') {
-        this.state.academyState = 'PAUSED_PREEMPTED';
-        this.state.checkpoint = {
-          pausedAt: new Date().toISOString(),
-          caseId: this.state.currentCaseId,
-          stage: this.state.currentStage
-        };
-        this.state.lastDecision = {
-          timestamp: new Date().toISOString(),
-          action: 'PREEMPT_AND_CHECKPOINT',
-          reason: `Customer priority jobs pending (${this.state.customerQueueState.pendingJobs}). Preempted Academy background execution.`
-        };
-        return;
-      }
-    }
-
-    // Rule 2: Resuming preempted Academy case
-    if (this.state.academyState === 'PAUSED_PREEMPTED' && this.state.customerQueueState.pendingJobs === 0) {
-      this.state.academyState = 'RUNNING';
-      this.state.lastDecision = {
-        timestamp: new Date().toISOString(),
-        action: 'ADVANCE_CASE_STAGE',
-        reason: `Customer queue cleared. Resuming Academy case ${this.state.currentCaseId} from checkpoint.`
-      };
-      return;
-    }
-
-    // Rule 3: Idle state or completed state, evaluate Full Practice eligibility
-    if (this.state.academyState === 'IDLE' || this.state.academyState === 'COMPLETED') {
-      const fpEligibility = this.evaluateFullPracticeEligibility();
-      if (fpEligibility.eligible) {
-        const schedulerDecisionId = `sched-fp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-        this.state.lastDecision = {
-          timestamp: new Date().toISOString(),
-          action: 'FULL_PRACTICE',
-          reason: fpEligibility.reason,
-          decisionId: schedulerDecisionId
-        };
-        this.triggerAutonomousFullPracticeLaunch(schedulerDecisionId);
-        return;
-      }
-
-      // If pacing cooldown is active
-      if (this.state.cooldownUntil && new Date(this.state.cooldownUntil).getTime() > now) {
-        this.state.academyState = 'COOLDOWN';
-        this.state.lastDecision = {
-          timestamp: new Date().toISOString(),
-          action: 'COOLDOWN_WAIT',
-          reason: `Pacing cooldown in progress until ${this.state.cooldownUntil}. Full Practice gate: ${fpEligibility.reason}`
-        };
-        return;
-      }
-
-      const lockState = this.state.executionLock?.state || 'IDLE';
-      if (lockState === 'IDLE' || lockState === 'COMPLETED' || lockState === 'FAILED') {
-        this.state.lastDecision = {
-          timestamp: new Date().toISOString(),
-          action: 'START_NEW_CASE',
-          reason: `Full Practice awaiting cooldown (${fpEligibility.reason}). Executing fast regression benchmark.`
-        };
-        this.triggerAutonomousCaseLaunch();
-        return;
-      }
-    }
-
-    // Rule 4: Active case in flight
-    if (this.state.academyState === 'RUNNING') {
-      this.state.lastDecision = {
-        timestamp: new Date().toISOString(),
-        action: 'ADVANCE_CASE_STAGE',
-        reason: `Advancing case ${this.state.currentCaseId} stage: ${this.state.currentStage || 'INTAKE_EXTRACTION'}.`
-      };
-    }
-  }
-
-  public getExecutionLock(): AcademyExecutionLock {
-    return this.state.executionLock || {
-      state: 'IDLE',
-      caseId: null,
-      executionId: null,
-      claimedAt: null,
-      startedAt: null,
-      completedAt: null,
-      heartbeatSequence: null,
-      caseReason: null
-    };
-  }
-
-  private async triggerAutonomousFullPracticeLaunch(schedulerDecisionId: string) {
-    if (process.env.ACADEMY_AUTONOMOUS_ENABLED !== 'true') {
-      console.warn('[HermesHeartbeat] Refusing autonomous full practice launch: ACADEMY_AUTONOMOUS_ENABLED is not true');
-      this.state.academyState = 'DISARMED' as any;
-      this.state.lastDecision = {
-        timestamp: new Date().toISOString(),
-        action: 'ACADEMY_AUTONOMOUS_DISARMED' as any,
-        reason: 'ACADEMY_AUTONOMOUS_ENABLED is not set to true'
-      };
-      this.persistState();
-      return;
-    }
-    try {
-      const { hermesPrimeAcademyEngine } = await import('./hermesPrimeAcademyEngine.js');
-      const nextCase = hermesPrimeAcademyEngine.selectNextCase();
-      const executionId = `exec-fp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const nowIso = new Date().toISOString();
-
-      this.state.currentFullPracticeLock = {
-        state: 'CLAIMED',
-        caseId: nextCase.caseId,
-        executionId,
-        claimedAt: nowIso,
-        startedAt: null,
-        completedAt: null,
-        heartbeatSequence: this.state.heartbeatSequence,
-        caseReason: nextCase.caseReason
-      };
-      this.state.executionLock = this.state.currentFullPracticeLock;
-      this.state.lastFullPracticeCaseId = nextCase.caseId;
-      this.state.lastFullPracticeExecutionId = executionId;
-      this.state.academyState = 'RUNNING';
-      this.state.currentCaseId = nextCase.caseId;
-      this.state.currentStage = 'FULL_PRACTICE_SCHEDULED';
-      this.persistState();
-
-      observatoryEventLedger.recordEvent({
-        timestamp: nowIso,
-        eventType: 'ACADEMY_CASE_SCHEDULED',
-        sourceType: 'SCHEDULER',
-        sourceId: 'eve-hermes',
-        academyCaseId: nextCase.caseId,
-        customerType: 'SYNTHETIC_ACADEMY',
-        eventReality: 'REAL_OPERATION',
-        executionMode: 'FULL_PRACTICE',
-        summary: `Autonomous Full Practice Case ${nextCase.caseId} scheduled by Hermes Heartbeat #${this.state.heartbeatSequence} (Decision: ${schedulerDecisionId}). Reason: ${nextCase.caseReason}`,
-        structuredMetadata: {
-          executionId,
-          schedulerDecisionId,
-          heartbeatSequence: this.state.heartbeatSequence,
-          action: 'FULL_PRACTICE',
-          caseId: nextCase.caseId,
-          selectionReason: nextCase.caseReason,
-          executionLockId: executionId,
-          scheduledAt: nowIso,
-          initiatingCodePath: 'HermesHeartbeat.evaluateStateMachine -> triggerAutonomousFullPracticeLaunch'
-        },
-        status: 'SUCCESS',
-        severity: 'INFO'
-      });
-
-      this.launchAutonomousFullPracticeEngagement(nextCase.caseId, executionId, schedulerDecisionId, nextCase.caseReason, nowIso);
-    } catch (err) {
-      console.error('[HermesHeartbeat] Error triggering autonomous Full Practice launch:', err);
-      if (this.state.currentFullPracticeLock) {
-        this.state.currentFullPracticeLock.state = 'FAILED';
-      }
-      this.state.fullPracticeFailureCount++;
-      this.persistState();
-    }
-  }
-
-  private async launchAutonomousFullPracticeEngagement(
-    caseId: string,
-    executionId: string,
-    schedulerDecisionId: string,
-    caseReason: string,
-    scheduledAt: string
-  ) {
-    const startedAt = new Date().toISOString();
-    try {
-      if (this.state.currentFullPracticeLock) {
-        this.state.currentFullPracticeLock.state = 'RUNNING';
-        this.state.currentFullPracticeLock.startedAt = startedAt;
-      }
-      this.state.executionLock = this.state.currentFullPracticeLock!;
-      this.state.currentStage = 'FULL_PRACTICE_RUNNING';
-      this.persistState();
-
-      observatoryEventLedger.recordEvent({
-        timestamp: startedAt,
-        eventType: 'ACADEMY_CASE_STARTED',
-        sourceType: 'AGENT',
-        sourceId: 'eve-hermes',
-        academyCaseId: caseId,
-        customerType: 'SYNTHETIC_ACADEMY',
-        eventReality: 'REAL_OPERATION',
-        executionMode: 'FULL_PRACTICE',
-        summary: `Autonomous Full Practice started for ${caseId} under execution lock ${executionId} (Decision: ${schedulerDecisionId}).`,
-        structuredMetadata: {
-          executionId,
-          schedulerDecisionId,
-          caseId,
-          startedAt,
-          executionMode: 'FULL_PRACTICE',
-          heartbeatSequence: this.state.heartbeatSequence
-        },
-        status: 'IN_PROGRESS',
-        severity: 'INFO'
-      });
-
-      const { hermesPrimeAcademyEngine } = await import('./hermesPrimeAcademyEngine.js');
-      const fpResult = await hermesPrimeAcademyEngine.executeFullPracticeAcademyEngagement({
-        caseId,
-        initiatedBy: 'HERMES_AUTONOMOUS_SCHEDULER',
-        heartbeatSequence: this.state.heartbeatSequence,
-        schedulerDecisionId,
-        executionLockId: executionId,
-        scheduledAt,
-        startedAt
-      });
-
-      const completedAt = new Date().toISOString();
-      if (this.state.currentFullPracticeLock) {
-        this.state.currentFullPracticeLock.state = 'COMPLETED';
-        this.state.currentFullPracticeLock.completedAt = completedAt;
-      }
-      this.state.executionLock = this.state.currentFullPracticeLock!;
-      this.state.lastFullPracticeAt = completedAt;
-      this.state.lastFullPracticeCaseId = caseId;
-      this.state.lastFullPracticeExecutionId = executionId;
-      const adaptive = this.computeAdaptiveFullPracticeCooldown();
-      this.state.fullPracticeCooldown = adaptive.cooldownMs;
-      this.state.reasonForNextSchedule = adaptive.reason;
-      this.state.nextFullPracticeEligibleAt = new Date(Date.now() + adaptive.cooldownMs).toISOString();
-      this.state.fullPracticeFailureCount = 0;
-
-      this.state.academyState = 'COMPLETED';
-      this.state.lastCompletedCaseId = caseId;
-      this.state.currentCaseId = null;
-      this.state.currentStage = null;
-      this.state.cooldownUntil = this.state.nextFullPracticeEligibleAt;
-      this.persistState();
-
-      console.log(`[HermesHeartbeat] Autonomous Full Practice for ${caseId} (${executionId}) completed successfully. Next eligible at ${this.state.nextFullPracticeEligibleAt} (${adaptive.reason})`);
-    } catch (err: any) {
-      console.error(`[HermesHeartbeat] Autonomous Full Practice for ${caseId} failed:`, err);
-      const failedAt = new Date().toISOString();
-      if (this.state.currentFullPracticeLock) {
-        this.state.currentFullPracticeLock.state = 'FAILED';
-        this.state.currentFullPracticeLock.completedAt = failedAt;
-      }
-      this.state.executionLock = this.state.currentFullPracticeLock!;
-      this.state.fullPracticeFailureCount++;
-      const adaptive = this.computeAdaptiveFullPracticeCooldown();
-      this.state.fullPracticeCooldown = adaptive.cooldownMs;
-      this.state.reasonForNextSchedule = `Failure recovery backoff: ${adaptive.reason}`;
-      this.state.nextFullPracticeEligibleAt = new Date(Date.now() + adaptive.cooldownMs).toISOString();
-      this.state.cooldownUntil = this.state.nextFullPracticeEligibleAt;
-      this.state.academyState = 'IDLE';
-      this.state.currentCaseId = null;
-      this.state.currentStage = null;
-      this.persistState();
-    }
-  }
-
-  private async triggerAutonomousCaseLaunch() {
-    if (process.env.ACADEMY_AUTONOMOUS_ENABLED !== 'true') {
-      console.warn('[HermesHeartbeat] Refusing autonomous case launch: ACADEMY_AUTONOMOUS_ENABLED is not true');
-      this.state.academyState = 'DISARMED' as any;
-      this.state.lastDecision = {
-        timestamp: new Date().toISOString(),
-        action: 'ACADEMY_AUTONOMOUS_DISARMED' as any,
-        reason: 'ACADEMY_AUTONOMOUS_ENABLED is not set to true'
-      };
-      this.persistState();
-      return;
-    }
-    try {
-      const { hermesPrimeAcademyEngine } = await import('./hermesPrimeAcademyEngine.js');
-      const nextCase = hermesPrimeAcademyEngine.selectNextCase();
-      const executionId = `exec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-
-      this.state.executionLock = {
-        state: 'CLAIMED',
-        caseId: nextCase.caseId,
-        executionId,
-        claimedAt: new Date().toISOString(),
-        startedAt: null,
-        completedAt: null,
-        heartbeatSequence: this.state.heartbeatSequence,
-        caseReason: nextCase.caseReason
-      };
-      this.state.academyState = 'RUNNING';
-      this.state.currentCaseId = nextCase.caseId;
-      this.state.currentStage = 'CASE_SCHEDULED';
-      this.persistState();
-
-      this.launchAutonomousAcademyCycle(nextCase.caseId, executionId, nextCase.caseReason);
-    } catch (err) {
-      console.error('[HermesHeartbeat] Error triggering autonomous case launch:', err);
-    }
-  }
-
-  private lastFullPracticeAt: string | null = null;
-
-  private async launchAutonomousAcademyCycle(caseId: string, executionId: string, caseReason: string) {
-    try {
-      const scheduledAt = this.state.executionLock?.claimedAt || new Date().toISOString();
-      const startedAt = new Date().toISOString();
-      this.state.executionLock.state = 'RUNNING';
-      this.state.executionLock.startedAt = startedAt;
-
-      const { hermesPrimeAcademyEngine } = await import('./hermesPrimeAcademyEngine.js');
-      const caseHistory = hermesPrimeAcademyEngine.getCaseHistory();
-      const currentCaseHist = caseHistory[caseId];
-
-      // Phase H.9.23 Adaptive Scheduling Cadence:
-      // Evaluates: customer queue clearance, extraction worker health, resource capacity,
-      // and minimum cadence window between heavy Full Practice runs.
-      const now = Date.now();
-      const msSinceLastFP = this.lastFullPracticeAt ? now - new Date(this.lastFullPracticeAt).getTime() : Infinity;
-      const minIntervalMs = 40000; // 40s adaptive cadence between autonomous full practice runs
-      const queueDepth = this.state.customerQueueState.pendingJobs || 0;
-      const ramSafe = this.state.resourceSnapshot.ramFreeMb > 200;
-      const isUnrunCase = !currentCaseHist || currentCaseHist.executionCount === 0 || currentCaseHist.lastMode !== 'FULL_PRACTICE';
-
-      const shouldRunFullPractice = queueDepth === 0 && ramSafe && (isUnrunCase || msSinceLastFP >= minIntervalMs);
-      
-      const executionMode = shouldRunFullPractice ? 'FULL_PRACTICE' : 'FAST_REGRESSION';
-      const reality = shouldRunFullPractice ? 'REAL_OPERATION' : 'FAST_REGRESSION';
-      const schedulerDecisionId = `sched-dec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-
-      observatoryEventLedger.recordEvent({
-        timestamp: new Date().toISOString(),
-        eventType: 'ACADEMY_CASE_SCHEDULED',
-        sourceType: 'SCHEDULER',
-        sourceId: 'eve-hermes',
-        academyCaseId: caseId,
-        customerType: 'SYNTHETIC_ACADEMY',
-        eventReality: reality,
-        executionMode,
-        summary: `Autonomous Academy Case ${caseId} (${executionMode}) scheduled by Hermes Heartbeat #${this.state.heartbeatSequence}. Reason: ${caseReason}`,
-        structuredMetadata: {
-          executionId,
-          schedulerDecisionId,
-          heartbeatSequence: this.state.heartbeatSequence,
-          caseReason,
-          executionMode,
-          queueDepth,
-          msSinceLastFP: isFinite(msSinceLastFP) ? msSinceLastFP : null,
-          initiatingCodePath: 'HermesHeartbeat.evaluateStateMachine -> triggerAutonomousCaseLaunch -> launchAutonomousAcademyCycle'
-        },
-        status: 'SUCCESS',
-        severity: 'INFO'
-      });
-
-      observatoryEventLedger.recordEvent({
-        timestamp: new Date().toISOString(),
-        eventType: 'ACADEMY_CASE_STARTED',
-        sourceType: 'AGENT',
-        sourceId: 'eve-hermes',
-        academyCaseId: caseId,
-        customerType: 'SYNTHETIC_ACADEMY',
-        eventReality: reality,
-        executionMode,
-        summary: `Autonomous execution started for ${caseId} [${executionMode}] under execution lock ${executionId} (Decision: ${schedulerDecisionId}).`,
-        structuredMetadata: {
-          executionId,
-          schedulerDecisionId,
-          caseId,
-          startedAt,
-          executionMode,
-          heartbeatSequence: this.state.heartbeatSequence
-        },
-        status: 'IN_PROGRESS',
-        severity: 'INFO'
-      });
-
-      this.persistState();
-
-      if (shouldRunFullPractice) {
-        this.lastFullPracticeAt = new Date().toISOString();
-        const fpResult = await hermesPrimeAcademyEngine.executeFullPracticeAcademyEngagement({
-          caseId,
-          initiatedBy: 'HERMES_AUTONOMOUS_SCHEDULER',
-          heartbeatSequence: this.state.heartbeatSequence,
-          schedulerDecisionId,
-          executionLockId: executionId,
-          scheduledAt,
-          startedAt
-        });
-        this.state.executionLock.state = 'COMPLETED';
-        this.state.executionLock.completedAt = new Date().toISOString();
-        this.state.academyState = 'COMPLETED';
-        this.state.lastCompletedCaseId = caseId;
-        this.state.currentCaseId = null;
-        this.state.currentStage = null;
-        this.state.cooldownUntil = new Date(Date.now() + 25000).toISOString();
-      } else {
-        const result = await hermesPrimeAcademyEngine.executeAcademyCycle(caseId);
-        this.state.executionLock.state = 'COMPLETED';
-        this.state.executionLock.completedAt = new Date().toISOString();
-        this.state.academyState = 'COMPLETED';
-        this.state.lastCompletedCaseId = caseId;
-        this.state.currentCaseId = null;
-        this.state.currentStage = null;
-        this.state.cooldownUntil = new Date(Date.now() + 15000).toISOString();
-
-        observatoryEventLedger.recordEvent({
-          timestamp: new Date().toISOString(),
-          eventType: 'ACADEMY_CASE_COMPLETED',
-          sourceType: 'AGENT',
-          sourceId: 'eve-minerva',
-          academyCaseId: caseId,
-          customerType: 'SYNTHETIC_ACADEMY',
-          eventReality: 'FAST_REGRESSION',
-          executionMode: 'FAST_REGRESSION',
-          summary: `[FAST_REGRESSION] Academy Case ${caseId} completed in ${result.durationMs}ms. Minerva 3-layer truth verified.`,
-          structuredMetadata: { executionId, cycleId: result.cycleId, durationMs: result.durationMs, threeLayerTruth: result.threeLayerTruth },
-          status: 'SUCCESS',
-          severity: 'SUCCESS'
-        });
-      }
-
-      this.persistState();
-    } catch (err: any) {
-      console.error(`[HermesHeartbeat] Autonomous cycle for ${caseId} failed:`, err);
-      this.state.executionLock.state = 'FAILED';
-      this.state.executionLock.completedAt = new Date().toISOString();
-      this.state.academyState = 'IDLE';
-      this.state.currentCaseId = null;
-      this.state.currentStage = null;
-      this.state.failureCount++;
-      this.persistState();
-    }
-  }
-
-  /**
-   * Manually launches a Full Practice Academy Canary engagement
-   */
-  public async launchFullPracticeCanary(caseId: string = 'ACADEMY-CASE-001') {
-    const { hermesPrimeAcademyEngine } = await import('./hermesPrimeAcademyEngine.js');
-    return await hermesPrimeAcademyEngine.executeFullPracticeAcademyEngagement({ caseId });
-  }
-
-  // --- Customer Preemption API ---
-
-  public getPendingCustomerJobsCount(): number {
-    return this.state.customerQueueState.pendingJobs;
-  }
-
-  public getAcademyJobState(): PersistentHeartbeatState['academyState'] {
-    return this.state.academyState;
-  }
-
-  public registerCustomerJob(jobId: string) {
-    this.state.customerQueueState.pendingJobs++;
-    this.state.customerQueueState.activeJobId = jobId;
-    this.state.customerQueueState.preemptingBackground = true;
-
-    if (this.state.academyState === 'RUNNING') {
-      this.pauseAcademyJob(this.state.currentCaseId || 'academy-current', `Preempted by customer priority job ${jobId}`);
-    }
-
-    this.preemptionEvents.push({
-      timestamp: new Date().toISOString(),
-      event: 'CUSTOMER_JOB_REGISTERED_PRIORITY_1',
-      jobId,
-      details: 'Customer engagement assigned immediate priority 1 execution lock.'
-    });
-    this.persistState();
-  }
-
-  public completeCustomerJob(jobId: string) {
-    if (this.state.customerQueueState.pendingJobs > 0) {
-      this.state.customerQueueState.pendingJobs--;
-    }
-    if (this.state.customerQueueState.activeJobId === jobId) {
-      this.state.customerQueueState.activeJobId = undefined;
-    }
-    if (this.state.customerQueueState.pendingJobs === 0) {
-      this.state.customerQueueState.preemptingBackground = false;
-    }
-
-    this.preemptionEvents.push({
-      timestamp: new Date().toISOString(),
-      event: 'CUSTOMER_JOB_COMPLETED',
-      jobId,
-      details: 'Customer priority job finished successfully.'
-    });
-
-    if (this.state.customerQueueState.pendingJobs === 0 && this.state.academyState === 'PAUSED_PREEMPTED') {
-      this.resumeAcademyJob(this.state.currentCaseId || 'academy-current');
-    }
-    this.persistState();
-  }
-
-  // --- Academy Lifecycle Hooks ---
-
-  public startAcademyJob(caseId: string, stage: string = 'INTAKE_EXTRACTION') {
-    this.state.currentCaseId = caseId;
-    this.state.currentStage = stage;
-    this.state.academyState = 'RUNNING';
-    this.preemptionEvents.push({
-      timestamp: new Date().toISOString(),
-      event: 'ACADEMY_BENCHMARK_STARTED',
-      jobId: caseId,
-      details: `Minerva benchmark evaluation started in background mode for case ${caseId}.`
-    });
-    this.persistState();
-  }
-
-  public pauseAcademyJob(caseId: string, reason: string) {
-    this.state.academyState = 'PAUSED_PREEMPTED';
-    this.state.checkpoint = {
-      pausedAt: new Date().toISOString(),
-      caseId,
-      stage: this.state.currentStage
-    };
-    this.preemptionEvents.push({
-      timestamp: new Date().toISOString(),
-      event: 'ACADEMY_JOB_PREEMPTED_CHECKPOINTED',
-      jobId: caseId,
-      details: `Academy job state checkpointed to persistent volume. Reason: ${reason}`
-    });
-    this.persistState();
-  }
-
-  public resumeAcademyJob(caseId: string) {
-    this.state.academyState = 'RUNNING';
-    this.preemptionEvents.push({
-      timestamp: new Date().toISOString(),
-      event: 'ACADEMY_JOB_RESUMED',
-      jobId: caseId,
-      details: 'Academy job resumed from exact checkpoint after customer queue cleared.'
-    });
-    this.persistState();
-  }
-
-  public completeAcademyJob(caseId: string, success: boolean = true) {
-    this.state.academyState = 'COMPLETED';
-    this.state.lastCompletedCaseId = caseId;
-    this.state.currentCaseId = null;
-    this.state.currentStage = null;
-    this.state.checkpoint = null;
-    if (!success) {
-      this.state.failureCount++;
-    }
-
-    // Apply a 15-second pacing cooldown between cases
-    this.state.cooldownUntil = new Date(Date.now() + 15000).toISOString();
-
-    this.preemptionEvents.push({
-      timestamp: new Date().toISOString(),
-      event: 'ACADEMY_JOB_COMPLETED',
-      jobId: caseId,
-      details: `Academy cycle completed cleanly (${success ? 'PASSED' : 'DEFECT_RECORDED'}). Cooldown initialized.`
-    });
-    this.persistState();
-  }
-
-  public runPreemptionDemonstration(): {
-    success: boolean;
-    flow: Array<{ step: number; state: string; customerQueue: number; academyState: string; action: string }>;
-    verificationLog: string[];
-    preemptionTimeline: Array<{ timestamp: string; event: string; jobId: string; details: string }>;
-  } {
-    const events: Array<{ step: number; state: string; customerQueue: number; academyState: string; action: string }> = [];
-
-    const academyJobId = `academy-eval-${Date.now()}`;
-    this.startAcademyJob(academyJobId, 'SYNTHETIC_BENCHMARK');
-    events.push({
-      step: 1,
-      state: 'ACADEMY_RUNNING_IDLE_SYSTEM',
-      customerQueue: this.state.customerQueueState.pendingJobs,
-      academyState: this.state.academyState,
-      action: `Started Academy synthetic benchmark ${academyJobId} on background thread.`
-    });
-
-    const customerJobId = `cust-filing-${Date.now()}`;
-    this.registerCustomerJob(customerJobId);
-    events.push({
-      step: 2,
-      state: 'CUSTOMER_PREEMPTION_ACTIVE',
-      customerQueue: this.state.customerQueueState.pendingJobs,
-      academyState: this.state.academyState,
-      action: `Customer filing ${customerJobId} submitted. Hermes checkpointed Academy state to persistent volume and transferred CPU compute to customer priority.`
-    });
-
-    this.completeCustomerJob(customerJobId);
-    events.push({
-      step: 3,
-      state: 'ACADEMY_RESUMED_POST_CUSTOMER',
-      customerQueue: this.state.customerQueueState.pendingJobs,
-      academyState: this.state.academyState,
-      action: `Customer job completed. Hermes restored Academy checkpoint from persistent volume without data loss or re-computation.`
-    });
-
-    this.completeAcademyJob(academyJobId, true);
-
-    return {
-      success: true,
-      flow: events,
-      verificationLog: [
-        'Customer Priority Queue strictly preempts Academy synthetic benchmark jobs.',
-        'Academy job state is atomically checkpointed to persistent volume.',
-        'Zero resource starvation or queue contention on 4 vCPU / 16 GB RAM production node.',
-        'Academy resumes cleanly upon customer queue clearance.'
-      ],
-      preemptionTimeline: this.preemptionEvents.slice(-6)
-    };
-  }
-
-  public getState(): PersistentHeartbeatState {
-    return { ...this.state };
-  }
-
-  public async getStatus(): Promise<any> {
-    await this.tick();
-    return {
-      lastBeatAt: this.state.lastHeartbeatAt,
-      nextBeatAt: this.state.nextHeartbeatAt,
-      heartbeatIntervalMs: this.intervalMs,
-      heartbeatSequence: this.state.heartbeatSequence,
-      academyState: this.state.academyState,
-      currentCaseId: this.state.currentCaseId,
-      currentStage: this.state.currentStage,
-      checkpoint: this.state.checkpoint,
-      lastDecision: this.state.lastDecision,
-      infrastructureStatus: this.state.servicesHealth,
-      customerPriorityQueue: this.state.customerQueueState,
-      systemResourceHealth: {
-        status: 'OPTIMAL',
-        uptimeSeconds: Math.round((Date.now() - this.startedAt) / 1000),
-        memoryUsageMb: this.state.resourceSnapshot.ramUsageMb,
-        ramFreeMb: this.state.resourceSnapshot.ramFreeMb,
-        ramTotalMb: this.state.resourceSnapshot.ramTotalMb,
-        cpuCores: this.state.resourceSnapshot.cpuCores,
-        cpuLoadAvg: this.state.resourceSnapshot.cpuLoadAvg,
-        diskFreeGb: this.state.resourceSnapshot.diskFreeGb,
-        hardwareProfile: this.state.resourceSnapshot.hardwareProfile
-      }
-    };
-  }
-}
-
-export const hermesHeartbeat = HermesHeartbeat.getInstance();
+        action: 'ACADEMY_AUTONOMOUS_DISA
