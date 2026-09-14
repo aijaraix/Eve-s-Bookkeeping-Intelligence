@@ -48,6 +48,14 @@ jobs:
           PY
           python3 /tmp/company1_durable_repair.py
 
+          test -f server/tests/company1DurableHandoff.test.ts
+          grep -q 'private diskSaveChain: Promise<void> = Promise.resolve()' server/backgroundQueue.ts
+          grep -q 'recoverPersistedJobsAfterAuthorityAcquired' server/backgroundQueue.ts
+          grep -q 'evidenceStatus: f.evidenceStatus' server.ts
+          grep -q 'verificationStatus: f.verificationStatus' server.ts
+          grep -q 'company1DurableHandoff.test.ts' package.json
+          echo DURABLE_PATCH_PRESENT=YES
+
       - name: Install dependencies
         run: npm ci
 
@@ -67,7 +75,8 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add server/backgroundQueue.ts server/hybridExtraction/HybridExtractionOrchestrator.ts src/types.ts server/failClosedGuards.ts server.ts server/tests/company1DurableHandoff.test.ts package.json
-          git rm .github/workflows/company1-durable-handoff.yml .github/workflows/company1-durable-handoff-v2.yml
+          git rm -f --ignore-unmatch .github/workflows/company1-durable-handoff.yml .github/workflows/company1-durable-handoff-v2.yml
+          git add -A
+          git status --short
           git commit -m "fix(company1): make queue persistence and proof handoff durable"
           git push origin HEAD:fix/company1-durable-handoff
