@@ -29,35 +29,82 @@ export async function executeWithGeminiRetry(
     c?.inlineData?.mimeType === 'application/pdf'
   );
 
-  // Get task routing profile candidates from Model Discovery Service
-  let modelsToTry = modelDiscoveryService.getCandidateModelsForTask(taskType, {
+  // Get task routing profile candidates from Model Discovery Service.
+  // IMPORTANT: routing/circuit state is authoritative. Do not silently
+  // resurrect a circuit-open model just because it is named in a static
+  // profile or passed as the preferred model.
+  const routedCandidates = modelDiscoveryService.getCandidateModelsForTask(taskType, {
     requiresPdf: containsPdf,
     requiresStructuredOutput: options.requiresStructuredOutput ?? true
   });
 
-  if (options.model && !modelsToTry.includes(options.model)) {
-    const rec = modelDiscoveryService.getModelRecord(options.model);
-    if (rec && rec.available && rec.healthState !== 'UNAVAILABLE_CONFIGURATION') {
+  const supportsTask = (modelId: string): boolean => {
+    const rec = modelDiscoveryService.getModelRecord(modelId);
+    if (!rec || !rec.available) return false;
+    if (rec.healthState === 'UNAVAILABLE_CONFIGURATION' || rec.healthState === 'UNAVAILABLE_QUOTA') return false;
+    if (rec.circuitState === 'OPEN') return false;
+    if (containsPdf && !rec.pdfSupport) return false;
+    if ((options.requiresStructuredOutput ?? true) && !rec.structuredOutputSupport) return false;
+    return true;
+  };
+
+  const isHealthyClosed = (modelId: string): boolean => {
+    const rec = modelDiscoveryService.getModelRecord(modelId);
+    return !!rec && supportsTask(modelId) && rec.healthState === 'HEALTHY' && rec.circuitState === 'CLOSED';
+  };
+
+  let modelsToTry: string[] = [];
+
+  // Preserve configured profile priority for models that are currently healthy.
+  for (const modelId of routedCandidates) {
+    if (isHealthyClosed(modelId)) modelsToTry.push(modelId);
+  }
+
+  // Append healthy, stable, free-tier models discovered at runtime. This lets
+  // newly available Gemini models participate without a code deploy while
+  // preserving FREE_FIRST policy and PDF/structured-output requirements.
+  for (const row of modelDiscoveryService.getDiscoveredModelsTable()) {
+    const modelId = row.configuredModel;
+    const rec = modelDiscoveryService.getModelRecord(modelId);
+    if (!rec) continue;
+    if (!rec.freeTierEligible || rec.classification !== 'STABLE') continue;
+    if (!isHealthyClosed(modelId)) continue;
+    if (!modelsToTry.includes(modelId)) modelsToTry.push(modelId);
+  }
+
+  // A preferred model is a preference, not permission to bypass a circuit.
+  if (options.model && supportsTask(options.model) && !modelsToTry.includes(options.model)) {
+    if (isHealthyClosed(options.model)) {
       modelsToTry.unshift(options.model);
+    } else {
+      modelsToTry.push(options.model);
     }
   }
 
   if (options.fallbackModels && options.fallbackModels.length > 0) {
     for (const fb of options.fallbackModels) {
-      if (!modelsToTry.includes(fb)) {
-        const rec = modelDiscoveryService.getModelRecord(fb);
-        if (rec && rec.available && rec.healthState !== 'UNAVAILABLE_CONFIGURATION') {
-          modelsToTry.push(fb);
-        }
+      if (supportsTask(fb) && !modelsToTry.includes(fb)) {
+        modelsToTry.push(fb);
       }
     }
   }
 
-  // Ensure unique models list
+  // Half-open/recovery candidates from the configured task profile come last,
+  // after any known healthy closed model.
+  for (const modelId of routedCandidates) {
+    if (supportsTask(modelId) && !modelsToTry.includes(modelId)) {
+      modelsToTry.push(modelId);
+    }
+  }
+
   modelsToTry = Array.from(new Set(modelsToTry));
   if (modelsToTry.length === 0) {
-    // Default safe candidate pool if all profile candidates filtered out
-    modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const noModelError: any = new Error(`No eligible Gemini models are currently available for ${taskType}. Waiting for circuit recovery or provider capacity.`);
+    noModelError.isCapacityError = true;
+    noModelError.errorType = 'RATE_LIMIT_SHORT_TERM';
+    noModelError.httpCode = 429;
+    noModelError.retryAfterMs = 20000;
+    throw noModelError;
   }
 
   let lastError: any = null;
@@ -174,4 +221,3 @@ export async function executeWithGeminiRetry(
   customError.rawError = lastError;
   throw customError;
 }
-
