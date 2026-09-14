@@ -1,0 +1,43 @@
+name: Company 1 Lexicon workload routing
+
+on:
+  push:
+    branches:
+      - fix/company1-lexicon-workload-routing
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/company1-lexicon-workload-routing
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply Lexicon workload-aware routing
+        run: python3 .github/scripts/company1_lexicon_workload_routing.py
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript lint
+        run: npm run lint
+      - name: Full regression suite
+        run: npm test
+      - name: Production build and hashes
+        run: |
+          npm run build
+          sha256sum dist/server.cjs dist/worker.cjs
+      - name: Commit validated repair and remove one-shot helpers
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/company1-lexicon-workload-routing.yml .github/scripts/company1_lexicon_workload_routing.py
+          git add -A
+          git commit -m "fix(company1): route large Lexicon inventories to cloud reasoning"
+          git push origin HEAD:fix/company1-lexicon-workload-routing
