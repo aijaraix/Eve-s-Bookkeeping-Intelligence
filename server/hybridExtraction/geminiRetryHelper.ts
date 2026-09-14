@@ -13,12 +13,18 @@ export interface GeminiRetryOptions {
   requiresStructuredOutput?: boolean;
   taskId?: string;
   onRetry?: (attempt: number, errorMsg: string, delayMs: number) => void;
-  /**
-   * Optional deterministic output gate. It runs before a provider call is
-   * recorded as successful or resultCommitted=true. Throwing rejects the
-   * response and rotates/retries through the canonical model policy.
-   */
+  /** Deterministic output gate run before model success/resultCommitted=true. */
   validateResponse?: (response: any, model: string) => void;
+}
+
+export function isCapacityProviderErrorType(errorType: ProviderErrorType | null | undefined): boolean {
+  return errorType === 'SERVICE_UNAVAILABLE' ||
+    errorType === 'RATE_LIMIT_SHORT_TERM' ||
+    errorType === 'TOKEN_RATE_LIMIT' ||
+    errorType === 'RPM_LIMIT' ||
+    errorType === 'TPM_LIMIT' ||
+    errorType === 'REQUEST_TIMEOUT' ||
+    errorType === 'NETWORK_ERROR';
 }
 
 export async function executeWithGeminiRetry(
@@ -29,16 +35,11 @@ export async function executeWithGeminiRetry(
   let delayMs = options.initialDelayMs || 1500;
   const taskType = options.taskType || 'GENERAL_PROMPT';
 
-  // Check if PDF input is included in contents
   const containsPdf = options.requiresPdf || options.contents.some((c: any) =>
     c?.fileData?.mimeType === 'application/pdf' ||
     c?.inlineData?.mimeType === 'application/pdf'
   );
 
-  // Get task routing profile candidates from Model Discovery Service.
-  // IMPORTANT: routing/circuit state is authoritative. Do not silently
-  // resurrect a circuit-open model just because it is named in a static
-  // profile or passed as the preferred model.
   const routedCandidates = modelDiscoveryService.getCandidateModelsForTask(taskType, {
     requiresPdf: containsPdf,
     requiresStructuredOutput: options.requiresStructuredOutput ?? true
@@ -60,15 +61,10 @@ export async function executeWithGeminiRetry(
   };
 
   let modelsToTry: string[] = [];
-
-  // Preserve configured profile priority for models that are currently healthy.
   for (const modelId of routedCandidates) {
     if (isHealthyClosed(modelId)) modelsToTry.push(modelId);
   }
 
-  // Append healthy, stable, free-tier models discovered at runtime. This lets
-  // newly available Gemini models participate without a code deploy while
-  // preserving FREE_FIRST policy and PDF/structured-output requirements.
   for (const row of modelDiscoveryService.getDiscoveredModelsTable()) {
     const modelId = row.configuredModel;
     const rec = modelDiscoveryService.getModelRecord(modelId);
@@ -78,29 +74,19 @@ export async function executeWithGeminiRetry(
     if (!modelsToTry.includes(modelId)) modelsToTry.push(modelId);
   }
 
-  // A preferred model is a preference, not permission to bypass a circuit.
   if (options.model && supportsTask(options.model) && !modelsToTry.includes(options.model)) {
-    if (isHealthyClosed(options.model)) {
-      modelsToTry.unshift(options.model);
-    } else {
-      modelsToTry.push(options.model);
-    }
+    if (isHealthyClosed(options.model)) modelsToTry.unshift(options.model);
+    else modelsToTry.push(options.model);
   }
 
   if (options.fallbackModels && options.fallbackModels.length > 0) {
     for (const fb of options.fallbackModels) {
-      if (supportsTask(fb) && !modelsToTry.includes(fb)) {
-        modelsToTry.push(fb);
-      }
+      if (supportsTask(fb) && !modelsToTry.includes(fb)) modelsToTry.push(fb);
     }
   }
 
-  // Half-open/recovery candidates from the configured task profile come last,
-  // after any known healthy closed model.
   for (const modelId of routedCandidates) {
-    if (supportsTask(modelId) && !modelsToTry.includes(modelId)) {
-      modelsToTry.push(modelId);
-    }
+    if (supportsTask(modelId) && !modelsToTry.includes(modelId)) modelsToTry.push(modelId);
   }
 
   modelsToTry = Array.from(new Set(modelsToTry));
@@ -133,11 +119,7 @@ export async function executeWithGeminiRetry(
           config: options.config
         });
 
-        // MODEL CALL SUCCESS != VALID AGENT OUTPUT.
-        // Validate before recording provider/model success or committing an attempt.
-        if (options.validateResponse) {
-          options.validateResponse(response, currentModel);
-        }
+        if (options.validateResponse) options.validateResponse(response, currentModel);
 
         const latencyMs = Date.now() - callStart;
         modelDiscoveryService.recordModelSuccess(currentModel);
@@ -154,7 +136,6 @@ export async function executeWithGeminiRetry(
             resultCommitted: true
           });
         }
-
         return response;
       } catch (err: any) {
         lastError = err;
@@ -166,7 +147,10 @@ export async function executeWithGeminiRetry(
         const { errorType, httpCode, retryAfterMs } = classified;
         lastErrorType = errorType;
 
-        modelDiscoveryService.recordModelFailure(currentModel, err, httpCode);
+        // Input-specific INVALID_REQUEST must not poison model-health circuits.
+        if (errorType !== 'INVALID_REQUEST') {
+          modelDiscoveryService.recordModelFailure(currentModel, err, httpCode);
+        }
 
         if (options.taskId) {
           modelDiscoveryService.logTaskAttempt(options.taskId, {
@@ -184,23 +168,18 @@ export async function executeWithGeminiRetry(
           });
         }
 
-        // Invalid/truncated structured output is never canonical. Rotate models
-        // immediately instead of repeating the same deterministic malformed result.
         if (isStructuredOutputError) {
           console.warn(`[GeminiRetryHelper] ${currentModel} returned invalid structured output for ${taskType}. Rotating model without committing result.`);
           break;
         }
 
-        // Specification 6: MODEL_NOT_FOUND (404) -> Immediately stop retrying on current model and try next candidate!
         if (errorType === 'MODEL_NOT_FOUND') {
-          console.warn(`[GeminiRetryHelper] Model ${currentModel} returned 404 MODEL_NOT_FOUND. Bypassing retries on ${currentModel} and rotating model.`);
+          console.warn(`[GeminiRetryHelper] Model ${currentModel} returned 404 MODEL_NOT_FOUND. Rotating model.`);
           break;
         }
 
-        // Specification 10: DAILY_QUOTA_EXHAUSTED -> Immediately break and throw capacity error
         if (errorType === 'DAILY_QUOTA_EXHAUSTED') {
-          console.warn(`[GeminiRetryHelper] Daily quota exhausted on ${currentModel}. Halting retries.`);
-          const dailyError: any = new Error("Daily Gemini API quota exhausted. Task queued for available daily capacity.");
+          const dailyError: any = new Error('Daily Gemini API quota exhausted. Task queued for available daily capacity.');
           dailyError.isDailyQuotaError = true;
           dailyError.errorType = 'DAILY_QUOTA_EXHAUSTED';
           dailyError.retryAfterMs = retryAfterMs;
@@ -208,18 +187,13 @@ export async function executeWithGeminiRetry(
           throw dailyError;
         }
 
-        const isRetriable = errorType === 'SERVICE_UNAVAILABLE' || errorType === 'RATE_LIMIT_SHORT_TERM' || errorType === 'TOKEN_RATE_LIMIT' || errorType === 'RPM_LIMIT' || errorType === 'TPM_LIMIT' || errorType === 'REQUEST_TIMEOUT' || errorType === 'NETWORK_ERROR';
-
-        if (isRetriable && attempt < maxAttempts) {
+        if (isCapacityProviderErrorType(errorType) && attempt < maxAttempts) {
           const waitTimeMs = retryAfterMs || delayMs;
           console.warn(`[GeminiRetryHelper] Transient ${errorType} on ${currentModel} (attempt ${attempt}/${maxAttempts}). Waiting ${waitTimeMs}ms...`);
-          if (options.onRetry) {
-            options.onRetry(attempt, err?.message || String(err), waitTimeMs);
-          }
+          if (options.onRetry) options.onRetry(attempt, err?.message || String(err), waitTimeMs);
           await new Promise((resolve) => setTimeout(resolve, waitTimeMs));
           delayMs = Math.min(20000, Math.round(delayMs * 1.5));
         } else {
-          // If max attempts reached on this model or non-retriable, break inner loop to try next model
           break;
         }
       }
@@ -230,21 +204,24 @@ export async function executeWithGeminiRetry(
     ? { retryAfterMs: lastError?.retryAfterMs || 10000, httpCode: 200 }
     : modelDiscoveryService.classifyProviderError(lastError);
 
-  let cleanMsg = "AI capacity temporarily limited. Your work is safely saved. Processing will resume automatically.";
-  if (lastError?.isStructuredOutputError) {
-    cleanMsg = "AI returned incomplete or invalid structured output. No result was committed. Processing will retry automatically.";
+  const structuredOutputFailure = !!lastError?.isStructuredOutputError;
+  const capacityFailure = isCapacityProviderErrorType(lastErrorType);
+  let cleanMsg = lastError?.message || 'Gemini request failed. No result was committed.';
+
+  if (structuredOutputFailure) {
+    cleanMsg = 'AI returned incomplete or invalid structured output. No result was committed. Processing will retry automatically.';
   } else if (lastErrorType === 'SERVICE_UNAVAILABLE') {
-    cleanMsg = "Gemini service temporarily experiencing high demand (503). Retrying automatically.";
-  } else if (lastErrorType === 'RATE_LIMIT_SHORT_TERM' || lastErrorType === 'TOKEN_RATE_LIMIT' || lastErrorType === 'RPM_LIMIT' || lastErrorType === 'TPM_LIMIT') {
-    cleanMsg = "AI capacity temporarily limited. Processing will resume automatically.";
+    cleanMsg = 'Gemini service temporarily experiencing high demand (503). Retrying automatically.';
+  } else if (capacityFailure) {
+    cleanMsg = 'AI capacity temporarily limited. Processing will resume automatically.';
+  } else if (lastErrorType === 'INVALID_REQUEST') {
+    cleanMsg = 'Gemini rejected the document request as invalid. No result was committed.';
   }
 
   const customError: any = new Error(cleanMsg);
-  // Keep the existing queue's durable retry path, while preserving the more
-  // precise structured-output flag for observability and later policy upgrades.
-  customError.isCapacityError = true;
-  customError.isStructuredOutputError = !!lastError?.isStructuredOutputError;
-  customError.errorType = lastError?.isStructuredOutputError ? 'STRUCTURED_OUTPUT_INVALID' : (lastErrorType || 'UNKNOWN_PROVIDER_ERROR');
+  customError.isCapacityError = structuredOutputFailure || capacityFailure;
+  customError.isStructuredOutputError = structuredOutputFailure;
+  customError.errorType = structuredOutputFailure ? 'STRUCTURED_OUTPUT_INVALID' : (lastErrorType || 'UNKNOWN_PROVIDER_ERROR');
   customError.retryAfterMs = parsedErr.retryAfterMs;
   customError.httpCode = parsedErr.httpCode;
   customError.rawError = lastError;
