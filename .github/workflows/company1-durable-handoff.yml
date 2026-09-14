@@ -22,119 +22,31 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Apply durable queue and proof-lineage repair
+      - name: Apply corrected durable repair from audited patch script
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import json, re
-
-          # ------------------------------------------------------------------
-          # 1. Serialize queue writes and recover persisted work on leader gain.
-          # ------------------------------------------------------------------
-          p = Path('server/backgroundQueue.ts')
-          s = p.read_text()
-          s = s.replace(
-              '// Global persistence lock and debounce timer\nlet isSavingDisk = false;\nlet saveDiskTimeout: NodeJS.Timeout | null = null;\n\n',
-              ''
+          import subprocess
+          original = subprocess.check_output([
+              'git','show','3335829cf1c79b6dd24c9431d74e1e10a3c731a1:.github/workflows/company1-durable-handoff.yml'
+          ], text=True)
+          marker = "          python3 - <<'PY'\n"
+          start = original.index(marker) + len(marker)
+          end = original.index("\n          PY", start)
+          lines = original[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith('          ') else line for line in lines)
+          script = script.replace(
+              "  public performDiskSave(allowIntakeCreation = false): Promise<void> {\\n",
+              "  public async performDiskSave(allowIntakeCreation = false): Promise<void> {\\n"
           )
-
-          field_anchor = '  private queueProcessingAuthorized: boolean | null = null;\n'
-          fields = '''  private queueProcessingAuthorized: boolean | null = null;\n  // Durable writes are serialized per queue instance. A later state snapshot\n  // can never be overwritten by an older async write finishing afterward.\n  private diskSaveChain: Promise<void> = Promise.resolve();\n  private saveDiskTimeout: NodeJS.Timeout | null = null;\n  private pendingSavePromise: Promise<void> | null = null;\n  private pendingSaveResolve: (() => void) | null = null;\n  private pendingSaveReject: ((err: any) => void) | null = null;\n  private pendingSaveAllowIntakeCreation = false;\n  private lastProcessingAuthority = false;\n  private persistedRetryTimers: Map<string, NodeJS.Timeout> = new Map();\n'''
-          if field_anchor not in s:
-              raise SystemExit('queue field anchor not found')
-          s = s.replace(field_anchor, fields, 1)
-
-          old_ctor = '''    this.loadQueueFromDisk();\n    setInterval(() => {\n      this.workerAliveHeartbeat = new Date().toISOString();\n      if (this.isQueueProcessingAuthorized()) {\n        this.checkStalledJobs();\n      }\n    }, 5000);'''
-          new_ctor = '''    this.loadQueueFromDisk();\n    this.lastProcessingAuthority = this.isQueueProcessingAuthorized();\n    if (this.lastProcessingAuthority) {\n      void this.recoverPersistedJobsAfterAuthorityAcquired();\n    }\n    setInterval(() => {\n      this.workerAliveHeartbeat = new Date().toISOString();\n      const authorized = this.isQueueProcessingAuthorized();\n      if (authorized && !this.lastProcessingAuthority) {\n        void this.recoverPersistedJobsAfterAuthorityAcquired();\n      }\n      this.lastProcessingAuthority = authorized;\n      if (authorized) {\n        this.checkStalledJobs();\n      }\n    }, 5000);'''
-          if old_ctor not in s:
-              raise SystemExit('queue constructor anchor not found')
-          s = s.replace(old_ctor, new_ctor, 1)
-
-          save_pattern = re.compile(
-              r'  public saveQueueToDiskAsync\(forceNow = false, allowIntakeCreation = false\): Promise<void> \{.*?'
-              r'  public async performDiskSave\(allowIntakeCreation = false\): Promise<void> \{',
-              re.S
+          script = script.replace(
+              "    return queuedWrite;\\n  }\\n\\n  private async performDiskSaveNow",
+              "    return await queuedWrite;\\n  }\\n\\n  private async performDiskSaveNow"
           )
-          new_save = '''  private flushPendingDiskSave(allowIntakeCreation = false): Promise<void> {\n    const mergedAllowIntakeCreation = allowIntakeCreation || this.pendingSaveAllowIntakeCreation;\n    const resolvePending = this.pendingSaveResolve;\n    const rejectPending = this.pendingSaveReject;\n    this.pendingSavePromise = null;\n    this.pendingSaveResolve = null;\n    this.pendingSaveReject = null;\n    this.pendingSaveAllowIntakeCreation = false;\n\n    const writePromise = this.performDiskSave(mergedAllowIntakeCreation);\n    if (resolvePending || rejectPending) {\n      writePromise.then(() => resolvePending?.(), err => rejectPending?.(err));\n    }\n    return writePromise;\n  }\n\n  public saveQueueToDiskAsync(forceNow = false, allowIntakeCreation = false): Promise<void> {\n    this.pendingSaveAllowIntakeCreation = this.pendingSaveAllowIntakeCreation || allowIntakeCreation;\n\n    if (forceNow) {\n      if (this.saveDiskTimeout) {\n        clearTimeout(this.saveDiskTimeout);\n        this.saveDiskTimeout = null;\n      }\n      return this.flushPendingDiskSave(allowIntakeCreation);\n    }\n\n    if (!this.pendingSavePromise) {\n      this.pendingSavePromise = new Promise<void>((resolve, reject) => {\n        this.pendingSaveResolve = resolve;\n        this.pendingSaveReject = reject;\n      });\n    }\n\n    if (this.saveDiskTimeout) clearTimeout(this.saveDiskTimeout);\n    this.saveDiskTimeout = setTimeout(() => {\n      this.saveDiskTimeout = null;\n      void this.flushPendingDiskSave().catch(() => undefined);\n    }, 500);\n\n    return this.pendingSavePromise;\n  }\n\n  public performDiskSave(): Promise<void>;\n  public performDiskSave(allowIntakeCreation?: boolean): Promise<void>;\n  public performDiskSave(allowIntakeCreation = false): Promise<void> {\n    const queuedWrite = this.diskSaveChain.then(() => this.performDiskSaveNow(allowIntakeCreation));\n    // Keep the chain alive after a failed write while returning the real error\n    // to the caller that requested this particular persistence operation.\n    this.diskSaveChain = queuedWrite.catch(() => undefined);\n    return queuedWrite;\n  }\n\n  private async performDiskSaveNow(allowIntakeCreation = false): Promise<void> {'''
-          s, count = save_pattern.subn(new_save, s, count=1)
-          if count != 1:
-              raise SystemExit(f'queue save-method patch count={count}')
-
-          load_start = s.find('  private loadQueueFromDisk() {')
-          cap_start = s.find('  private handleJobCapacityPause(', load_start)
-          if load_start < 0 or cap_start < 0:
-              raise SystemExit('queue load/capacity anchors not found')
-          recovery = '''  private schedulePersistedCapacityResume(job: QueueJob): void {\n    const existingTimer = this.persistedRetryTimers.get(job.id);\n    if (existingTimer) clearTimeout(existingTimer);\n\n    const nextRetryAt = Number(job.nextRetryAt || Date.now());\n    const delay = Math.min(2_147_000_000, Math.max(10, nextRetryAt - Date.now()));\n    console.log(`[Hermes Queue ${job.id}] Persisted ${job.status} job will be reconsidered in ${Math.round(delay / 1000)}s after leader recovery.`);\n\n    const timer = setTimeout(() => {\n      this.persistedRetryTimers.delete(job.id);\n      if (!this.isQueueProcessingAuthorized()) return;\n      if (job.status !== 'WAITING_FOR_AI_CAPACITY' && job.status !== 'WAITING_FOR_DAILY_CAPACITY') return;\n\n      const remaining = Number(job.nextRetryAt || 0) - Date.now();\n      if (remaining > 10) {\n        this.schedulePersistedCapacityResume(job);\n        return;\n      }\n\n      job.status = 'QUEUED';\n      job.currentStage = 'Resumed persisted AI-capacity job after scheduler leadership recovery';\n      job.updatedAt = new Date().toISOString();\n      void this.saveQueueToDiskAsync(true)\n        .then(() => this.processNextJob())\n        .catch(err => console.error(`[Hermes Queue ${job.id}] Failed to persist recovered capacity job:`, err));\n    }, delay);\n    this.persistedRetryTimers.set(job.id, timer);\n  }\n\n  private async recoverPersistedJobsAfterAuthorityAcquired(): Promise<void> {\n    if (!this.isQueueProcessingAuthorized()) return;\n\n    const now = Date.now();\n    let mutated = false;\n    let runnable = false;\n\n    for (const job of this.jobs.values()) {\n      if (job.status === 'PROCESSING' || job.status === 'WAITING_FOR_LLM' || job.status === 'RATE_LIMITED' || job.status === 'RECOVERING' || job.status === 'STALLED') {\n        job.status = 'QUEUED';\n        job.currentStage = `Recovered persisted in-flight job after scheduler leadership acquisition`;\n        job.updatedAt = new Date().toISOString();\n        job.processingUnits?.forEach(u => {\n          if (u.status === 'PROCESSING' || u.status === 'WAITING_FOR_LLM' || u.status === 'RATE_LIMITED' || u.status === 'RETRYING') u.status = 'QUEUED';\n        });\n        mutated = true;\n        runnable = true;\n        continue;\n      }\n\n      if (job.status === 'WAITING_FOR_AI_CAPACITY' || job.status === 'WAITING_FOR_DAILY_CAPACITY') {\n        const due = !job.nextRetryAt || Number(job.nextRetryAt) <= now;\n        if (due) {\n          job.status = 'QUEUED';\n          job.currentStage = 'Resumed due persisted AI-capacity job after scheduler leadership acquisition';\n          job.updatedAt = new Date().toISOString();\n          mutated = true;\n          runnable = true;\n        } else {\n          this.schedulePersistedCapacityResume(job);\n        }\n        continue;\n      }\n\n      if (job.status === 'QUEUED') runnable = true;\n    }\n\n    if (mutated && this.isQueueWriterAuthorized()) {\n      await this.saveQueueToDiskAsync(true);\n    }\n    if (runnable) setTimeout(() => this.processNextJob(), 10);\n  }\n\n  private loadQueueFromDisk() {\n    try {\n      const queueFile = getQueueFile();\n      if (!fs.existsSync(queueFile)) return;\n      const raw = fs.readFileSync(queueFile, 'utf-8');\n      const list: QueueJob[] = JSON.parse(raw);\n      if (!Array.isArray(list)) return;\n      list.forEach(job => this.jobs.set(job.id, job));\n      console.log(`[Hermes Queue] Loaded ${list.length} persisted queue jobs from storage.`);\n      // Rehydration is read-only. Mutation/retry recovery is deliberately\n      // deferred until this process physically owns the fenced scheduler lease.\n    } catch (err) {\n      console.error('[Hermes Queue] Failed to load queue from disk:', err);\n    }\n  }\n\n'''
-          s = s[:load_start] + recovery + s[cap_start:]
-          p.write_text(s)
-
-          # ------------------------------------------------------------------
-          # 2. Carry evidence status into hybrid facts and truthful queue status.
-          # ------------------------------------------------------------------
-          p = Path('server/hybridExtraction/HybridExtractionOrchestrator.ts')
-          s = p.read_text()
-          anchor = '''          confidence: ev.confidenceScore,\n          status: isConfirmedEvidenceStatus(ev.evidenceStatus) ? 'approved' : 'pending_review','''
-          replacement = '''          confidence: ev.confidenceScore,\n          evidenceStatus: ev.evidenceStatus,\n          verificationStatus: isConfirmedEvidenceStatus(ev.evidenceStatus) ? 'EVIDENCE_CONFIRMED' : 'REVIEW_REQUIRED',\n          status: isConfirmedEvidenceStatus(ev.evidenceStatus) ? 'approved' : 'pending_review','''
-          if anchor not in s:
-              raise SystemExit('hybrid evidence-status anchor not found')
-          s = s.replace(anchor, replacement, 1)
-          p.write_text(s)
-
-          # ------------------------------------------------------------------
-          # 3. Explicit type lineage fields.
-          # ------------------------------------------------------------------
-          p = Path('src/types.ts')
-          s = p.read_text()
-          anchor = '''  status?: string;\n  verificationStatus?: string;\n  confidence?: number;'''
-          replacement = '''  status?: string;\n  verificationStatus?: string;\n  evidenceStatus?: string;\n  reportingScope?: string;\n  reportingEntity?: string;\n  confidence?: number;'''
-          if anchor not in s:
-              raise SystemExit('ExtractedFact lineage type anchor not found')
-          s = s.replace(anchor, replacement, 1)
-          p.write_text(s)
-
-          # ------------------------------------------------------------------
-          # 4. Fail closed on missing evidence for privileged persisted status.
-          # ------------------------------------------------------------------
-          p = Path('server/failClosedGuards.ts')
-          s = p.read_text()
-          old = '''  const upper = status.toUpperCase();\n  if (upper === "APPROVED" || upper === "VALIDATED" || upper === "VERIFIED") {\n    if (evidence && evidence !== "CONFIRMED") return "pending_review";\n    return status.toLowerCase();\n  }'''
-          new = '''  const upper = status.toUpperCase();\n  if (upper === "APPROVED" || upper === "VALIDATED" || upper === "VERIFIED") {\n    // Privileged fact status requires affirmative source-evidence proof.\n    // Missing evidence is not equivalent to confirmed evidence.\n    if (evidence !== "CONFIRMED") return "pending_review";\n    return status.toLowerCase();\n  }'''
-          if old not in s:
-              raise SystemExit('persistFactStatus anchor not found')
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          # ------------------------------------------------------------------
-          # 5. Preserve queue proof lineage into workspace persistence.
-          # ------------------------------------------------------------------
-          p = Path('server.ts')
-          s = p.read_text()
-          type_anchor = '''  verificationStatus?: string;\n\n  // Stage 2: Corporate Group & Multilingual fields'''
-          type_replacement = '''  verificationStatus?: string;\n  evidenceStatus?: string;\n  reportingScope?: string;\n  reportingEntity?: string;\n\n  // Stage 2: Corporate Group & Multilingual fields'''
-          if type_anchor not in s:
-              raise SystemExit('server ExtractedFact lineage type anchor not found')
-          s = s.replace(type_anchor, type_replacement, 1)
-
-          fact_anchor = '''        reportingPeriod: f.reportingPeriod,\n        pageNumber: f.pageNumber || f.page,\n        sourceText: f.sourceText || f.source_text || "",\n        confidence: persistFactConfidence(f.confidence),\n        status: persistFactStatus(f.status, f.evidenceStatus),'''
-          fact_replacement = '''        reportingPeriod: f.reportingPeriod,\n        reportingScope: f.reportingScope,\n        reportingEntity: f.reportingEntity,\n        pageNumber: f.pageNumber || f.page,\n        sourceText: f.sourceText || f.source_text || "",\n        confidence: persistFactConfidence(f.confidence),\n        evidenceStatus: f.evidenceStatus,\n        verificationStatus: f.verificationStatus,\n        status: persistFactStatus(f.status, f.evidenceStatus),'''
-          if fact_anchor not in s:
-              raise SystemExit('workspace fact handoff anchor not found')
-          s = s.replace(fact_anchor, fact_replacement, 1)
-          p.write_text(s)
-
-          # ------------------------------------------------------------------
-          # 6. Focused regression assertions for durable/autonomous handoff.
-          # ------------------------------------------------------------------
-          test = Path('server/tests/company1DurableHandoff.test.ts')
-          test.write_text('''import fs from "fs";\nimport { persistFactStatus } from "../failClosedGuards.js";\n\nfunction assert(condition: boolean, message: string): void { if (!condition) throw new Error(message); }\n\nassert(persistFactStatus("approved", undefined) === "pending_review", "approved without evidence must fail closed");\nassert(persistFactStatus("approved", "UNCONFIRMED") === "pending_review", "approved with unconfirmed evidence must fail closed");\nassert(persistFactStatus("approved", "CONFIRMED") === "approved", "confirmed approved fact may persist approved");\nassert(persistFactStatus("validated", "CONFIRMED") === "validated", "confirmed validated fact may persist validated");\n\nconst queueSrc = fs.readFileSync("server/backgroundQueue.ts", "utf8");\nassert(queueSrc.includes("private diskSaveChain: Promise<void> = Promise.resolve()"), "queue writes must be serialized");\nassert(queueSrc.includes("this.diskSaveChain.then(() => this.performDiskSaveNow"), "serialized chain must wrap physical disk writes");\nassert(queueSrc.includes("recoverPersistedJobsAfterAuthorityAcquired"), "leader acquisition must recover persisted jobs");\nassert(queueSrc.includes("authorized && !this.lastProcessingAuthority"), "recovery must trigger on physical processing-authority transition");\nassert(queueSrc.includes("WAITING_FOR_AI_CAPACITY") && queueSrc.includes("schedulePersistedCapacityResume"), "persisted capacity waits must regain timers after restart");\nassert(queueSrc.includes("Rehydration is read-only"), "startup must not mutate before fenced leadership is acquired");\n\nconst hybridSrc = fs.readFileSync("server/hybridExtraction/HybridExtractionOrchestrator.ts", "utf8");\nassert(hybridSrc.includes("evidenceStatus: ev.evidenceStatus"), "hybrid facts must retain evidence status");\nassert(hybridSrc.includes("verificationStatus: isConfirmedEvidenceStatus"), "hybrid facts must carry pre-promotion verification lineage");\n\nconst serverSrc = fs.readFileSync("server.ts", "utf8");\nfor (const marker of ["evidenceStatus: f.evidenceStatus", "verificationStatus: f.verificationStatus", "reportingScope: f.reportingScope", "reportingEntity: f.reportingEntity"]) {\n  assert(serverSrc.includes(marker), `workspace handoff missing ${marker}`);\n}\n\nconsole.log("✓ Company 1 durable queue/restart/proof-lineage handoff tests passed");\n''')
-
-          pkg = json.loads(Path('package.json').read_text())
-          marker = 'tsx server/tests/company1DurableHandoff.test.ts'
-          if marker not in pkg['scripts']['test']:
-              pkg['scripts']['test'] += ' && ' + marker
-          Path('package.json').write_text(json.dumps(pkg, indent=2) + '\n')
+          Path('/tmp/company1_durable_repair.py').write_text(script)
           PY
+          python3 /tmp/company1_durable_repair.py
 
       - name: Install dependencies
         run: npm ci
@@ -150,12 +62,12 @@ jobs:
           npm run build
           sha256sum dist/server.cjs dist/worker.cjs
 
-      - name: Commit validated repair and remove one-shot workflow
+      - name: Commit validated repair and remove one-shot workflows
         shell: bash
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add server/backgroundQueue.ts server/hybridExtraction/HybridExtractionOrchestrator.ts src/types.ts server/failClosedGuards.ts server.ts server/tests/company1DurableHandoff.test.ts package.json
-          git rm .github/workflows/company1-durable-handoff.yml
+          git rm .github/workflows/company1-durable-handoff.yml .github/workflows/company1-durable-handoff-v2.yml
           git commit -m "fix(company1): make queue persistence and proof handoff durable"
           git push origin HEAD:fix/company1-durable-handoff
