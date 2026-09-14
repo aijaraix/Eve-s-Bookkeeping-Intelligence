@@ -4,7 +4,7 @@ ISSUER: Quantum Edge Technologies AG
 REPORTING FRAMEWORK: IFRS
 FUNCTIONAL CURRENCY: CHF, EUR
 AUTHORITY: SIX Swiss Exchange Annual Report & BDO Revisionsbericht
-TIMESTAMP: 2026-09-11T20:06:44.812Z
+TIMESTAMP: 2026-09-14T00:51:59.844Z
 ========================================================================
 
 PART I: PRIMARY FINANCIAL STATEMENTS

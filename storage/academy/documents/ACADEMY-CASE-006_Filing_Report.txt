@@ -4,7 +4,7 @@ ISSUER: Solaria Pacific Renewable Energy Ltd
 REPORTING FRAMEWORK: IFRS
 FUNCTIONAL CURRENCY: AUD, NZD, JPY
 AUTHORITY: ASX Corporate Disclosures & PwC Australian Audit Opinion Page 30
-TIMESTAMP: 2026-09-11T20:05:31.977Z
+TIMESTAMP: 2026-09-14T00:51:53.030Z
 ========================================================================
 
 PART I: PRIMARY FINANCIAL STATEMENTS
