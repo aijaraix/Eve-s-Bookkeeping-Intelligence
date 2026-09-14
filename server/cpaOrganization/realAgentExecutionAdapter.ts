@@ -48,6 +48,9 @@ export interface RealAgentExecutionRequest {
   inputObjectReferences?: string[];
   contextData?: Record<string, any>;
   promptTemplateVersion?: string;
+  structuredSchema?: Record<string, any>;
+  maxOutputTokens?: number;
+  localModelTimeoutMs?: number;
 }
 
 export interface RealAgentExecutionReceipt {
@@ -174,7 +177,10 @@ export class RealAgentExecutionAdapter {
         purpose: request.purpose || `Real agent execution for ${request.agentId}`,
         engagementId: request.engagementId,
         jsonMode: Boolean(contractInstruction),
-        requireRealModel: true
+        requireRealModel: true,
+        structuredSchema: request.structuredSchema,
+        maxOutputTokens: request.maxOutputTokens,
+        localModelTimeoutMs: request.localModelTimeoutMs
       });
 
       const latencyMs = Math.max(1, Date.now() - tStart);
@@ -188,7 +194,7 @@ export class RealAgentExecutionAdapter {
         return {
           routingDecisionId: decision.taskId,
           modelExecutionId: '', // Fail-closed: No valid modelExecutionId on failure
-          provider: 'google',
+          provider: decision.selectedTier === 'LEVEL_1_LOCAL_QWEN' ? 'ollama' : 'google',
           actualModel: execution.actualModel || 'UNKNOWN',
           agentId: request.agentId,
           executionStartedAt: reqStartedAt,

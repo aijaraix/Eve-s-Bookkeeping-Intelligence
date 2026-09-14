@@ -7,7 +7,7 @@ import { eveInternalAuditEngine } from './eveInternalAuditEngine.js';
 import { academyMinervaLab } from './academyMinervaLab.js';
 import { disclosureEvidenceLedgerService } from './disclosureEvidenceLedgerService.js';
 
-export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v5-disclosure-evidence-ledger';
+export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v6-bounded-lexicon-review-package';
 
 export type VerifiedContinuationStatus =
   | 'READY_FROM_VERIFIED_EXTRACTION'
@@ -50,6 +50,7 @@ export interface VerifiedContinuationState {
   internalTruthAudit?: any;
   minervaLiveValidation?: any;
   systemFindings?: string[];
+  reviewFindings?: string[];
   error?: string;
 }
 
@@ -387,7 +388,7 @@ export class VerifiedCustomerContinuationService {
           reportId: this.reportId(job.id),
           engagementId: base.engagementId,
           workspaceId: job.workspaceId,
-          version: 'v1.0',
+          version: `v6.a${base.jobAttempt}.${factDigestSha256.slice(0,8)}`,
           title: `${clientName} Financial Review Draft`,
           deliverableType: 'FINANCIAL_REVIEW_DRAFT',
           audience: 'AUTHORIZED_CPA_REVIEW',
@@ -415,7 +416,10 @@ export class VerifiedCustomerContinuationService {
             documentId: f.documentId || f.document_id,
             page: f.pageNumber,
             verificationStatus: f.verificationStatus,
-            evidenceStatus: f.evidenceStatus
+            evidenceStatus: f.evidenceStatus,
+            reportingPeriod: f.reportingPeriod || 'NOT_RECORDED',
+            sourceText: String(f.sourceText || f.source_text || ''),
+            sourceBlockIds: f.sourceBlockIds || (f.sourceBlockId ? [f.sourceBlockId] : [])
           })),
           euclidBalance
         });
@@ -458,7 +462,8 @@ export class VerifiedCustomerContinuationService {
         ...state,
         status: finalStatus,
         completedAt: new Date().toISOString(),
-        systemFindings
+        systemFindings,
+        reviewFindings: swarm.jobs.flatMap(j => (j.uncertainties || []).map(u => `${j.agentId}: ${u}`))
       });
     } catch (err: any) {
       return this.persist({

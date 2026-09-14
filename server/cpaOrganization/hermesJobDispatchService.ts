@@ -24,6 +24,7 @@
  */
 
 import fs from 'fs';
+import { executeLexiconBatches, BatchReceipt } from './lexiconBatchExecutionService.js';
 import path from 'path';
 import crypto from 'crypto';
 import { handoffConservationEngine, HandoffRecord } from './handoffConservationEngine.js';
@@ -674,8 +675,8 @@ export class HermesJobDispatchService {
           taskId: `task-hermes-scope-${params.engagementId}`,
           agentId: 'HERMES',
           taskType: 'COMPLEX_POLICY_ANALYSIS',
-          systemPrompt: 'You are Hermes, Autonomous Lead Audit Partner and Engagement Director. Establish statutory audit scope, materiality recommendation, risk areas, and orchestration plan for Form 10-K engagement.',
-          userPrompt: `Establish statutory audit scope and materiality recommendation for ${params.clientName} (${params.ticker}) with reported assets $${params.reportedAssets}. Use the supplied ${verifiedFactCount} VERIFIED + CONFIRMED financial facts as the engagement evidence set; do not invent missing values.`,
+          systemPrompt: 'You are Hermes, a public-filing analysis coordinator. Propose a bounded financial-review scope, materiality recommendation, and risk areas from supplied evidence. This is not an audit engagement. Do not claim controls testing, external confirmations, or an audit opinion. Final professional decisions remain pending authorized human review.',
+          userPrompt: `Propose a public-filing financial-analysis scope and materiality recommendation for ${params.clientName} (${params.ticker}) with reported assets $${params.reportedAssets}. Use the supplied ${verifiedFactCount} VERIFIED + CONFIRMED financial facts as the engagement evidence set; do not invent missing values.`,
           contextData: {
             client: params.clientName,
             ticker: params.ticker,
@@ -857,7 +858,7 @@ export class HermesJobDispatchService {
             equityAccountsMapped: equityAccounts,
             totalBalanceSheetAccounts: totalAccounts,
             trialBalanceStatus: totalAccounts > 0
-              ? 'BALANCED_DEBIT_CREDIT_EQUALITY'
+              ? 'ACCOUNT_LINES_DISCOVERED_TRIAL_BALANCE_NOT_TESTED'
               : 'NO_ACCOUNTS_DISCOVERED'
           }
         };
@@ -1106,7 +1107,7 @@ export class HermesJobDispatchService {
             costMeasurement: athenaReceipt.costMeasurement
           },
           status: 'JOB_COMPLETED_SUCCESS',
-          uncertainties: ['Substantive technical accounting review completed via verified model runtime'],
+          uncertainties: [...(validOut.uncertainties || [])],
           findings: validOut.findings || [`Extracted ${params.extractedFactsCount} facts for standards tie-out`],
           outputObjectReferences: [
             `obj-athena-disclosure-${params.engagementId}`,
@@ -1310,14 +1311,15 @@ export class HermesJobDispatchService {
           },
           status: 'JOB_COMPLETED_SUCCESS',
           uncertainties: ['Independence attestation requires external human engagement partner sign-off'],
-          findings: [`Registrant ticker ${params.ticker} confirmed against CIK directory`],
+          findings: [`Registrant ticker ${params.ticker}; independent CIK directory verification has not been executed`],
           outputObjectReferences: [
             `obj-sentinel-compliance-${params.engagementId}`
           ],
           outputManifest: {
-            registrantIdentityConfirmed: !!params.ticker,
+            registrantIdentityConfirmed: false,
+            identityVerificationStatus: 'NOT_EXECUTED',
             independenceAttestationStatus: 'INDEPENDENT_EVALUATION_NOT_EXECUTED',
-            complianceStatus: 'REGISTRANT_CIK_VERIFIED_INDEPENDENCE_NOT_ATTESTED'
+            complianceStatus: 'REGISTRANT_IDENTITY_NOT_VERIFIED_INDEPENDENCE_NOT_ATTESTED'
           }
         };
       }
@@ -1330,7 +1332,11 @@ export class HermesJobDispatchService {
         const customConcepts = Array.isArray(params.taxonomyMetrics?.customConcepts) ? params.taxonomyMetrics.customConcepts : [];
 
         // LEXICON is a REAL_AI_AGENT: always invoke authentic model runtime
-        const lexiconReceipt = await executeRealAgentWork({
+        const lexiconReceipt: BatchReceipt = customConcepts.length > 0 ? await executeLexiconBatches({
+          engagementId: params.engagementId, sourceSha256: params.sourceSha256,
+          taxonomyVersion, customConcepts, expectedCount: customExts,
+          inputObjectReferences: context.inputObjectReferences
+        }) : await executeRealAgentWork({
           taskId: `task-lexicon-sem-${params.engagementId}`,
           agentId: 'LEXICON',
           taskType: 'ENTITY_MAPPING',
@@ -1371,7 +1377,7 @@ export class HermesJobDispatchService {
               costMeasurement: 'NOT_REPORTED'
             },
             status: 'MODEL_UNAVAILABLE',
-            uncertainties: ['Semantic taxonomy model unavailable; fell back to deterministic mapping requirements'],
+            uncertainties: ['Semantic taxonomy model execution blocked; no deterministic substitute accepted'],
             findings: ['Semantic taxonomy alignment model unavailable: ' + (lexiconReceipt.error || 'Unavailable')],
             outputObjectReferences: [
               `obj-lexicon-taxonomy-${params.engagementId}`
@@ -1455,8 +1461,8 @@ export class HermesJobDispatchService {
             costMeasurement: lexiconReceipt.costMeasurement
           },
           status: 'JOB_COMPLETED_SUCCESS',
-          uncertainties: [],
-          findings: [`Semantic taxonomy analysis complete: evaluated ${validOut.customExtensionsEvaluated} custom extensions within ${uniqueConcepts} physical XBRL concepts`],
+          uncertainties: validOut.disposition.includes('DEFINITION_REVIEW_REQUIRED') ? ['Name-based categories are proposals only. Authoritative extension definitions/linkbases and semantic anchors remain unverified.'] : [],
+          findings: [`Taxonomy name review covered ${validOut.customExtensionsEvaluated} supplied custom extensions; this is not authoritative taxonomy anchoring`],
           outputObjectReferences: [
             `obj-lexicon-taxonomy-${params.engagementId}`
           ],
@@ -1468,6 +1474,10 @@ export class HermesJobDispatchService {
             semanticAnchorStatus: validOut.semanticAnchorStatus,
             customExtensionsEvaluated: validOut.customExtensionsEvaluated,
             semanticAlignments: validOut.semanticAlignments,
+            batchReceiptPaths: lexiconReceipt.batchReceiptPaths || [],
+            modelExecutionIds: lexiconReceipt.modelExecutionIds || [lexiconReceipt.modelExecutionId],
+            authoritativeAnchorsVerified: 0,
+            evaluationScope: 'PROVISIONAL_NAME_CLASSIFICATION',
             disposition: validOut.disposition
           }
         };
