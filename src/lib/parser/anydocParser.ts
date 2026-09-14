@@ -26,7 +26,6 @@ export class AnyDocParser {
       if (mime.includes("pdf") || safeFilename.toLowerCase().endsWith(".pdf")) {
         detectedFormat = "pdf";
         try {
-          // Dynamic import or safe fallback for pdf-parse if available
           const pdfModule: any = await import("pdf-parse");
           const pdfParse = pdfModule.default || pdfModule;
           const pdfData = await pdfParse(buffer);
@@ -46,7 +45,16 @@ export class AnyDocParser {
       } else if (mime.includes("html") || safeFilename.toLowerCase().endsWith(".htm") || safeFilename.toLowerCase().endsWith(".html")) {
         detectedFormat = "html";
         const raw = buffer.toString("utf-8");
-        const tableMatches = raw.matchAll(/<table[^>]*>([\s\S]*?)<\/table>/gi);
+        // Evidence must represent visible/native filing text, not script/style or
+        // ix:hidden machine-only duplicate payload.
+        const visibleRaw = raw
+          .replace(/<!--[\s\S]*?-->/g, " ")
+          .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+          .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+          .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
+          .replace(/<ix:hidden\b[^>]*>[\s\S]*?<\/ix:hidden>/gi, " ");
+
+        const tableMatches = visibleRaw.matchAll(/<table[^>]*>([\s\S]*?)<\/table>/gi);
         for (const tm of tableMatches) {
           const tContent = tm[1];
           const rows: string[][] = [];
@@ -55,7 +63,12 @@ export class AnyDocParser {
             const cells: string[] = [];
             const cellMatches = rm[1].matchAll(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi);
             for (const cm of cellMatches) {
-              const cellText = cm[1].replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/\s+/g, " ").trim();
+              const cellText = cm[1]
+                .replace(/<[^>]+>/g, " ")
+                .replace(/&nbsp;|&#160;/g, " ")
+                .replace(/&amp;/g, "&")
+                .replace(/\s+/g, " ")
+                .trim();
               if (cellText) cells.push(cellText);
             }
             if (cells.length > 0) rows.push(cells);
@@ -65,14 +78,20 @@ export class AnyDocParser {
               name: `Table-${extractedTables.length + 1}`,
               sheetName: `Table-${extractedTables.length + 1}`,
               rows,
-              headers: rows[0] || []
+              headers: rows[0] || [],
+              pageNumber: 1
             });
           }
         }
-        text = raw.replace(/<(?:br|p|div|tr)[^>]*>/gi, "\n")
-                  .replace(/<[^>]+>/g, " ")
-                  .replace(/&nbsp;|&#160;/g, " ")
-                  .replace(/[ \t]+/g, " ");
+
+        text = visibleRaw
+          .replace(/<(?:br|p|div|tr|li|h[1-6])[^>]*>/gi, "\n")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;|&#160;/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/[ \t]+/g, " ")
+          .replace(/ *\n+ */g, "\n")
+          .trim();
       } else {
         text = buffer.toString("utf-8");
       }
@@ -87,6 +106,16 @@ export class AnyDocParser {
         tables: extractedTables
       }
     ];
+    const sourceBlocks = text.trim().length > 0
+      ? [{
+          source_block_id: `SB-${docId}-P1`,
+          document_id: docId,
+          page_number: 1,
+          section: "Main Content",
+          raw_text: text,
+          text_content: text
+        }]
+      : [];
 
     return {
       document_id: docId,
@@ -119,6 +148,7 @@ export class AnyDocParser {
           native_text_available: text.length > 0
         }
       ],
+      sourceBlocks,
       tables: extractedTables,
       sections: lines.length > 0 ? [{ title: "Main Content", text, page: 1 }] : []
     };
