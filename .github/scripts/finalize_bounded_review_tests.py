@@ -15,7 +15,10 @@ assert old in s;s=s.replace(old,new);p.write_text(s)
 p=Path('server/tests/company1BoundedLexiconReview.test.ts');s=p.read_text();needle="  const pdf=await renderReviewPdf("
 insert="""  const longOutput={description:'evidence '.repeat(6000)};
   const large=renderReviewWorkbook({...params,version:'v6-large-test',specialistReview:{jobs:[{agentId:'LEXICON',status:'JOB_COMPLETED_SUCCESS',outputManifest:longOutput}]}},root);
-  const lw=XLSX.readFile(large.filepath);const lr=XLSX.utils.sheet_to_json(lw.Sheets['Specialist Review'],{header:1}) as any[][];
+  const lw=XLSX.read(fs.readFileSync(large.filepath),{type:'buffer'});const lr=XLSX.utils.sheet_to_json(lw.Sheets['Specialist Review'],{header:1}) as any[][];
   assert.equal(lr.slice(1).map(r=>r[5]).join(''),JSON.stringify(longOutput),'long specialist output must survive workbook cell limits without truncation');
 """
-assert needle in s;s=s.replace(needle,insert+needle);p.write_text(s)
+assert needle in s;s=s.replace(needle,insert+needle)
+assert 'XLSX.readFile(x.filepath)' in s
+s=s.replace('XLSX.readFile(x.filepath)',"XLSX.read(fs.readFileSync(x.filepath),{type:'buffer'})")
+p.write_text(s)
