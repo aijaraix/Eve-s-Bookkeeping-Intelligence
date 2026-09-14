@@ -45,8 +45,6 @@ export class AnyDocParser {
       } else if (mime.includes("html") || safeFilename.toLowerCase().endsWith(".htm") || safeFilename.toLowerCase().endsWith(".html")) {
         detectedFormat = "html";
         const raw = buffer.toString("utf-8");
-        // Evidence must represent visible/native filing text, not script/style or
-        // ix:hidden machine-only duplicate payload.
         const visibleRaw = raw
           .replace(/<!--[\s\S]*?-->/g, " ")
           .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -99,23 +97,35 @@ export class AnyDocParser {
 
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     const docId = `doc-${Date.now()}`;
-    const pages = [
-      {
-        page_number: 1,
-        text,
-        tables: extractedTables
-      }
-    ];
-    const sourceBlocks = text.trim().length > 0
-      ? [{
-          source_block_id: `SB-${docId}-P1`,
+    const pages = [{ page_number: 1, text, tables: extractedTables }];
+
+    // HTML/iXBRL has printed-page references but no reliable physical PDF page
+    // boundaries. Preserve deterministic line-level evidence and mark it as
+    // document-scoped so verifiers can corroborate quotes/amounts without
+    // falsely asserting a physical page match.
+    const sourceBlocks = detectedFormat === "html"
+      ? lines.map((line, idx) => ({
+          source_block_id: `SB-${docId}-DOC-${idx + 1}`,
           document_id: docId,
           page_number: 1,
           section: "Main Content",
-          raw_text: text,
-          text_content: text
-        }]
-      : [];
+          raw_text: line,
+          text_content: line,
+          evidence_scope: "DOCUMENT",
+          source_format: "html"
+        }))
+      : (text.trim().length > 0
+        ? [{
+            source_block_id: `SB-${docId}-P1`,
+            document_id: docId,
+            page_number: 1,
+            section: "Main Content",
+            raw_text: text,
+            text_content: text,
+            evidence_scope: "PAGE",
+            source_format: detectedFormat
+          }]
+        : []);
 
     return {
       document_id: docId,
@@ -142,12 +152,7 @@ export class AnyDocParser {
       markdown: text,
       pages,
       page_count: 1,
-      pageManifests: [
-        {
-          page_number: 1,
-          native_text_available: text.length > 0
-        }
-      ],
+      pageManifests: [{ page_number: 1, native_text_available: text.length > 0 }],
       sourceBlocks,
       tables: extractedTables,
       sections: lines.length > 0 ? [{ title: "Main Content", text, page: 1 }] : []
