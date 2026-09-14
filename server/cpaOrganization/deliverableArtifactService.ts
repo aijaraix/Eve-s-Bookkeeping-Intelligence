@@ -86,6 +86,8 @@ export interface DeliverableArtifactRecord {
   approvalObject?: ProfessionalApprovalObject;
   dependentFactIds?: string[];
   dependentDerivationIds?: string[];
+  specialistReview?: any;
+  disclosureEvidenceLedger?: any;
 }
 
 export class DeliverableArtifactService {
@@ -238,7 +240,9 @@ export class DeliverableArtifactService {
             isStale: data.isStale || false,
             approvalObject: data.approvalObject,
             dependentFactIds: data.dependentFactIds || [],
-            dependentDerivationIds: data.dependentDerivationIds || []
+            dependentDerivationIds: data.dependentDerivationIds || [],
+            specialistReview: data.specialistReview,
+            disclosureEvidenceLedger: data.disclosureEvidenceLedger
           };
 
           const existing = this.artifacts.get(engagementId) || [];
@@ -696,7 +700,9 @@ export class DeliverableArtifactService {
       canonicalFactHash,
       facts: normalizedFacts,
       quinnReviewStatus: params.quinnReviewStatus || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
-      quinnReview: params.quinnReview || { aiQualityReview: 'NOT_RUN', humanPartnerSignOff: 'PENDING', concurringApprovalGranted: false, deliveryEligible: false }
+      quinnReview: params.quinnReview || { aiQualityReview: 'NOT_RUN', humanPartnerSignOff: 'PENDING', concurringApprovalGranted: false, deliveryEligible: false },
+      specialistReview: params.specialistReview || null,
+      disclosureEvidenceLedger: params.disclosureEvidenceLedger || null
     };
     const jsonStr = JSON.stringify(jsonPayload, null, 2);
     fs.writeFileSync(jsonFilepath, jsonStr, 'utf-8');
@@ -818,7 +824,9 @@ export class DeliverableArtifactService {
       isStale: false,
       approvalObject: params.approvalObject,
       dependentFactIds: normalizedFacts.map(f => f.id).filter(Boolean) as string[],
-      dependentDerivationIds: params.dependentDerivationIds || []
+      dependentDerivationIds: params.dependentDerivationIds || [],
+      specialistReview: params.specialistReview || undefined,
+      disclosureEvidenceLedger: params.disclosureEvidenceLedger || undefined
     };
 
     const updatedList = existing.filter(r => r.reportId !== reportId);
