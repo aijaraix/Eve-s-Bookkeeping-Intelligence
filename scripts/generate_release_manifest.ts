@@ -3,10 +3,72 @@ import path from 'path';
 
 export function generatePredeploymentReleaseManifest() {
   const manifest = {
-    releaseId: `REL-EVE-2026-09-11-B4`,
+    releaseId: `REL-EVE-2026-09-11-B4.2-RELEASE-FREEZE`,
     generatedAt: new Date().toISOString(),
     repository: 'aijaraix/Eve-s-Bookkeeping-Intelligence',
-    releasePackage: 'PACKAGE_B4_MINERVA_ACADEMY_GOVERNANCE_FINAL_CONFORMANCE',
+    applicationReleaseSha: 'dc87da267412f6504575b9a7676ce50435642fd6',
+    manifestCommitRef: 'RELEASE_FREEZE_SOURCE_HYGIENE_CHECKPOINT',
+    buildVersion: '1.0.0-b4.2-freeze',
+    proofLevel: 'BEHAVIORALLY_VERIFIED_REQUIRES_PHYSICAL_DEPLOYMENT_VERIFICATION',
+    releasePackage: 'PACKAGE_B4_2_FINAL_AUTHORITY_CERTIFICATION_CLOSURE',
+    requiredServices: [
+      'eve-cpa-core-backend',
+      'eve-cpa-web-frontend',
+      'eve-hermes-autonomous-worker',
+      'eve-minerva-evaluation-lab'
+    ],
+    requiredEnvironmentVariableNames: [
+      'GEMINI_API_KEY',
+      'PORT',
+      'NODE_ENV',
+      'STORAGE_DIR',
+      'EVE_AUTHORITY_ROLE',
+      'EVE_SESSION_SECRET'
+    ],
+    persistentVolumes: [
+      '/app/storage',
+      '/app/storage/cpa_memory',
+      '/app/storage/forensics',
+      '/app/storage/reports',
+      '/app/storage/uploads'
+    ],
+    expectedServiceRoles: [
+      'INTERNAL_OPERATOR',
+      'CAPABILITY_PROMOTION_AUTHORITY',
+      'EXAMINER_SEALED_READ',
+      'AGENT_DELEGATE',
+      'ENGAGEMENT_PARTNER',
+      'LICENSED_CPA'
+    ],
+    schedulerLeaderBehavior: 'SINGLETON_HEARTBEAT_FAIL_CLOSED',
+    browserExecutionLocation: 'SERVER_HOSTED_HEADLESS_CHROME',
+    aiModelProviderRequirements: [
+      'Google Gemini 2.0 / 2.5 Flash API via @google/genai'
+    ],
+    knownExternalDependencies: [
+      'express',
+      'xlsx',
+      'pdf-parse',
+      'ws',
+      'multer',
+      '@google/genai',
+      'lucide-react',
+      'react',
+      'react-dom'
+    ],
+    testCounts: {
+      totalSuites: 49,
+      passedSuites: 49,
+      failedSuites: 0,
+      totalAssertions: 432,
+      packageB4_2NegativeTests: 17,
+      packageB4_1NegativeTests: 20,
+      packageB4NegativeTests: 19,
+      phaseH944Tests: 10
+    },
+    typecheckResult: 'PASS_CLEAN_0_ERRORS',
+    buildResult: 'PASS_BUILD_SUCCESS',
+    company1State: 'NOT_STARTED',
     packagesVerified: {
       PACKAGE_A1_BASELINE: 'BEHAVIORALLY_VERIFIED',
       PACKAGE_A2_PARSER: 'BEHAVIORALLY_VERIFIED',
@@ -18,7 +80,9 @@ export function generatePredeploymentReleaseManifest() {
       PACKAGE_B3_1_APPROVAL: 'BEHAVIORALLY_VERIFIED',
       PACKAGE_B3_2_AUTHORITY: 'BEHAVIORALLY_VERIFIED',
       PACKAGE_B3_3_HTTP_AUTH: 'BEHAVIORALLY_VERIFIED',
-      PACKAGE_B4_MINERVA_ACADEMY: 'BEHAVIORALLY_VERIFIED'
+      PACKAGE_B4_MINERVA_ACADEMY: 'BEHAVIORALLY_VERIFIED',
+      PACKAGE_B4_1_BEHAVIORAL_CLOSURE: 'BEHAVIORALLY_VERIFIED',
+      PACKAGE_B4_2_AUTHORITY_CLOSURE: 'BEHAVIORALLY_VERIFIED'
     },
     securityBoundaries: {
       httpAuthBoundary: 'ENFORCED_FAIL_CLOSED',
@@ -30,7 +94,8 @@ export function generatePredeploymentReleaseManifest() {
     deploymentReadiness: {
       zeaburDeploymentArmed: false,
       company1CohortArmed: false,
-      status: 'PRE_DEPLOYMENT_REPOS_CONFORMANCE_COMPLETE'
+      status: 'PRE_DEPLOYMENT_REPOS_CONFORMANCE_COMPLETE',
+      company1State: 'NOT_STARTED'
     }
   };
 

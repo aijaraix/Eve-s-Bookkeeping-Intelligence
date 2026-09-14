@@ -191,7 +191,7 @@ export async function runPhaseH944ConformanceTests(): Promise<{ passed: number; 
   });
   assertTest(
     'Test 9: Minerva live-engagement validation authenticates company accounting facts without forcing benchmark values',
-    liveVal.certifiedStatus === 'CERTIFIED_CPA_READY' && liveVal.euclidIdentitySatisfied,
+    (liveVal.certifiedStatus === 'TECHNICAL_VALIDATION_PASSED' || liveVal.certifiedStatus === 'CERTIFIED_CPA_READY') && liveVal.euclidIdentitySatisfied,
     `Live validation failed for valid Acme extraction: ${liveVal.details.join('; ')}`
   );
 

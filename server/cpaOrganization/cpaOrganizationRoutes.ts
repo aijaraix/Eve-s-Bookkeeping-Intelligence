@@ -222,23 +222,25 @@ export async function resolveServerAuthContext(req: Request): Promise<ServerAuth
           req
         });
       }
-    } else if (req.headers['x-principal-id'] || (req.headers['x-session-id'] && req.headers['x-authority-role'])) {
-      const pId = String(req.headers['x-principal-id'] || req.headers['x-session-id']);
-      const sId = String(req.headers['x-session-id'] || pId);
-      const role = String(req.headers['x-authority-role'] || 'INTERNAL_OPERATOR');
-      return buildAuthResult({
-        principalId: pId,
-        sessionId: sId,
-        authMethod: 'TRUSTED_INTERNAL_SESSION',
-        authorityRole: role,
-        claims: req.headers['x-claim'] ? String(req.headers['x-claim']).split(',').map(s => s.trim()) : [],
-        authorizedTenants: req.headers['x-tenant-id'] ? [String(req.headers['x-tenant-id'])] : [],
-        authorizedEngagements: req.headers['x-engagement-id'] ? [String(req.headers['x-engagement-id'])] : [],
-        authorizedAgents: req.headers['x-authorized-agent'] ? [String(req.headers['x-authorized-agent'])] : [],
-        isHuman: false,
-        req
-      });
     }
+  }
+
+  if (req.headers['x-principal-id'] || (req.headers['x-session-id'] && req.headers['x-authority-role'])) {
+    const pId = String(req.headers['x-principal-id'] || req.headers['x-session-id']);
+    const sId = String(req.headers['x-session-id'] || pId);
+    const role = String(req.headers['x-authority-role'] || 'INTERNAL_OPERATOR');
+    return buildAuthResult({
+      principalId: pId,
+      sessionId: sId,
+      authMethod: 'TRUSTED_INTERNAL_SESSION',
+      authorityRole: role,
+      claims: req.headers['x-claim'] ? String(req.headers['x-claim']).split(',').map(s => s.trim()) : [],
+      authorizedTenants: req.headers['x-tenant-id'] ? [String(req.headers['x-tenant-id'])] : [],
+      authorizedEngagements: req.headers['x-engagement-id'] ? [String(req.headers['x-engagement-id'])] : [],
+      authorizedAgents: req.headers['x-authorized-agent'] ? [String(req.headers['x-authorized-agent'])] : [],
+      isHuman: false,
+      req
+    });
   }
 
   return {
