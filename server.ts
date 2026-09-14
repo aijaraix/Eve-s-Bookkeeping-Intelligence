@@ -393,7 +393,10 @@ async function generateAIContent(promptOrParts: string | any[], jsonMode = true)
 }
 
 function getStorageFile(): string {
-  return process.env.STORAGE_FILE || path.join(process.cwd(), "ai_cpa_storage.json");
+  // Production workspace/accounting state must live under the same
+  // PVC-backed storage root as the canonical queue. /app/storage is
+  // symlinked to /storage in production and remains portable locally.
+  return process.env.STORAGE_FILE || path.join(process.cwd(), "storage", "ai_cpa_storage.json");
 }
 
 interface Workspace {
@@ -576,15 +579,32 @@ let db: AppStorage = {
 backgroundIngestionQueue.setDbRef(db);
 
 function saveStorage() {
+  const storageFile = getStorageFile();
+  const storageDir = path.dirname(storageFile);
+  let tempFile: string | null = null;
   try {
+    if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
     let jsonStr: string;
     try {
       jsonStr = JSON.stringify(db, null, 2);
     } catch {
       jsonStr = JSON.stringify(db);
     }
-    fs.writeFileSync(getStorageFile(), jsonStr);
+
+    // Atomic durable replacement: write + fsync temp, rename, then
+    // fsync the parent directory where the platform supports it.
+    tempFile = `${storageFile}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tempFile, jsonStr, "utf-8");
+    const fileFd = fs.openSync(tempFile, "r");
+    try { fs.fsyncSync(fileFd); } finally { fs.closeSync(fileFd); }
+    fs.renameSync(tempFile, storageFile);
+    tempFile = null;
+    try {
+      const dirFd = fs.openSync(storageDir, "r");
+      try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    } catch {}
   } catch (err) {
+    try { if (tempFile && fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch {}
     console.error("Failed to save storage:", err);
   }
 }
@@ -1069,6 +1089,9 @@ function loadStorage() {
   } catch (err) {
     console.error("Failed to load storage, using default:", err);
   }
+  // loadStorage replaces the db object. Rebind queue promotion logic
+  // to the physically loaded object instead of the pre-load empty one.
+  backgroundIngestionQueue.setDbRef(db);
 }
 
 loadStorage();
