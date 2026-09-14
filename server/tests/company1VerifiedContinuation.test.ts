@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { isProofCompleteFact, selectProofCompleteFacts, deriveFiscalYear, deriveCurrentBalance, buildVerifiedFactDigest, VERIFIED_CONTINUATION_LOGIC_VERSION } from "../cpaOrganization/verifiedCustomerContinuationService.js";
+import { selectLexiconSemanticTaskType } from "../cpaOrganization/hermesJobDispatchService.js";
 import { academyMinervaLab } from "../cpaOrganization/academyMinervaLab.js";
 import { buildDisclosureEvidenceLedger } from "../cpaOrganization/disclosureEvidenceLedgerService.js";
 import { validateAthenaOutput, validateLexiconOutput } from "../cpaOrganization/agentOutputContractValidator.js";
@@ -38,7 +39,12 @@ const pfizerBalance = deriveCurrentBalance(pfizerLike, '2024');
 assert(!!pfizerBalance, 'Pfizer canonical SEC aliases must produce a current-period balance');
 assert(pfizerBalance!.assets === 213396000000 && pfizerBalance!.liabilities === 124899000000 && pfizerBalance!.equity === 88497000000, 'comparative 2023 rows must not contaminate the 2024 identity');
 assert(pfizerBalance!.variance === 0, 'physical Pfizer 2024 balance sheet must reconcile exactly');
-assert(VERIFIED_CONTINUATION_LOGIC_VERSION === 'v5-disclosure-evidence-ledger', 'continuation logic must be versioned so prior terminal evaluations can be safely reconsidered');
+assert(VERIFIED_CONTINUATION_LOGIC_VERSION === 'v6-lexicon-workload-routing', 'continuation logic must be versioned so prior terminal evaluations can be safely reconsidered');
+assert(selectLexiconSemanticTaskType(200, 20) === 'ENTITY_MAPPING', 'small XBRL inventories must remain local-first on the entity-mapping route');
+assert(selectLexiconSemanticTaskType(500, 50) === 'ENTITY_MAPPING', 'threshold-sized XBRL inventories must remain local-first');
+assert(selectLexiconSemanticTaskType(501, 50) === 'COMPLEX_POLICY_ANALYSIS', 'large concept inventories must escalate to cloud semantic analysis');
+assert(selectLexiconSemanticTaskType(200, 51) === 'COMPLEX_POLICY_ANALYSIS', 'large custom-extension inventories must escalate to cloud semantic analysis');
+assert(selectLexiconSemanticTaskType(839, 166) === 'COMPLEX_POLICY_ANALYSIS', 'physical Pfizer-scale XBRL inventory must use the heavy cloud route');
 assert(buildVerifiedFactDigest(proof).every(f => f.verificationStatus === "VERIFIED" && f.evidenceStatus === "CONFIRMED"), "fact digest must retain proof lineage");
 
 const disclosureHtml = `<html xmlns:ix="http://www.xbrl.org/2013/inlineXBRL" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi">
@@ -89,6 +95,7 @@ assert(adapterSource.includes('getRoleStructuredOutputInstruction'), 'real-agent
 assert(adapterSource.includes('requireRealModel: true'), 'REAL_AI_AGENT execution must require a physical model rather than deterministic substitution');
 assert(routerSource.includes("responseMimeType: 'application/json'"), 'Gemini specialist calls must use provider-native JSON response mode');
 assert(routerSource.includes("format: 'json', think: false"), 'Ollama specialist calls must request JSON output in the response channel with thinking disabled');
+assert(fs.readFileSync("server/cpaOrganization/hermesJobDispatchService.ts", "utf8").includes("const lexiconTaskType = selectLexiconSemanticTaskType(uniqueConcepts, customExts)"), 'Lexicon runtime must apply workload-aware semantic routing');
 const continuationSourceForDisclosure = fs.readFileSync("server/cpaOrganization/verifiedCustomerContinuationService.ts", "utf8");
 assert(continuationSourceForDisclosure.includes('disclosureEvidenceLedgerService.buildAndPersist'), 'continuation must build a hash-bound disclosure evidence ledger from the existing source');
 assert(continuationSourceForDisclosure.includes('sourceBlocks: Array.isArray(db?.sourceBlocks)'), 'disclosure evidence must derive from persisted source blocks rather than manufactured note facts');

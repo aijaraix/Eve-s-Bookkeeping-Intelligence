@@ -107,6 +107,10 @@ export interface AgentJobExecution {
   maxAttempts: number;
 }
 
+export function selectLexiconSemanticTaskType(uniqueConcepts: number, customExtensions: number): 'ENTITY_MAPPING' | 'COMPLEX_POLICY_ANALYSIS' {
+  return customExtensions > 50 || uniqueConcepts > 500 ? 'COMPLEX_POLICY_ANALYSIS' : 'ENTITY_MAPPING';
+}
+
 export interface SwarmExecutionSummary {
   engagementId: string;
   clientName: string;
@@ -1328,14 +1332,18 @@ export class HermesJobDispatchService {
         const uniqueConcepts = params.taxonomyMetrics?.uniqueConceptsCount ?? 0;
         const taxonomyVersion = params.taxonomyMetrics?.taxonomyVersion || 'UNKNOWN';
         const customConcepts = Array.isArray(params.taxonomyMetrics?.customConcepts) ? params.taxonomyMetrics.customConcepts : [];
+        const lexiconTaskType = selectLexiconSemanticTaskType(uniqueConcepts, customExts);
+        const lexiconTier = lexiconTaskType === 'COMPLEX_POLICY_ANALYSIS' ? 'LEVEL_3_HEAVY_CLOUD' : 'LEVEL_1_LOCAL_QWEN';
 
-        // LEXICON is a REAL_AI_AGENT: always invoke authentic model runtime
+        // LEXICON is a REAL_AI_AGENT: invoke an authentic model runtime. Preserve local-first
+        // execution for smaller inventories, but route large physical XBRL inventories to
+        // cloud reasoning instead of timing out the local 4B model.
         const lexiconReceipt = await executeRealAgentWork({
           taskId: `task-lexicon-sem-${params.engagementId}`,
           agentId: 'LEXICON',
-          taskType: 'ENTITY_MAPPING',
-          systemPrompt: 'You are Lexicon, XBRL Taxonomy & Footnote Semantic Alignment Specialist. Evaluate the supplied physical XBRL taxonomy inventory. Do not invent counts or concepts.',
-          userPrompt: `Perform semantic taxonomy anchor analysis for ${params.clientName}. Taxonomy version: ${taxonomyVersion}. Unique concepts: ${uniqueConcepts}, dimension contexts: ${dimContexts}, custom extensions: ${customExts}. The supplied customConcepts list is complete; customExtensionsEvaluated must equal ${customExts}.`,
+          taskType: lexiconTaskType,
+          systemPrompt: 'You are Lexicon, XBRL Taxonomy & Footnote Semantic Alignment Specialist. Evaluate the supplied physical XBRL taxonomy inventory. Do not invent counts or concepts. The physical custom extension inventory is authoritative.',
+          userPrompt: `Perform semantic taxonomy anchor analysis for ${params.clientName}. Taxonomy version: ${taxonomyVersion}. Unique concepts: ${uniqueConcepts}, dimension contexts: ${dimContexts}, custom extensions: ${customExts}. The supplied customConcepts list is complete; customExtensionsEvaluated must equal ${customExts}. Workload route: ${lexiconTaskType}.`,
           contextData: {
             taxonomyVersion,
             uniqueConcepts,
@@ -1364,7 +1372,7 @@ export class HermesJobDispatchService {
               logicalAgentName: 'LEXICON',
               model: lexiconReceipt.actualModel,
               actualModel: lexiconReceipt.actualModel,
-              tier: 'LEVEL_1_LOCAL_QWEN',
+              tier: lexiconTier,
               provider: lexiconReceipt.provider,
               costUsd: 0,
               measured: false,
@@ -1408,7 +1416,7 @@ export class HermesJobDispatchService {
               logicalAgentName: 'LEXICON',
               model: lexiconReceipt.actualModel,
               actualModel: lexiconReceipt.actualModel,
-              tier: 'LEVEL_1_LOCAL_QWEN',
+              tier: lexiconTier,
               provider: lexiconReceipt.provider,
               tokensUsed: lexiconReceipt.usage ? { promptTokens: lexiconReceipt.usage.promptTokens || 0, completionTokens: lexiconReceipt.usage.completionTokens || 0 } : undefined,
               costUsd: lexiconReceipt.costUsd || 0,
@@ -1447,7 +1455,7 @@ export class HermesJobDispatchService {
             logicalAgentName: 'LEXICON',
             model: lexiconReceipt.actualModel,
             actualModel: lexiconReceipt.actualModel,
-            tier: 'LEVEL_1_LOCAL_QWEN',
+            tier: lexiconTier,
             provider: lexiconReceipt.provider,
             tokensUsed: lexiconReceipt.usage ? { promptTokens: lexiconReceipt.usage.promptTokens || 0, completionTokens: lexiconReceipt.usage.completionTokens || 0 } : undefined,
             costUsd: lexiconReceipt.costUsd || 0,

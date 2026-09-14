@@ -7,7 +7,7 @@ import { eveInternalAuditEngine } from './eveInternalAuditEngine.js';
 import { academyMinervaLab } from './academyMinervaLab.js';
 import { disclosureEvidenceLedgerService } from './disclosureEvidenceLedgerService.js';
 
-export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v5-disclosure-evidence-ledger';
+export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v6-lexicon-workload-routing';
 
 export type VerifiedContinuationStatus =
   | 'READY_FROM_VERIFIED_EXTRACTION'
