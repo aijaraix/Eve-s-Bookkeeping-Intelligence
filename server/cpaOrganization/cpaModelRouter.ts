@@ -281,7 +281,7 @@ export class CPAModelRouter {
             model: process.env.LOCAL_AI_MODEL || 'qwen3.5:4b-q4_K_M',
             prompt: `${params.systemPrompt ? params.systemPrompt + '\n\n' : ''}${promptText}`,
             stream: false,
-            ...(params.jsonMode ? { format: 'json' } : {})
+            ...(params.jsonMode ? { format: 'json', think: false } : {})
           }),
           signal: controller.signal
         });
