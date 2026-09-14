@@ -5,8 +5,9 @@ import { hermesJobDispatchService, SwarmExecutionSummary } from './hermesJobDisp
 import { deliverableArtifactService, DeliverableArtifactRecord } from './deliverableArtifactService.js';
 import { eveInternalAuditEngine } from './eveInternalAuditEngine.js';
 import { academyMinervaLab } from './academyMinervaLab.js';
+import { disclosureEvidenceLedgerService } from './disclosureEvidenceLedgerService.js';
 
-export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v4-qwen-response-channel';
+export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v5-disclosure-evidence-ledger';
 
 export type VerifiedContinuationStatus =
   | 'READY_FROM_VERIFIED_EXTRACTION'
@@ -42,6 +43,7 @@ export interface VerifiedContinuationState {
   reportingCurrency?: string;
   proofCompleteFactsCount?: number;
   factDigestSha256?: string;
+  disclosureEvidence?: any;
   euclidBalance?: { assets: number; liabilities: number; equity: number; variance: number };
   specialistSummary?: any;
   deliverable?: any;
@@ -305,6 +307,24 @@ export class VerifiedCustomerContinuationService {
       );
       const factDigest = buildVerifiedFactDigest(proofFacts);
       const factDigestSha256 = crypto.createHash('sha256').update(JSON.stringify(factDigest)).digest('hex');
+      const disclosureLedger = disclosureEvidenceLedgerService.buildAndPersist({
+        documentId: String(job.documentId || ''),
+        sourceFilePath: String(job.filePath || document?.filePath || document?.url || ''),
+        expectedSourceSha256: String(job.documentHash || ''),
+        sourceBlocks: Array.isArray(db?.sourceBlocks) ? db.sourceBlocks : []
+      });
+      const disclosureEvidenceSummary = {
+        ledgerId: disclosureLedger.ledgerId,
+        persistedPath: disclosureLedger.persistedPath,
+        sourceSha256: disclosureLedger.sourceSha256,
+        sourceSha256Match: disclosureLedger.sourceSha256Match,
+        sourceBlockCount: disclosureLedger.sourceBlockCount,
+        evidenceCount: disclosureLedger.evidenceCount,
+        topicCounts: disclosureLedger.topicCounts,
+        evidenceDigestSha256: disclosureLedger.evidenceDigestSha256,
+        taxonomyMetrics: disclosureLedger.taxonomyMetrics,
+        evidenceIds: disclosureLedger.records.map(r => r.evidenceId)
+      };
 
       let state = this.persist({
         ...base,
@@ -313,6 +333,7 @@ export class VerifiedCustomerContinuationService {
         reportingCurrency,
         proofCompleteFactsCount: proofFacts.length,
         factDigestSha256,
+        disclosureEvidence: disclosureEvidenceSummary,
         euclidBalance,
         status: 'SPECIALIST_SWARM_RUNNING'
       });
@@ -334,6 +355,10 @@ export class VerifiedCustomerContinuationService {
           extractedFactsCount: proofFacts.length,
           verifiedFacts: factDigest,
           verifiedFactsDigestSha256: factDigestSha256,
+          disclosureEvidence: disclosureLedger.records,
+          disclosureEvidenceDigestSha256: disclosureLedger.evidenceDigestSha256,
+          disclosureEvidenceLedgerId: disclosureLedger.ledgerId,
+          taxonomyMetrics: disclosureLedger.taxonomyMetrics,
           reportingCurrency,
           workspaceId: job.workspaceId,
           documentId: job.documentId,
@@ -355,7 +380,7 @@ export class VerifiedCustomerContinuationService {
       };
 
       let artifact: DeliverableArtifactRecord;
-      if (prior?.deliverable?.reportId && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
+      if (prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.deliverable?.reportId && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
         artifact = prior.deliverable as DeliverableArtifactRecord;
       } else {
         artifact = await deliverableArtifactService.compileAndRegisterDeliverable({
@@ -375,6 +400,11 @@ export class VerifiedCustomerContinuationService {
           status: 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
           quinnReviewStatus: 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
           quinnReview,
+          specialistReview: compactSwarm(swarm),
+          disclosureEvidenceLedger: {
+            ...disclosureEvidenceSummary,
+            records: disclosureLedger.records
+          },
           facts: proofFacts.map((f: any) => ({
             id: f.id,
             canonicalMetric: f.canonicalMetric || f.labelNormalized,
@@ -410,9 +440,15 @@ export class VerifiedCustomerContinuationService {
       });
       state = this.persist({ ...state, status: 'MINERVA_TECHNICAL_VALIDATION_COMPLETE', minervaLiveValidation });
 
-      const systemFindings = swarm.jobs
-        .filter(j => j.status !== 'JOB_COMPLETED_SUCCESS')
-        .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.join(' | ')}` : ''}`);
+      const disclosureEvidenceGaps = Object.entries(disclosureLedger.topicCounts)
+        .filter(([, count]) => Number(count) === 0)
+        .map(([topic]) => `DISCLOSURE_EVIDENCE_GAP:${topic}`);
+      const systemFindings = [
+        ...swarm.jobs
+          .filter(j => j.status !== 'JOB_COMPLETED_SUCCESS')
+          .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.join(' | ')}` : ''}`),
+        ...disclosureEvidenceGaps
+      ];
       const technicalPass = internalTruthAudit.compliant && minervaLiveValidation.certifiedStatus === 'TECHNICAL_VALIDATION_PASSED';
       const finalStatus: VerifiedContinuationStatus = !technicalPass
         ? 'BLOCKED_TECHNICAL_VALIDATION'

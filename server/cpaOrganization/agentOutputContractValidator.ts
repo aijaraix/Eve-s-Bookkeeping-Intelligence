@@ -173,7 +173,7 @@ export function validateHermesOutput(
  */
 export function validateAthenaOutput(
   raw: any,
-  context?: { extractedFactsCount?: number }
+  context?: { extractedFactsCount?: number; allowedEvidenceReferences?: string[] }
 ): OutputValidationResult {
   const errors: string[] = [];
 
@@ -220,6 +220,12 @@ export function validateAthenaOutput(
 
   if (!Array.isArray(raw.evidenceReferences) || raw.evidenceReferences.length === 0) {
     errors.push('Missing mandatory non-empty array field: evidenceReferences');
+  } else if (context?.allowedEvidenceReferences?.length) {
+    const allowed = new Set(context.allowedEvidenceReferences);
+    const invented = raw.evidenceReferences.filter((ref: any) => typeof ref !== 'string' || !allowed.has(ref));
+    if (invented.length > 0) {
+      errors.push(`EVIDENCE_REFERENCE_VIOLATION: Athena cited references that were not supplied by the hash-bound disclosure ledger: ${invented.join(', ')}`);
+    }
   }
 
   if (!Array.isArray(raw.findings)) {
@@ -238,7 +244,7 @@ export function validateAthenaOutput(
   if (errors.length > 0) {
     return {
       isValid: false,
-      validationStatus: errors.some(e => e.includes('PREMATURE')) ? 'UNSUPPORTED_CONCLUSION' : 'MISSING_MANDATORY_FIELDS',
+      validationStatus: errors.some(e => e.includes('PREMATURE') || e.startsWith('EVIDENCE_REFERENCE_VIOLATION')) ? 'UNSUPPORTED_CONCLUSION' : 'MISSING_MANDATORY_FIELDS',
       errors
     };
   }
@@ -357,6 +363,7 @@ export function validateLexiconOutput(
     uniqueConcepts?: number;
     dimContexts?: number;
     customExts?: number;
+    requireCompleteCustomExtensionEvaluation?: boolean;
   }
 ): OutputValidationResult {
   const errors: string[] = [];
@@ -397,10 +404,19 @@ export function validateLexiconOutput(
     errors.push('Missing mandatory string field: disposition');
   }
 
+  if (context && typeof raw.customExtensionsEvaluated === 'number' && typeof context.customExts === 'number') {
+    if (raw.customExtensionsEvaluated > context.customExts) {
+      errors.push(`RECONCILIATION_VIOLATION: Lexicon claimed ${raw.customExtensionsEvaluated} custom extensions evaluated, but physical XBRL inventory contains ${context.customExts}.`);
+    }
+    if (context.requireCompleteCustomExtensionEvaluation && raw.customExtensionsEvaluated !== context.customExts) {
+      errors.push(`RECONCILIATION_VIOLATION: Lexicon must evaluate the complete supplied custom extension inventory (${context.customExts}); reported ${raw.customExtensionsEvaluated}.`);
+    }
+  }
+
   if (errors.length > 0) {
     return {
       isValid: false,
-      validationStatus: 'MISSING_MANDATORY_FIELDS',
+      validationStatus: errors.some(e => e.startsWith('RECONCILIATION_VIOLATION')) ? 'RECONCILIATION_FAILED' : 'MISSING_MANDATORY_FIELDS',
       errors
     };
   }
