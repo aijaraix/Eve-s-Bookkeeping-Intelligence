@@ -1,3 +1,4 @@
+import { rejectLegacyIssuance } from "../legacyIssuanceGate.js";
 /**
  * EVE AUTONOMOUS CPA ORGANIZATION — EXPRESS API ROUTES
  * 
@@ -1001,14 +1002,7 @@ export function createCPAOrganizationRouter(): Router {
   });
 
   // 26. Phase H.9.21 — Real Binary Deliverable Artifact Compilation & Downloads
-  router.post('/report/compile', async (req: Request, res: Response) => {
-    try {
-      const artifact = await deliverableArtifactService.compileAndRegisterDeliverable(req.body);
-      res.json({ success: true, artifact });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
+  router.post('/report/compile', rejectLegacyIssuance);
 
   router.post('/report/signoff', async (req: Request, res: Response) => {
     try {

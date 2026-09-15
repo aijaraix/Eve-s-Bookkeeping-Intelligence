@@ -189,7 +189,7 @@ export async function generateDeliverable(params: {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return { success: false, error: json.error || `Report refused (${res.status})` };
+    return { success: false, error: json.message || json.error || `Report refused (${res.status})` };
   }
   return json;
 }
