@@ -1,3 +1,4 @@
+import { actionAttributes } from '../../../academy/uiActionRegistry';
 import React, { useState } from 'react';
 import { EvePageHeader } from '../../design-system/EvePageHeader';
 import { EveCard, EveCardHeader, EveCardTitle, EveCardContent } from '../../design-system/EveCard';
@@ -42,7 +43,7 @@ export const PracticeClientsView: React.FC<PracticeClientsViewProps> = ({
         actions={
           <button
             type="button"
-            onClick={onOpenUpload}
+            {...actionAttributes('intake.open.clients')} onClick={onOpenUpload}
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer transition-colors"
           >
             <UploadCloud className="w-4 h-4" />
@@ -97,6 +98,7 @@ export const PracticeClientsView: React.FC<PracticeClientsViewProps> = ({
             <EveEmptyState
               title="No Organizations Found"
               description="No client organizations match the selected filter criteria."
+              actionId="intake.open.clients-empty"
               actionLabel="Upload New Client Filing"
               onAction={onOpenUpload}
             />

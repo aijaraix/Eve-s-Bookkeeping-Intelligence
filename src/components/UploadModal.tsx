@@ -340,7 +340,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           <div className="flex items-center gap-1.5">
             {phase === 'ANALYZING' && (
               <button
-                {...actionAttributes('intake.close')} onClick={onClose}
+                {...actionAttributes('intake.minimize')} onClick={onClose}
                 className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 text-xs"
                 title="Minimize and run in background"
               >
@@ -349,6 +349,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               </button>
             )}
             <button
+              {...actionAttributes('intake.close')} aria-label="Close upload"
               onClick={onClose}
               className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
             >
@@ -979,6 +980,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
             {phase === 'COMPLETE' && (
               <button
+                {...actionAttributes('intake.done')}
                 type="button"
                 onClick={() => {
                   resetModal();
