@@ -1,10 +1,9 @@
 /**
- * EVE FRONTEND RECONSTRUCTION — CANONICAL DATA ADAPTERS (Phase H.9.31.2)
- * 
- * Maps authoritative Universal Engagement and backend storage records
- * to typed presentation models with absolute zero mock financial data leakage.
- * All financial line items, balance sheet identities, and ratios derive strictly
- * from real extracted facts or return honest empty / unresolved states.
+ * EVE FRONTEND — authoritative presentation adapters.
+ *
+ * These adapters never invent source facts. They normalize the recorded period
+ * and metric naming shapes used by the backend so already-persisted evidence can
+ * be projected into the owner UI without re-running extraction.
  */
 
 import {
@@ -13,46 +12,143 @@ import {
   StatementLinePresentation,
   BalanceSheetIdentityCheck,
   RatioDerivationPresentation,
-  ChartDataPointPresentation,
   NamedCpaAgentPresentation,
-  SystemServiceHealth,
   OrganizationCategory
 } from '../types/presentationModels';
 
-function matchesPeriod(f: any, period: string): boolean {
-  const normalize = (value: unknown) => String(value ?? '').replace(/^FY\s*/i, '').trim();
-  return !period || period === 'Period not recorded' || normalize(f.reportingPeriod || f.periodOriginal || f.fiscalYear || f.period) === normalize(period);
+function normalizeText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/&/g, ' and ')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_');
 }
 
-// Helper to format currency values cleanly
+function extractFiscalYear(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+
+  const fy = text.match(/\bFY\s*(20\d{2})\b/i);
+  if (fy) return fy[1];
+
+  const dateYears = [...text.matchAll(/\b(20\d{2})-\d{2}-\d{2}\b/g)].map(m => m[1]);
+  if (dateYears.length) return dateYears[dateYears.length - 1];
+
+  const year = text.match(/\b(20\d{2})\b/);
+  return year ? year[1] : null;
+}
+
+export function matchesFiscalPeriod(f: any, period: string): boolean {
+  if (!period || period === 'Period not recorded') return true;
+  const source = f?.reportingPeriod || f?.periodOriginal || f?.fiscalYear || f?.period;
+  const normalizedSource = String(source ?? '').replace(/^FY\s*/i, '').trim();
+  const normalizedTarget = String(period ?? '').replace(/^FY\s*/i, '').trim();
+  if (normalizedSource && normalizedSource === normalizedTarget) return true;
+
+  const sourceYear = extractFiscalYear(source);
+  const targetYear = extractFiscalYear(period);
+  return Boolean(sourceYear && targetYear && sourceYear === targetYear);
+}
+
+function factMetricKeys(f: any): string[] {
+  return [f?.canonicalMetric, f?.metric, f?.key, f?.labelNormalized, f?.labelOriginal]
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function buildMetricMap(facts: any[]): Map<string, any> {
+  const map = new Map<string, any>();
+  for (const fact of facts) {
+    for (const key of factMetricKeys(fact)) {
+      if (!map.has(key)) map.set(key, fact);
+    }
+  }
+  return map;
+}
+
+function findMetricFact(map: Map<string, any>, aliases: string[]): any | null {
+  for (const alias of aliases.map(normalizeText)) {
+    const exact = map.get(alias);
+    if (exact) return exact;
+  }
+  return null;
+}
+
+function factNumber(fact: any): number | null {
+  if (!fact) return null;
+  const raw = fact.valueFunctional ?? fact.valueOriginal ?? fact.value;
+  const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/,/g, ''));
+  return Number.isFinite(num) ? num : null;
+}
+
+function factCurrency(fact: any, fallback: string): string {
+  return fact?.currencyFunctional || fact?.currencyOriginal || fact?.currency || fallback;
+}
+
+function factScale(fact: any): string {
+  return fact?.scale || fact?.scaleOriginal || fact?.unitScale || 'Source units';
+}
+
+function factSourceName(fact: any): string | undefined {
+  return fact?.documentTitle || fact?.sourceDocument || fact?.documentName || fact?.documentId || undefined;
+}
+
+function factSourcePage(fact: any): number | undefined {
+  const raw = fact?.pageNumber ?? fact?.page ?? fact?.sourcePage ?? fact?.extractorLocator;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function makeLine(
+  id: string,
+  canonicalMetric: string,
+  label: string,
+  fact: any,
+  value: number,
+  period: string,
+  currency: string,
+  options: Partial<StatementLinePresentation> = {}
+): StatementLinePresentation {
+  const lineCurrency = factCurrency(fact, currency);
+  return {
+    id,
+    label: fact?.labelNormalized || fact?.labelOriginal || label,
+    canonicalMetric,
+    level: 1,
+    values: { [period]: value },
+    formattedValues: { [period]: formatFinancialValue(value, lineCurrency) },
+    currency: lineCurrency,
+    scale: factScale(fact),
+    verificationStatus: String(fact?.verificationStatus || 'review_required').toLowerCase() as StatementLinePresentation['verificationStatus'],
+    sourceDocName: factSourceName(fact),
+    sourcePage: factSourcePage(fact),
+    factLineageId: fact?.id,
+    ...options
+  };
+}
+
 export function formatFinancialValue(
   val: number | null | undefined,
   currency: string = 'USD',
-  scale: string = 'In Millions'
+  _scale: string = 'Source units'
 ): string {
-  if (val === null || val === undefined || isNaN(val)) return '—';
-  
-  // Source values must not be rescaled solely because they are large.
+  if (val === null || val === undefined || Number.isNaN(val)) return '—';
   const sign = val < 0 ? '-' : '';
   const numStr = Math.abs(val).toLocaleString('en-US', { maximumFractionDigits: 6 });
   const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : `${currency} `;
-
   return `${sign}${symbol}${numStr}`;
 }
 
-// 1. Universal Engagements to PracticeClientSummary Adapter
 export function adaptUniversalEngagementsToClients(engagements: any[] = []): PracticeClientSummary[] {
   const clientMap = new Map<string, PracticeClientSummary>();
-
   engagements.forEach((eng) => {
     const clientId = eng.engagementId;
     if (!clientMap.has(clientId)) {
       let category: OrganizationCategory = 'REAL_CUSTOMER';
-      if (eng.classification === 'CANARY' || eng.engagementId?.includes('canary')) {
-        category = 'TEST_FIXTURE';
-      } else if (eng.classification === 'ACADEMY' || !eng.isCustomer) {
-        category = 'ACADEMY_CASE';
-      }
+      if (eng.classification === 'CANARY' || eng.engagementId?.includes('canary')) category = 'TEST_FIXTURE';
+      else if (eng.classification === 'ACADEMY' || !eng.isCustomer) category = 'ACADEMY_CASE';
 
       clientMap.set(clientId, {
         id: clientId,
@@ -69,19 +165,15 @@ export function adaptUniversalEngagementsToClients(engagements: any[] = []): Pra
         reportingCurrency: eng.functionalCurrency || 'USD'
       });
     } else {
-      const c = clientMap.get(clientId)!;
-      c.activeEngagementsCount += 1;
+      clientMap.get(clientId)!.activeEngagementsCount += 1;
     }
   });
-
   return Array.from(clientMap.values());
 }
 
-// Legacy Workspace to Client Adapter (strictly without hardcoded fallback names)
 export function adaptWorkspacesToClients(workspaces: any[] = []): PracticeClientSummary[] {
   return workspaces.map((ws) => {
     const category: OrganizationCategory = ws.isCustomer === true ? 'REAL_CUSTOMER' : ws.classification === 'CANARY' ? 'TEST_FIXTURE' : 'ACADEMY_CASE';
-
     const clientName = ws.name || 'Unnamed Client';
     return {
       id: ws.id,
@@ -100,625 +192,230 @@ export function adaptWorkspacesToClients(workspaces: any[] = []): PracticeClient
   });
 }
 
-// 2. Universal Engagement to EngagementSummary Adapter
 export function adaptUniversalToEngagementSummaries(engagements: any[] = []): EngagementSummary[] {
-  return engagements.map((eng) => {
-    return {
-      id: eng.engagementId,
-      clientId: eng.engagementId,
-      clientName: eng.clientName || 'Client Entity',
-      name: eng.title || `${eng.period || 'Period not recorded'} Annual Audit & Attestation`,
-      period: eng.period || 'Period not recorded',
-      framework: eng.framework || 'US_GAAP',
-      reportingCurrency: eng.functionalCurrency || 'USD',
-      status: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Review Required' : (eng.openReviewNotesCount > 0 ? 'Review Required' : 'In Progress'),
-      readinessState: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'REVIEW_REQUIRED' : (eng.openReviewNotesCount > 0 ? 'REVIEW_REQUIRED' : 'DATA_VERIFICATION_REQUIRED'),
-      openFindingsCount: eng.openReviewNotesCount || 0,
-      documentsCount: eng.documentsCount || 0,
-      factsCount: eng.canonicalFactsCount || 0,
-      lastActivity: eng.lastActivityAt || eng.startedAt || '',
-      nextAction: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Review draft and authorization requirements' : 'Continue audit verification'
-    };
-  });
+  return engagements.map((eng) => ({
+    id: eng.engagementId,
+    clientId: eng.engagementId,
+    clientName: eng.clientName || 'Client Entity',
+    name: eng.title || `${eng.period || 'Period not recorded'} Annual Audit & Attestation`,
+    period: eng.period || 'Period not recorded',
+    framework: eng.framework || 'US_GAAP',
+    reportingCurrency: eng.functionalCurrency || 'USD',
+    status: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Review Required' : (eng.openReviewNotesCount > 0 ? 'Review Required' : 'In Progress'),
+    readinessState: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'REVIEW_REQUIRED' : (eng.openReviewNotesCount > 0 ? 'REVIEW_REQUIRED' : 'DATA_VERIFICATION_REQUIRED'),
+    openFindingsCount: eng.openReviewNotesCount || 0,
+    documentsCount: eng.documentsCount || 0,
+    factsCount: eng.canonicalFactsCount || 0,
+    lastActivity: eng.lastActivityAt || eng.startedAt || '',
+    nextAction: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Review draft and authorization requirements' : 'Continue audit verification'
+  }));
 }
 
-// Legacy Workspaces to Engagements Adapter
 export function adaptWorkspacesToEngagements(
   workspaces: any[] = [],
-  factsCount: number = 0,
-  docsCount: number = 0,
+  _factsCount: number = 0,
+  _docsCount: number = 0,
   findingsCount: number = 0
 ): EngagementSummary[] {
-  return workspaces.map((ws) => {
-    const clientName = ws.name || 'Client';
-    return {
-      id: ws.engagementId || ws.id,
-      clientId: ws.id,
-      clientName,
-      name: `${ws.period || 'Period not recorded'} Annual Audit & Attestation`,
-      period: ws.period || 'Period not recorded',
-      framework: ws.reportingStandard || 'US_GAAP',
-      reportingCurrency: ws.currency || 'USD',
-      status: 'Review Required',
-      readinessState: 'REVIEW_REQUIRED',
-      openFindingsCount: ws.openReviewNotesCount ?? findingsCount,
-      documentsCount: ws.documentsCount ?? 0,
-      factsCount: ws.canonicalFactsCount ?? 0,
-      lastActivity: ws.updatedAt || '',
-      nextAction: 'Review source evidence and draft findings'
-    };
-  });
+  return workspaces.map((ws) => ({
+    id: ws.engagementId || ws.id,
+    clientId: ws.id,
+    clientName: ws.name || 'Client',
+    name: `${ws.period || 'Period not recorded'} Annual Audit & Attestation`,
+    period: ws.period || 'Period not recorded',
+    framework: ws.reportingStandard || 'US_GAAP',
+    reportingCurrency: ws.currency || 'USD',
+    status: 'Review Required',
+    readinessState: 'REVIEW_REQUIRED',
+    openFindingsCount: ws.openReviewNotesCount ?? findingsCount,
+    documentsCount: ws.documentsCount ?? 0,
+    factsCount: ws.canonicalFactsCount ?? 0,
+    lastActivity: ws.updatedAt || '',
+    nextAction: 'Review source evidence and draft findings'
+  }));
 }
 
-// 3. Facts to Income Statement Presentation Adapter (STRICTLY DATA-DRIVEN, ZERO FALLBACK)
+const REVENUE_ALIASES = ['revenue', 'total_revenue', 'total_revenues', 'revenues', 'sales'];
+const COGS_ALIASES = ['cost_of_goods_sold', 'cost_of_revenue', 'cogs', 'cost_of_sales'];
+const RD_ALIASES = ['research_and_development', 'research_and_development_expenses', 'r_and_d', 'rd_expense'];
+const SGA_ALIASES = ['selling_general_and_administrative', 'selling_informational_and_administrative_expenses', 'sga', 'operating_expenses', 'sg_and_a'];
+const OPERATING_INCOME_ALIASES = ['operating_income', 'operating_profit', 'ebit'];
+const NET_INCOME_ALIASES = [
+  'net_income',
+  'net_profit',
+  'profit_loss',
+  'net_income_attributable_to_pfizer_inc_common_shareholders',
+  'net_income_attributable_to_common_shareholders',
+  'net_income_before_allocation_to_noncontrolling_interests'
+];
+const CASH_ALIASES = ['cash', 'cash_and_equivalents', 'cash_and_cash_equivalents', 'cash_and_cash_equivalents_at_carrying_value', 'liquid_funds'];
+const ASSET_ALIASES = ['total_assets', 'assets'];
+const LIABILITY_ALIASES = ['total_liabilities', 'liabilities'];
+const EQUITY_ALIASES = [
+  'total_equity',
+  'stockholders_equity',
+  'equity',
+  'shareholders_equity',
+  'stockholders_equity_including_portion_attributable_to_noncontrolling_interest'
+];
+
 export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 'Period not recorded', currency: string = 'USD'): StatementLinePresentation[] {
-  facts = facts.filter(f => matchesPeriod(f, period));
-  if (!facts || facts.length === 0) return [];
-
-  // Group facts by metric
-  const metricMap: Record<string, any> = {};
-  facts.forEach((f) => {
-    const rawMetric = (f.canonicalMetric || f.metric || f.key || '').toLowerCase().trim();
-    if (rawMetric) {
-      if (!metricMap[rawMetric]) metricMap[rawMetric] = f;
-    }
-  });
-
-  const getMetricFact = (metricKeys: string[]): any | null => {
-    for (const k of metricKeys) {
-      if (metricMap[k]) return metricMap[k];
-    }
-    return null;
-  };
-
-  const getMetricVal = (metricKeys: string[]): number | null => {
-    const f = getMetricFact(metricKeys);
-    if (!f) return null;
-    const raw = f.valueFunctional ?? f.valueOriginal ?? f.value;
-    const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
-    return isNaN(num) ? null : num;
-  };
-
+  const periodFacts = facts.filter(f => matchesFiscalPeriod(f, period));
+  if (!periodFacts.length) return [];
+  const map = buildMetricMap(periodFacts);
   const lines: StatementLinePresentation[] = [];
 
-  // Revenue
-  const revFact = getMetricFact(['revenue', 'total_revenue', 'revenues', 'product_revenue', 'sales']);
-  const revVal = getMetricVal(['revenue', 'total_revenue', 'revenues', 'product_revenue', 'sales']);
-
+  const revFact = findMetricFact(map, REVENUE_ALIASES);
+  const revVal = factNumber(revFact);
   if (revVal !== null) {
-    lines.push({
-      id: 'is-header-rev',
-      label: 'Operating Revenues',
-      level: 0,
-      isHeader: true,
-      values: {},
-      formattedValues: {},
-      currency: revFact?.currencyOriginal || currency,
-      scale: 'Source units',
-      verificationStatus: 'review_required'
-    });
-
-    lines.push({
-      id: 'is-rev',
-      label: revFact?.labelNormalized || revFact?.labelOriginal || 'Total Operating Revenue',
-      canonicalMetric: 'revenue',
-      level: 1,
-      values: { [period]: revVal },
-      formattedValues: { [period]: formatFinancialValue(revVal, revFact?.currencyOriginal || currency) },
-      currency: revFact?.currencyOriginal || currency,
-      scale: 'Source units',
-      verificationStatus: (revFact?.verificationStatus || 'review_required').toLowerCase() as any,
-      sourceDocName: revFact?.documentTitle || revFact?.sourceDocument || revFact?.documentId || undefined,
-      sourcePage: revFact?.pageNumber || revFact?.page || undefined,
-      factLineageId: revFact?.id
-    });
+    lines.push({ id: 'is-header-rev', label: 'Operating Revenues', level: 0, isHeader: true, values: {}, formattedValues: {}, currency, scale: 'Source units', verificationStatus: 'review_required' });
+    lines.push(makeLine('is-rev', 'revenue', 'Total Revenue', revFact, revVal, period, currency));
   }
 
-  // Cost of Revenue / COGS
-  const cogsFact = getMetricFact(['cost_of_goods_sold', 'cost_of_revenue', 'cogs', 'cost_of_sales']);
-  const cogsVal = getMetricVal(['cost_of_goods_sold', 'cost_of_revenue', 'cogs', 'cost_of_sales']);
+  const cogsFact = findMetricFact(map, COGS_ALIASES);
+  const cogsVal = factNumber(cogsFact);
+  if (cogsVal !== null) lines.push(makeLine('is-cogs', 'cost_of_goods_sold', 'Cost of Sales', cogsFact, cogsVal, period, currency));
 
-  if (cogsVal !== null) {
-    lines.push({
-      id: 'is-cogs',
-      label: cogsFact?.labelNormalized || cogsFact?.labelOriginal || 'Cost of Goods Sold & Direct Services',
-      canonicalMetric: 'cost_of_goods_sold',
-      level: 1,
-      values: { [period]: cogsVal },
-      formattedValues: { [period]: formatFinancialValue(cogsVal, cogsFact?.currencyOriginal || currency) },
-      currency: cogsFact?.currencyOriginal || currency,
-      scale: 'Source units',
-      verificationStatus: (cogsFact?.verificationStatus || 'review_required').toLowerCase() as any,
-      sourceDocName: cogsFact?.documentTitle || cogsFact?.sourceDocument || cogsFact?.documentId || undefined,
-      sourcePage: cogsFact?.pageNumber || cogsFact?.page || undefined,
-      factLineageId: cogsFact?.id
-    });
-  }
-
-  // Gross Profit
-  const gpFact = getMetricFact(['gross_profit', 'gross_margin']);
-  const gpValDirect = getMetricVal(['gross_profit', 'gross_margin']);
-  const grossProfit = gpValDirect !== null ? gpValDirect : (revVal !== null && cogsVal !== null ? revVal - cogsVal : null);
-
+  const gpFact = findMetricFact(map, ['gross_profit', 'gross_margin']);
+  const gpDirect = factNumber(gpFact);
+  const grossProfit = gpDirect !== null ? gpDirect : (revVal !== null && cogsVal !== null ? revVal - cogsVal : null);
   if (grossProfit !== null) {
-    lines.push({
-      id: 'is-gross-profit',
-      label: 'Gross Profit / (Loss)',
-      canonicalMetric: 'gross_profit',
-      level: 1,
+    lines.push(makeLine('is-gross-profit', 'gross_profit', 'Gross Profit / (Loss)', gpFact, grossProfit, period, currency, {
       isSubtotal: true,
-      values: { [period]: grossProfit },
-      formattedValues: { [period]: formatFinancialValue(grossProfit, currency) },
-      currency,
-      scale: 'Source units',
-      verificationStatus: gpValDirect !== null ? 'review_required' : 'calculated',
+      verificationStatus: gpDirect !== null ? 'review_required' : 'calculated',
       factLineageId: gpFact?.id
-    });
+    }));
   }
 
-  // Operating Expenses Header
-  const rdFact = getMetricFact(['research_and_development', 'r_and_d', 'rd_expense']);
-  const rdVal = getMetricVal(['research_and_development', 'r_and_d', 'rd_expense']);
-
-  const sgaFact = getMetricFact(['selling_general_and_administrative', 'sga', 'operating_expenses', 'sg_and_a']);
-  const sgaVal = getMetricVal(['selling_general_and_administrative', 'sga', 'operating_expenses', 'sg_and_a']);
-
+  const rdFact = findMetricFact(map, RD_ALIASES);
+  const rdVal = factNumber(rdFact);
+  const sgaFact = findMetricFact(map, SGA_ALIASES);
+  const sgaVal = factNumber(sgaFact);
   if (rdVal !== null || sgaVal !== null) {
-    lines.push({
-      id: 'is-header-costs',
-      label: 'Operating Expenses',
-      level: 0,
-      isHeader: true,
-      values: {},
-      formattedValues: {},
-      currency,
-      scale: 'Source units',
-      verificationStatus: 'review_required'
-    });
-
-    if (rdVal !== null) {
-      lines.push({
-        id: 'is-rd',
-        label: rdFact?.labelNormalized || rdFact?.labelOriginal || 'Research and Development',
-        canonicalMetric: 'research_and_development',
-        level: 1,
-        values: { [period]: rdVal },
-        formattedValues: { [period]: formatFinancialValue(rdVal, rdFact?.currencyOriginal || currency) },
-        currency: rdFact?.currencyOriginal || currency,
-        scale: 'Source units',
-        verificationStatus: (rdFact?.verificationStatus || 'review_required').toLowerCase() as any,
-        sourceDocName: rdFact?.documentTitle || rdFact?.sourceDocument || rdFact?.documentId || undefined,
-        sourcePage: rdFact?.pageNumber || rdFact?.page || undefined,
-        factLineageId: rdFact?.id
-      });
-    }
-
-    if (sgaVal !== null) {
-      lines.push({
-        id: 'is-sga',
-        label: sgaFact?.labelNormalized || sgaFact?.labelOriginal || 'Selling, General & Administrative',
-        canonicalMetric: 'selling_general_and_administrative',
-        level: 1,
-        values: { [period]: sgaVal },
-        formattedValues: { [period]: formatFinancialValue(sgaVal, sgaFact?.currencyOriginal || currency) },
-        currency: sgaFact?.currencyOriginal || currency,
-        scale: 'Source units',
-        verificationStatus: (sgaFact?.verificationStatus || 'review_required').toLowerCase() as any,
-        sourceDocName: sgaFact?.documentTitle || sgaFact?.sourceDocument || sgaFact?.documentId || undefined,
-        sourcePage: sgaFact?.pageNumber || sgaFact?.page || undefined,
-        factLineageId: sgaFact?.id
-      });
-    }
+    lines.push({ id: 'is-header-costs', label: 'Operating Expenses', level: 0, isHeader: true, values: {}, formattedValues: {}, currency, scale: 'Source units', verificationStatus: 'review_required' });
+    if (rdVal !== null) lines.push(makeLine('is-rd', 'research_and_development', 'Research and Development', rdFact, rdVal, period, currency));
+    if (sgaVal !== null) lines.push(makeLine('is-sga', 'selling_general_and_administrative', 'Selling, Informational and Administrative Expenses', sgaFact, sgaVal, period, currency));
   }
 
-  // Operating Income
-  const opIncFact = getMetricFact(['operating_income', 'operating_profit', 'ebit']);
-  const opIncVal = getMetricVal(['operating_income', 'operating_profit', 'ebit']);
+  const opFact = findMetricFact(map, OPERATING_INCOME_ALIASES);
+  const opVal = factNumber(opFact);
+  if (opVal !== null) lines.push(makeLine('is-op-income', 'operating_income', 'Operating Income / (EBIT)', opFact, opVal, period, currency, { isSubtotal: true }));
 
-  if (opIncVal !== null) {
-    lines.push({
-      id: 'is-op-income',
-      label: opIncFact?.labelNormalized || opIncFact?.labelOriginal || 'Operating Income / (EBIT)',
-      canonicalMetric: 'operating_income',
-      level: 1,
-      isSubtotal: true,
-      values: { [period]: opIncVal },
-      formattedValues: { [period]: formatFinancialValue(opIncVal, opIncFact?.currencyOriginal || currency) },
-      currency: opIncFact?.currencyOriginal || currency,
-      scale: 'Source units',
-      verificationStatus: (opIncFact?.verificationStatus || 'review_required').toLowerCase() as any,
-      sourceDocName: opIncFact?.documentTitle || opIncFact?.sourceDocument || opIncFact?.documentId || undefined,
-      sourcePage: opIncFact?.pageNumber || opIncFact?.page || undefined,
-      factLineageId: opIncFact?.id
-    });
-  }
-
-  // Net Income
-  const netIncFact = getMetricFact(['net_income', 'net_profit', 'profit_loss']);
-  const netIncVal = getMetricVal(['net_income', 'net_profit', 'profit_loss']);
-
-  if (netIncVal !== null) {
-    lines.push({
-      id: 'is-net-income',
-      label: netIncFact?.labelNormalized || netIncFact?.labelOriginal || 'Net Income for the Period',
-      canonicalMetric: 'net_income',
-      level: 0,
-      isTotal: true,
-      values: { [period]: netIncVal },
-      formattedValues: { [period]: formatFinancialValue(netIncVal, netIncFact?.currencyOriginal || currency) },
-      currency: netIncFact?.currencyOriginal || currency,
-      scale: 'Source units',
-      verificationStatus: (netIncFact?.verificationStatus || 'review_required').toLowerCase() as any,
-      sourceDocName: netIncFact?.documentTitle || netIncFact?.sourceDocument || netIncFact?.documentId || undefined,
-      sourcePage: netIncFact?.pageNumber || netIncFact?.page || undefined,
-      factLineageId: netIncFact?.id
-    });
-  }
+  const netFact = findMetricFact(map, NET_INCOME_ALIASES);
+  const netVal = factNumber(netFact);
+  if (netVal !== null) lines.push(makeLine('is-net-income', 'net_income', 'Net Income', netFact, netVal, period, currency, { level: 0, isTotal: true }));
 
   return lines;
 }
 
-// 4. Facts to Balance Sheet Presentation Adapter (STRICTLY DATA-DRIVEN, ZERO FALLBACK)
 export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'Period not recorded', currency: string = 'USD'): {
   lines: StatementLinePresentation[];
   identityCheck: BalanceSheetIdentityCheck;
 } {
-  facts = facts.filter(f => matchesPeriod(f, period));
-  if (!facts || facts.length === 0) {
+  const periodFacts = facts.filter(f => matchesFiscalPeriod(f, period));
+  if (!periodFacts.length) {
     return {
       lines: [],
-      identityCheck: {
-        totalAssets: null,
-        totalLiabilities: null,
-        totalEquity: null,
-        variance: 0,
-        currency,
-        gateState: 'NOT_TESTABLE',
-        operandsFound: { assets: false, liabilities: false, equity: false }
-      }
+      identityCheck: { totalAssets: null, totalLiabilities: null, totalEquity: null, variance: 0, currency, gateState: 'NOT_TESTABLE', operandsFound: { assets: false, liabilities: false, equity: false } }
     };
   }
 
-  const metricMap: Record<string, any> = {};
-  facts.forEach((f) => {
-    const rawMetric = (f.canonicalMetric || f.metric || f.key || '').toLowerCase().trim();
-    if (rawMetric) {
-      if (!metricMap[rawMetric]) metricMap[rawMetric] = f;
-    }
-  });
-
-  const getMetricFact = (metricKeys: string[]): any | null => {
-    for (const k of metricKeys) {
-      if (metricMap[k]) return metricMap[k];
-    }
-    return null;
-  };
-
-  const getMetricVal = (metricKeys: string[]): number | null => {
-    const f = getMetricFact(metricKeys);
-    if (!f) return null;
-    const raw = f.valueFunctional ?? f.valueOriginal ?? f.value;
-    const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
-    return isNaN(num) ? null : num;
-  };
-
+  const map = buildMetricMap(periodFacts);
+  const cashFact = findMetricFact(map, CASH_ALIASES);
+  const assetsFact = findMetricFact(map, ASSET_ALIASES);
+  const liabilitiesFact = findMetricFact(map, LIABILITY_ALIASES);
+  const equityFact = findMetricFact(map, EQUITY_ALIASES);
+  const cashVal = factNumber(cashFact);
+  const totalAssetsVal = factNumber(assetsFact);
+  const totalLiabVal = factNumber(liabilitiesFact);
+  const totalEquityVal = factNumber(equityFact);
   const lines: StatementLinePresentation[] = [];
 
-  const cashFact = getMetricFact(['cash', 'cash_and_equivalents', 'cash_and_cash_equivalents', 'liquid_funds']);
-  const cashVal = getMetricVal(['cash', 'cash_and_equivalents', 'cash_and_cash_equivalents', 'liquid_funds']);
-
-  const totalAssetsFact = getMetricFact(['total_assets', 'assets']);
-  const totalAssetsVal = getMetricVal(['total_assets', 'assets']);
-
-  const totalLiabFact = getMetricFact(['total_liabilities', 'liabilities']);
-  const totalLiabVal = getMetricVal(['total_liabilities', 'liabilities']);
-
-  const totalEquityFact = getMetricFact(['total_equity', 'stockholders_equity', 'equity', 'shareholders_equity']);
-  const totalEquityVal = getMetricVal(['total_equity', 'stockholders_equity', 'equity', 'shareholders_equity']);
-
-  // If there are asset lines, add Assets section
   if (cashVal !== null || totalAssetsVal !== null) {
-    lines.push({
-      id: 'bs-header-assets',
-      label: 'ASSETS',
-      level: 0,
-      isHeader: true,
-      values: {},
-      formattedValues: {},
-      currency,
-      scale: 'Source units',
-      verificationStatus: 'review_required'
-    });
-
-    if (cashVal !== null) {
-      lines.push({
-        id: 'bs-cash',
-        label: cashFact?.labelNormalized || cashFact?.labelOriginal || 'Cash and Cash Equivalents',
-        canonicalMetric: 'cash',
-        level: 1,
-        values: { [period]: cashVal },
-        formattedValues: { [period]: formatFinancialValue(cashVal, cashFact?.currencyOriginal || currency) },
-        currency: cashFact?.currencyOriginal || currency,
-        scale: 'Source units',
-        verificationStatus: (cashFact?.verificationStatus || 'review_required').toLowerCase() as any,
-        sourceDocName: cashFact?.documentTitle || cashFact?.sourceDocument || cashFact?.documentId || undefined,
-        sourcePage: cashFact?.pageNumber || cashFact?.page || undefined,
-        factLineageId: cashFact?.id
-      });
-    }
-
-    if (totalAssetsVal !== null) {
-      lines.push({
-        id: 'bs-total-assets',
-        label: totalAssetsFact?.labelNormalized || totalAssetsFact?.labelOriginal || 'Total Assets',
-        canonicalMetric: 'total_assets',
-        level: 0,
-        isTotal: true,
-        values: { [period]: totalAssetsVal },
-        formattedValues: { [period]: formatFinancialValue(totalAssetsVal, totalAssetsFact?.currencyOriginal || currency) },
-        currency: totalAssetsFact?.currencyOriginal || currency,
-        scale: 'Source units',
-        verificationStatus: (totalAssetsFact?.verificationStatus || 'review_required').toLowerCase() as any,
-        sourceDocName: totalAssetsFact?.documentTitle || totalAssetsFact?.sourceDocument || totalAssetsFact?.documentId || undefined,
-        sourcePage: totalAssetsFact?.pageNumber || totalAssetsFact?.page || undefined,
-        factLineageId: totalAssetsFact?.id
-      });
-    }
+    lines.push({ id: 'bs-header-assets', label: 'ASSETS', level: 0, isHeader: true, values: {}, formattedValues: {}, currency, scale: 'Source units', verificationStatus: 'review_required' });
+    if (cashVal !== null) lines.push(makeLine('bs-cash', 'cash', 'Cash and Cash Equivalents', cashFact, cashVal, period, currency));
+    if (totalAssetsVal !== null) lines.push(makeLine('bs-total-assets', 'total_assets', 'Total Assets', assetsFact, totalAssetsVal, period, currency, { level: 0, isTotal: true }));
   }
 
-  // Liabilities & Equity Section
   if (totalLiabVal !== null || totalEquityVal !== null) {
-    lines.push({
-      id: 'bs-header-liab',
-      label: 'LIABILITIES AND STOCKHOLDERS EQUITY',
-      level: 0,
-      isHeader: true,
-      values: {},
-      formattedValues: {},
-      currency,
-      scale: 'Source units',
-      verificationStatus: 'review_required'
-    });
-
-    if (totalLiabVal !== null) {
-      lines.push({
-        id: 'bs-total-liab',
-        label: totalLiabFact?.labelNormalized || totalLiabFact?.labelOriginal || 'Total Liabilities',
-        canonicalMetric: 'total_liabilities',
-        level: 1,
-        isSubtotal: true,
-        values: { [period]: totalLiabVal },
-        formattedValues: { [period]: formatFinancialValue(totalLiabVal, totalLiabFact?.currencyOriginal || currency) },
-        currency: totalLiabFact?.currencyOriginal || currency,
-        scale: 'Source units',
-        verificationStatus: (totalLiabFact?.verificationStatus || 'review_required').toLowerCase() as any,
-        sourceDocName: totalLiabFact?.documentTitle || totalLiabFact?.sourceDocument || totalLiabFact?.documentId || undefined,
-        sourcePage: totalLiabFact?.pageNumber || totalLiabFact?.page || undefined,
-        factLineageId: totalLiabFact?.id
-      });
-    }
-
-    if (totalEquityVal !== null) {
-      lines.push({
-        id: 'bs-total-equity',
-        label: totalEquityFact?.labelNormalized || totalEquityFact?.labelOriginal || 'Total Stockholders Equity',
-        canonicalMetric: 'total_equity',
-        level: 1,
-        isSubtotal: true,
-        values: { [period]: totalEquityVal },
-        formattedValues: { [period]: formatFinancialValue(totalEquityVal, totalEquityFact?.currencyOriginal || currency) },
-        currency: totalEquityFact?.currencyOriginal || currency,
-        scale: 'Source units',
-        verificationStatus: (totalEquityFact?.verificationStatus || 'review_required').toLowerCase() as any,
-        sourceDocName: totalEquityFact?.documentTitle || totalEquityFact?.sourceDocument || totalEquityFact?.documentId || undefined,
-        sourcePage: totalEquityFact?.pageNumber || totalEquityFact?.page || undefined,
-        factLineageId: totalEquityFact?.id
-      });
-    }
-
+    lines.push({ id: 'bs-header-liab', label: 'LIABILITIES AND STOCKHOLDERS EQUITY', level: 0, isHeader: true, values: {}, formattedValues: {}, currency, scale: 'Source units', verificationStatus: 'review_required' });
+    if (totalLiabVal !== null) lines.push(makeLine('bs-total-liab', 'total_liabilities', 'Total Liabilities', liabilitiesFact, totalLiabVal, period, currency, { isSubtotal: true }));
+    if (totalEquityVal !== null) lines.push(makeLine('bs-total-equity', 'total_equity', 'Total Stockholders Equity', equityFact, totalEquityVal, period, currency, { isSubtotal: true }));
     if (totalLiabVal !== null && totalEquityVal !== null) {
       const sum = totalLiabVal + totalEquityVal;
-      lines.push({
-        id: 'bs-total-liab-equity',
-        label: 'Total Liabilities and Stockholders Equity',
-        canonicalMetric: 'total_liabilities_and_equity',
-        level: 0,
-        isTotal: true,
-        values: { [period]: sum },
-        formattedValues: { [period]: formatFinancialValue(sum, currency) },
-        currency,
-        scale: 'Source units',
-        verificationStatus: 'calculated'
-      });
+      lines.push({ id: 'bs-total-liab-equity', label: 'Total Liabilities and Stockholders Equity', canonicalMetric: 'total_liabilities_and_equity', level: 0, isTotal: true, values: { [period]: sum }, formattedValues: { [period]: formatFinancialValue(sum, currency) }, currency, scale: 'Source units', verificationStatus: 'calculated' });
     }
   }
 
-  // Calculate Identity Check
   const hasAssets = totalAssetsVal !== null;
   const hasLiab = totalLiabVal !== null;
   const hasEquity = totalEquityVal !== null;
-
   let variance = 0;
-  let gateState: 'PASS' | 'REVIEW_REQUIRED' | 'NOT_TESTABLE' = 'NOT_TESTABLE';
-
+  let gateState: BalanceSheetIdentityCheck['gateState'] = 'NOT_TESTABLE';
   if (hasAssets && hasLiab && hasEquity) {
     variance = totalAssetsVal! - (totalLiabVal! + totalEquityVal!);
     gateState = Math.abs(variance) < 1 ? 'PASS' : 'REVIEW_REQUIRED';
   }
 
-  const identityCheck: BalanceSheetIdentityCheck = {
-    totalAssets: totalAssetsVal,
-    totalLiabilities: totalLiabVal,
-    totalEquity: totalEquityVal,
-    variance,
-    currency,
-    gateState,
-    operandsFound: {
-      assets: hasAssets,
-      liabilities: hasLiab,
-      equity: hasEquity
+  return {
+    lines,
+    identityCheck: {
+      totalAssets: totalAssetsVal,
+      totalLiabilities: totalLiabVal,
+      totalEquity: totalEquityVal,
+      variance,
+      currency,
+      gateState,
+      operandsFound: { assets: hasAssets, liabilities: hasLiab, equity: hasEquity }
     }
   };
-
-  return { lines, identityCheck };
 }
 
-// 5. Calculate Financial Ratios with Lineage Proof (STRICTLY DATA-DRIVEN, ZERO FALLBACK)
 export function deriveFinancialRatios(facts: any[] = [], period: string = 'Period not recorded', currency: string = 'USD'): RatioDerivationPresentation[] {
-  facts = facts.filter(f => matchesPeriod(f, period));
-  if (!facts || facts.length === 0) return [];
+  const periodFacts = facts.filter(f => matchesFiscalPeriod(f, period));
+  if (!periodFacts.length) return [];
+  const map = buildMetricMap(periodFacts);
 
-  const metricMap: Record<string, { val: number; id: string }> = {};
-  facts.forEach((f) => {
-    const rawMetric = (f.canonicalMetric || f.metric || f.key || '').toLowerCase().trim();
-    if (rawMetric) {
-      const raw = f.valueFunctional ?? f.valueOriginal ?? f.value;
-      const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
-      if (!isNaN(num)) {
-        metricMap[rawMetric] = { val: num, id: f.id };
-      }
-    }
-  });
+  const revenueFact = findMetricFact(map, REVENUE_ALIASES);
+  const netIncomeFact = findMetricFact(map, NET_INCOME_ALIASES);
+  const operatingIncomeFact = findMetricFact(map, OPERATING_INCOME_ALIASES);
+  const liabilitiesFact = findMetricFact(map, LIABILITY_ALIASES);
+  const equityFact = findMetricFact(map, EQUITY_ALIASES);
 
-  const getMetric = (keys: string[]) => {
-    for (const k of keys) {
-      if (metricMap[k]) return metricMap[k];
-    }
-    return null;
-  };
-
-  const revObj = getMetric(['revenue', 'total_revenue', 'revenues', 'sales']);
-  const netIncObj = getMetric(['net_income', 'net_profit']);
-  const opIncObj = getMetric(['operating_income', 'operating_profit', 'ebit']);
-  const totalAssetsObj = getMetric(['total_assets', 'assets']);
-  const totalLiabObj = getMetric(['total_liabilities', 'liabilities']);
-  const totalEquityObj = getMetric(['total_equity', 'stockholders_equity', 'equity']);
-
+  const revenue = factNumber(revenueFact);
+  const netIncome = factNumber(netIncomeFact);
+  const operatingIncome = factNumber(operatingIncomeFact);
+  const liabilities = factNumber(liabilitiesFact);
+  const equity = factNumber(equityFact);
   const ratios: RatioDerivationPresentation[] = [];
 
-  // Ratio 1: Net Profit Margin
-  if (revObj && netIncObj) {
-    const hasValidOperands = revObj.val > 0;
-    const margin = hasValidOperands ? (netIncObj.val / revObj.val) * 100 : null;
-    ratios.push({
-      id: 'ratio-net-margin',
-      name: 'Net Profit Margin',
-      category: 'Profitability',
-      value: margin,
-      formattedValue: margin !== null ? `${margin.toFixed(2)}%` : 'UNRESOLVED',
-      formulaDescription: 'Net Income / Total Revenue',
-      numeratorMetric: 'net_income',
-      numeratorValue: netIncObj.val,
-      numeratorLabel: 'Net Income',
-      denominatorMetric: 'revenue',
-      denominatorValue: revObj.val,
-      denominatorLabel: 'Total Revenue',
-      period,
-      benchmark: '> 20.0%',
-      status: margin !== null ? (margin >= 20 ? 'Normal' : 'Monitor') : 'UNRESOLVED / MISSING OPERAND' as any,
-      derivedCalculationId: 'calc-net-margin',
-      currency
-    });
+  if (revenue !== null && revenue > 0 && netIncome !== null) {
+    const margin = (netIncome / revenue) * 100;
+    ratios.push({ id: 'ratio-net-margin', name: 'Net Profit Margin', category: 'Profitability', value: margin, formattedValue: `${margin.toFixed(2)}%`, formulaDescription: 'Net Income / Total Revenue', numeratorMetric: 'net_income', numeratorValue: netIncome, numeratorLabel: 'Net Income', denominatorMetric: 'revenue', denominatorValue: revenue, denominatorLabel: 'Total Revenue', period, benchmark: '> 20.0%', status: margin >= 20 ? 'Normal' : 'Monitor', derivedCalculationId: 'calc-net-margin', currency });
   }
 
-  // Ratio 2: Operating Margin
-  if (revObj && opIncObj) {
-    const hasValidOperands = revObj.val > 0;
-    const margin = hasValidOperands ? (opIncObj.val / revObj.val) * 100 : null;
-    ratios.push({
-      id: 'ratio-op-margin',
-      name: 'Operating Margin',
-      category: 'Profitability',
-      value: margin,
-      formattedValue: margin !== null ? `${margin.toFixed(2)}%` : 'UNRESOLVED',
-      formulaDescription: 'Operating Income / Total Revenue',
-      numeratorMetric: 'operating_income',
-      numeratorValue: opIncObj.val,
-      numeratorLabel: 'Operating Income',
-      denominatorMetric: 'revenue',
-      denominatorValue: revObj.val,
-      denominatorLabel: 'Total Revenue',
-      period,
-      benchmark: '> 25.0%',
-      status: margin !== null ? (margin >= 25 ? 'Normal' : 'Monitor') : 'UNRESOLVED / MISSING OPERAND' as any,
-      derivedCalculationId: 'calc-op-margin',
-      currency
-    });
+  if (revenue !== null && revenue > 0 && operatingIncome !== null) {
+    const margin = (operatingIncome / revenue) * 100;
+    ratios.push({ id: 'ratio-op-margin', name: 'Operating Margin', category: 'Profitability', value: margin, formattedValue: `${margin.toFixed(2)}%`, formulaDescription: 'Operating Income / Total Revenue', numeratorMetric: 'operating_income', numeratorValue: operatingIncome, numeratorLabel: 'Operating Income', denominatorMetric: 'revenue', denominatorValue: revenue, denominatorLabel: 'Total Revenue', period, benchmark: '> 25.0%', status: margin >= 25 ? 'Normal' : 'Monitor', derivedCalculationId: 'calc-op-margin', currency });
   }
 
-  // Ratio 3: Return on Equity (ROE)
-  if (netIncObj && totalEquityObj) {
-    const hasValidOperands = totalEquityObj.val > 0;
-    const roe = hasValidOperands ? (netIncObj.val / totalEquityObj.val) * 100 : null;
-    ratios.push({
-      id: 'ratio-roe',
-      name: 'Return on Equity (ROE)',
-      category: 'Profitability',
-      value: roe,
-      formattedValue: roe !== null ? `${roe.toFixed(2)}%` : 'UNRESOLVED',
-      formulaDescription: 'Net Income / Total Stockholders Equity',
-      numeratorMetric: 'net_income',
-      numeratorValue: netIncObj.val,
-      numeratorLabel: 'Net Income',
-      denominatorMetric: 'total_equity',
-      denominatorValue: totalEquityObj.val,
-      denominatorLabel: 'Total Equity',
-      period,
-      benchmark: '> 15.0%',
-      status: roe !== null ? (roe >= 15 ? 'Normal' : 'Monitor') : 'UNRESOLVED / MISSING OPERAND' as any,
-      derivedCalculationId: 'calc-roe',
-      currency
-    });
+  if (netIncome !== null && equity !== null && equity > 0) {
+    const roe = (netIncome / equity) * 100;
+    ratios.push({ id: 'ratio-roe', name: 'Return on Equity (ROE)', category: 'Profitability', value: roe, formattedValue: `${roe.toFixed(2)}%`, formulaDescription: 'Net Income / Total Stockholders Equity', numeratorMetric: 'net_income', numeratorValue: netIncome, numeratorLabel: 'Net Income', denominatorMetric: 'total_equity', denominatorValue: equity, denominatorLabel: 'Total Equity', period, benchmark: '> 15.0%', status: roe >= 15 ? 'Normal' : 'Monitor', derivedCalculationId: 'calc-roe', currency });
   }
 
-  // Ratio 4: Debt-to-Equity
-  if (totalLiabObj && totalEquityObj) {
-    const hasValidOperands = totalEquityObj.val > 0;
-    const debtToEquity = hasValidOperands ? totalLiabObj.val / totalEquityObj.val : null;
-    ratios.push({
-      id: 'ratio-debt-equity',
-      name: 'Debt-to-Equity Ratio',
-      category: 'Solvency',
-      value: debtToEquity,
-      formattedValue: debtToEquity !== null ? debtToEquity.toFixed(2) : 'UNRESOLVED',
-      formulaDescription: 'Total Liabilities / Total Stockholders Equity',
-      numeratorMetric: 'total_liabilities',
-      numeratorValue: totalLiabObj.val,
-      numeratorLabel: 'Total Liabilities',
-      denominatorMetric: 'total_equity',
-      denominatorValue: totalEquityObj.val,
-      denominatorLabel: 'Total Equity',
-      period,
-      benchmark: '< 1.50',
-      status: debtToEquity !== null ? (debtToEquity < 1.5 ? 'Normal' : 'Monitor') : 'UNRESOLVED / MISSING OPERAND' as any,
-      derivedCalculationId: 'calc-debt-equity',
-      currency
-    });
+  if (liabilities !== null && equity !== null && equity > 0) {
+    const debtToEquity = liabilities / equity;
+    ratios.push({ id: 'ratio-debt-equity', name: 'Debt-to-Equity Ratio', category: 'Solvency', value: debtToEquity, formattedValue: debtToEquity.toFixed(2), formulaDescription: 'Total Liabilities / Total Stockholders Equity', numeratorMetric: 'total_liabilities', numeratorValue: liabilities, numeratorLabel: 'Total Liabilities', denominatorMetric: 'total_equity', denominatorValue: equity, denominatorLabel: 'Total Equity', period, benchmark: '< 1.50', status: debtToEquity < 1.5 ? 'Normal' : 'Monitor', derivedCalculationId: 'calc-debt-equity', currency });
   }
 
   return ratios;
 }
 
-// 6. Named CPA Agents Adapter
 export function adaptBackendAgents(rawAgents: any[] = []): NamedCpaAgentPresentation[] {
   const colors: Record<string, string> = {
-    HERMES: 'bg-indigo-600',
-    ATHENA: 'bg-amber-600',
-    LEDGER: 'bg-emerald-600',
-    ATLAS: 'bg-teal-600',
-    MERCURY: 'bg-blue-600',
-    EUCLID: 'bg-cyan-600',
-    VERITAS: 'bg-violet-600',
-    ARGUS: 'bg-rose-600',
-    SCRIBE: 'bg-fuchsia-600',
-    LEXICON: 'bg-sky-600',
-    SENTINEL: 'bg-red-600',
-    DARWIN: 'bg-orange-600',
-    MINERVA: 'bg-purple-600',
-    CLARA: 'bg-pink-600',
-    QUINN: 'bg-emerald-700'
+    HERMES: 'bg-indigo-600', ATHENA: 'bg-amber-600', LEDGER: 'bg-emerald-600', ATLAS: 'bg-teal-600', MERCURY: 'bg-blue-600', EUCLID: 'bg-cyan-600', VERITAS: 'bg-violet-600', ARGUS: 'bg-rose-600', SCRIBE: 'bg-fuchsia-600', LEXICON: 'bg-sky-600', SENTINEL: 'bg-red-600', DARWIN: 'bg-orange-600', MINERVA: 'bg-purple-600', CLARA: 'bg-pink-600', QUINN: 'bg-emerald-700'
   };
-
   return rawAgents.map((a) => {
     const callsign = (a.name || a.id || '').toUpperCase();
     return {
