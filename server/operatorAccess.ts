@@ -5,6 +5,7 @@ const COOKIE_NAME = 'eve_operator_session';
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const MAX_ATTEMPTS = 5;
 const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const MAX_LOGIN_BODY_BYTES = 4096;
 const attempts = new Map<string, { count: number; resetAt: number }>();
 
 function operatorSecret(): string {
@@ -79,9 +80,13 @@ function clearFailures(req: Request): void {
   attempts.delete(clientKey(req));
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function page(error = '', next = '/'): string {
-  const safeNext = cleanNext(next).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const safeError = error.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeNext = escapeHtml(cleanNext(next));
+  const safeError = escapeHtml(error);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -91,7 +96,7 @@ function page(error = '', next = '/'): string {
 <title>Eve Bookkeeping — Development Access</title>
 <style>
   :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f6f8fb}
-  *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top,#fff 0,#f6f8fb 55%,#edf1f7 100%)}
+  *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top,#fff 0,#f6f8fb 55%,#edf1f7 100%)}
   .card{width:min(100%,420px);background:#fff;border:1px solid #e5eaf1;border-radius:22px;padding:32px;box-shadow:0 18px 55px rgba(23,32,51,.10)}
   .brand{font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#62708a;margin-bottom:18px}.mark{width:44px;height:44px;border-radius:13px;background:#172033;color:#fff;display:grid;place-items:center;font-weight:800;margin-bottom:20px}
   h1{font-size:28px;line-height:1.1;margin:0 0 10px}p{color:#667085;line-height:1.55;margin:0 0 22px}.error{background:#fff4f2;color:#b42318;border:1px solid #fecdca;border-radius:12px;padding:10px 12px;margin-bottom:16px;font-size:14px}
@@ -147,6 +152,23 @@ export function operatorLogout(_req: Request, res: Response): void {
   res.redirect(303, '/operator-login');
 }
 
+function handleRawLogin(req: Request, res: Response): void {
+  let raw = '';
+  let tooLarge = false;
+  req.setEncoding('utf8');
+  req.on('data', (chunk: string) => {
+    raw += chunk;
+    if (raw.length > MAX_LOGIN_BODY_BYTES) tooLarge = true;
+  });
+  req.on('end', () => {
+    if (tooLarge) { res.status(413).type('html').send(page('Login request was too large.')); return; }
+    const params = new URLSearchParams(raw);
+    (req as Request & { body?: Record<string, string> }).body = Object.fromEntries(params.entries());
+    operatorLogin(req, res);
+  });
+  req.on('error', () => res.status(400).type('html').send(page('Unable to read the login request.')));
+}
+
 /** Temporary owner-development gate. It protects operator access only and never
  * establishes a licensed-practitioner identity or professional approval. */
 export function operatorAccess(req: Request, res: Response, next: NextFunction): void {
@@ -154,7 +176,15 @@ export function operatorAccess(req: Request, res: Response, next: NextFunction):
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
+
   if (req.path === '/api/health' && req.method === 'GET') { next(); return; }
+  if (req.path === '/operator-login') {
+    if (req.method === 'GET') { operatorLoginPage(req, res); return; }
+    if (req.method === 'POST') { handleRawLogin(req, res); return; }
+    res.status(405).setHeader('Allow', 'GET, POST').end();
+    return;
+  }
+  if (req.path === '/operator-logout') { operatorLogout(req, res); return; }
 
   const secret = operatorSecret();
   if (!secret) { res.status(503).json({ error: 'OPERATOR_ACCESS_NOT_CONFIGURED' }); return; }
