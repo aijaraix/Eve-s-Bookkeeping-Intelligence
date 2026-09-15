@@ -1,3 +1,4 @@
+import { createAccessPortal } from './server/access/accessPortal.js';
 import "dotenv/config";
 import express from "express";
 import path from "path";
@@ -69,6 +70,7 @@ export const docIntelligenceAgent = new DocumentIntelligenceAgent();
 const wizardEngine = new DeliverableWizardEngine();
 
 const app = express();
+app.use(createAccessPortal());
 app.use(operatorAccess);
 const PORT = 3000;
 

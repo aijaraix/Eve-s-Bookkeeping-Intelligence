@@ -200,6 +200,8 @@ export function operatorAccess(req: Request, res: Response, next: NextFunction):
   }
   if (req.path === '/operator-logout') { operatorLogout(req, res); return; }
 
+  if ((req as any).eveIdentity && ['OWNER', 'PLATFORM_ADMIN', 'INTERNAL_OPERATOR'].includes((req as any).eveIdentity.user.role)) { next(); return; }
+
   const secret = operatorSecret();
   if (!secret) { res.status(503).json({ error: 'OPERATOR_ACCESS_NOT_CONFIGURED' }); return; }
   if (!validSession(req.get('cookie'), secret)) {

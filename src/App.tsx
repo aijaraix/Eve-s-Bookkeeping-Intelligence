@@ -50,7 +50,7 @@ function EveCpaStudioMain() {
   const { workspaces, facts, documents, agents, selectedCompanyId, setSelectedCompanyId, selectedWorkspaceId, dataState, dataError, lastSuccessfulRead, selectedPeriod, setSelectedPeriod, engagementDetail } = usePractice();
 
   // Navigation State
-  const [activeView, setActiveView] = useState('practice-home');
+  const [activeView, setActiveView] = useState(new URLSearchParams(window.location.search).get('view') || 'practice-home');
   const selectedClientId = selectedCompanyId;
   const [presentationCurrency, setPresentationCurrency] = useState('USD');
 
