@@ -7,8 +7,6 @@ import {
   FileText,
   FileSpreadsheet,
   LineChart,
-  BarChart3,
-  TrendingUp,
   Share2,
   Globe2,
   ShieldCheck,
@@ -26,7 +24,9 @@ import {
   ChevronRight,
   Shield,
   Layers,
-  Sparkles
+  Sparkles,
+  Menu,
+  X
 } from 'lucide-react';
 
 export interface AppSidebarProps {
@@ -46,8 +46,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 }) => {
   const [financialsExpanded, setFinancialsExpanded] = useState(true);
   const [analysisExpanded, setAnalysisExpanded] = useState(true);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Group 1: PRACTICE
+  const navigate = (viewId: string) => {
+    onNavigate(viewId);
+    setMobileOpen(false);
+  };
+
   const practiceNav = [
     { id: 'practice-home', label: 'Home', icon: LayoutDashboard },
     { id: 'practice-clients', label: 'Clients', icon: Building2 },
@@ -55,7 +60,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { id: 'practice-documents', label: 'Documents', icon: FileText }
   ];
 
-  // Group 2: ENGAGEMENT WORK
   const engagementDirectNav = [
     { id: 'engagement-overview', label: 'Overview', icon: Layers }
   ];
@@ -89,14 +93,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { id: 'engagement-deliverables', label: 'Deliverables & Reports', icon: FileCheck2 }
   ];
 
-  // Group 3: EVE INTELLIGENCE
   const eveNav = [
     { id: 'eve-copilot', label: 'Eve Copilot', icon: Bot },
     { id: 'eve-intelligence', label: 'Intelligence Center', icon: Cpu },
     { id: 'eve-academy', label: 'Hermes Academy', icon: GraduationCap }
   ];
 
-  // Group 4: ADMINISTRATION
   const adminNav = [
     { id: 'admin-firm', label: 'Firm & Branding', icon: Settings },
     { id: 'admin-users', label: 'Users & Access', icon: Users },
@@ -119,7 +121,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       <button
         key={item.id}
         type="button"
-        onClick={() => onNavigate(item.id)}
+        onClick={() => navigate(item.id)}
         className={cn(
           'w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer group',
           item.subItem ? 'pl-8 py-1 text-slate-600' : 'text-slate-700',
@@ -154,130 +156,125 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   };
 
   return (
-    <aside
-      className={cn(
-        'w-64 bg-slate-50/80 border-r border-slate-200 flex flex-col h-screen select-none',
-        className
+    <>
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed bottom-4 left-4 z-40 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-white shadow-xl"
+        aria-label="Open Eve navigation"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      {mobileOpen && (
+        <button
+          type="button"
+          className="md:hidden fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[1px]"
+          onClick={() => setMobileOpen(false)}
+          aria-label="Close navigation overlay"
+        />
       )}
-    >
-      {/* Brand Header */}
-      <div className="h-14 px-4 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-xs">
-            <Sparkles className="w-4 h-4" />
+
+      <aside
+        className={cn(
+          'w-64 bg-slate-50/95 border-r border-slate-200 flex flex-col h-screen select-none',
+          'fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-out md:static md:z-auto md:translate-x-0',
+          mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0',
+          className
+        )}
+      >
+        <div className="h-14 px-4 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-xs">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-sm text-slate-900 tracking-tight flex items-center gap-1.5">
+                <span>EVE</span>
+                <span className="text-[10px] uppercase font-mono font-medium px-1.5 py-0.2 bg-indigo-50 text-indigo-700 rounded border border-indigo-200/50">
+                  CPA Studio
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">AI-prepared bookkeeping</div>
+            </div>
           </div>
+          <button
+            type="button"
+            className="md:hidden inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+            onClick={() => setMobileOpen(false)}
+            aria-label="Close Eve navigation"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
           <div>
-            <div className="font-bold text-sm text-slate-900 tracking-tight flex items-center gap-1.5">
-              <span>EVE</span>
-              <span className="text-[10px] uppercase font-mono font-medium px-1.5 py-0.2 bg-indigo-50 text-indigo-700 rounded border border-indigo-200/50">
-                CPA Studio
-              </span>
+            <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono">Practice</div>
+            <nav className="space-y-0.5">{practiceNav.map(renderNavItem)}</nav>
+          </div>
+
+          <div>
+            <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono">Engagement</div>
+            <nav className="space-y-0.5">
+              {engagementDirectNav.map(renderNavItem)}
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setFinancialsExpanded(!financialsExpanded)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <FileSpreadsheet className="w-4 h-4 text-slate-400" />
+                    <span>Financial Statements</span>
+                  </div>
+                  {financialsExpanded ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+                </button>
+                {financialsExpanded && <div className="mt-0.5 space-y-0.5">{financialStatementNav.map((sub) => renderNavItem({ ...sub, subItem: true }))}</div>}
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisExpanded(!analysisExpanded)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <LineChart className="w-4 h-4 text-slate-400" />
+                    <span>Analysis & Analytics</span>
+                  </div>
+                  {analysisExpanded ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+                </button>
+                {analysisExpanded && <div className="mt-0.5 space-y-0.5">{analysisNav.map((sub) => renderNavItem({ ...sub, subItem: true }))}</div>}
+              </div>
+
+              {engagementAttestationNav.map(renderNavItem)}
+            </nav>
+          </div>
+
+          <div>
+            <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center justify-between">
+              <span>Eve Intelligence</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Hermes Swarm Active" />
             </div>
-            <div className="text-[10px] text-slate-400 font-medium">AI-prepared bookkeeping</div>
+            <nav className="space-y-0.5">{eveNav.map(renderNavItem)}</nav>
+          </div>
+
+          <div>
+            <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono">Administration</div>
+            <nav className="space-y-0.5">{adminNav.map(renderNavItem)}</nav>
           </div>
         </div>
-      </div>
 
-      {/* Navigation Scrollable Body */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
-        {/* 1. PRACTICE */}
-        <div>
-          <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono">
-            Practice
-          </div>
-          <nav className="space-y-0.5">{practiceNav.map(renderNavItem)}</nav>
+        <div className="p-3 border-t border-slate-200 bg-white text-[11px] text-slate-500 flex items-center justify-between">
+          <span className="flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Professional review required</span>
+          </span>
+          <span className="font-mono text-slate-400">v9.19</span>
         </div>
-
-        {/* 2. ENGAGEMENT */}
-        <div>
-          <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono">
-            Engagement
-          </div>
-          <nav className="space-y-0.5">
-            {engagementDirectNav.map(renderNavItem)}
-
-            {/* Financial Statements Submenu */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setFinancialsExpanded(!financialsExpanded)}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <FileSpreadsheet className="w-4 h-4 text-slate-400" />
-                  <span>Financial Statements</span>
-                </div>
-                {financialsExpanded ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                )}
-              </button>
-              {financialsExpanded && (
-                <div className="mt-0.5 space-y-0.5">
-                  {financialStatementNav.map((sub) =>
-                    renderNavItem({ ...sub, subItem: true })
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Analysis & Ratios Submenu */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setAnalysisExpanded(!analysisExpanded)}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <LineChart className="w-4 h-4 text-slate-400" />
-                  <span>Analysis & Analytics</span>
-                </div>
-                {analysisExpanded ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                )}
-              </button>
-              {analysisExpanded && (
-                <div className="mt-0.5 space-y-0.5">
-                  {analysisNav.map((sub) =>
-                    renderNavItem({ ...sub, subItem: true })
-                  )}
-                </div>
-              )}
-            </div>
-
-            {engagementAttestationNav.map(renderNavItem)}
-          </nav>
-        </div>
-
-        {/* 3. EVE INTELLIGENCE */}
-        <div>
-          <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center justify-between">
-            <span>Eve Intelligence</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Hermes Swarm Active" />
-          </div>
-          <nav className="space-y-0.5">{eveNav.map(renderNavItem)}</nav>
-        </div>
-
-        {/* 4. ADMINISTRATION */}
-        <div>
-          <div className="px-3 mb-1.5 text-[11px] font-bold tracking-wider uppercase text-slate-400 font-mono">
-            Administration
-          </div>
-          <nav className="space-y-0.5">{adminNav.map(renderNavItem)}</nav>
-        </div>
-      </div>
-
-      {/* Footer Info */}
-      <div className="p-3 border-t border-slate-200 bg-white text-[11px] text-slate-500 flex items-center justify-between">
-        <span className="flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Professional review required</span>
-        </span>
-        <span className="font-mono text-slate-400">v9.19</span>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 };
