@@ -827,7 +827,7 @@ export class ProfessionalSignoffGuard {
     const list = this.reportApprovals.get(reportId) || [];
     for (const id of list) {
       const app = this.approvals.get(id);
-      if (app && (app.approvalStatus === 'APPROVED' || app.status === 'APPROVED')) {
+      if (app && app.approvalStatus === 'APPROVED' && (!app.status || app.status === 'APPROVED')) {
         if (!reportHash || app.reportHash === reportHash) {
           return app;
         }
@@ -854,11 +854,24 @@ export class ProfessionalSignoffGuard {
     approval.invalidatedAt = new Date().toISOString();
 
     const targetPath = path.join(this.approvalsDir, `${approval.approvalId}.json`);
+    const tempPath = `${targetPath}.${Date.now()}.tmp`;
     try {
-      if (fs.existsSync(targetPath)) {
-        fs.writeFileSync(targetPath, JSON.stringify(approval, null, 2), 'utf-8');
+      fs.writeFileSync(tempPath, JSON.stringify(approval, null, 2), 'utf-8');
+      const fd = fs.openSync(tempPath, 'r');
+      try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      fs.renameSync(tempPath, targetPath);
+      const directoryFd = fs.openSync(this.approvalsDir, 'r');
+      try { fs.fsyncSync(directoryFd); } finally { fs.closeSync(directoryFd); }
+      const persisted = JSON.parse(fs.readFileSync(targetPath, 'utf-8'));
+      if (persisted.approvalStatus !== 'REVOKED' || persisted.status !== 'REVOKED') {
+        throw new Error('Revocation persistence verification failed');
       }
-    } catch (_) {}
+    } catch (error) {
+      // Remain revoked in this process and report failure; never claim durable
+      // revocation if the authoritative record could not be written.
+      console.error('[ProfessionalSignoff] Durable revocation failed');
+      return { success: false, approval };
+    }
 
     return { success: true, approval };
   }

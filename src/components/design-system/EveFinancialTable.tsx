@@ -20,7 +20,7 @@ export const EveFinancialTable: React.FC<EveFinancialTableProps> = ({
   periods,
   lines,
   currency = 'USD',
-  scale = 'In Millions',
+  scale = 'Source units',
   entityName,
   statementType,
   onInspectFact,
@@ -88,7 +88,7 @@ export const EveFinancialTable: React.FC<EveFinancialTableProps> = ({
                   colSpan={periods.length + 4}
                   className="py-12 text-center text-slate-400 italic text-sm"
                 >
-                  No verified line items extracted for this period. Upload a filing to extract statements.
+                  No verified line items extracted for this period. Review source coverage and extraction findings.
                 </td>
               </tr>
             ) : (

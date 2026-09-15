@@ -144,10 +144,16 @@ export class DeliverableArtifactService {
           const csvSha = fs.existsSync(csvPath) ? crypto.createHash('sha256').update(fs.readFileSync(csvPath)).digest('hex') : '';
           const jsonSha = crypto.createHash('sha256').update(raw).digest('hex');
 
+          const recordedApproval = pdfSha ? professionalSignoffGuard.getApprovalForReport(reportId, pdfSha) : undefined;
+          const releaseAuthorized = recordedApproval?.reportVersion === version &&
+            recordedApproval.engagementId === engagementId &&
+            recordedApproval.approvalScope === 'STATUTORY_DELIVERABLE_RELEASE' &&
+            professionalSignoffGuard.isValidApprovalObject(recordedApproval).valid;
+          const safeDraftStatuses = ['DRAFT', 'AI_PREPARED', 'INTERNALLY_REVIEWED', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'SUPERSEDED', 'STALE_INVALIDATED'];
           const record: DeliverableArtifactRecord = {
             reportId,
             engagementId,
-            workspaceId: `workspace-${engagementId}`,
+            workspaceId: data.workspaceId || engagementId,
             version,
             title: data.title || `${data.clientName || 'Practice Client'} Audited Financial Deliverable Package`,
             deliverableType: 'AUDIT_FINANCIAL_DELIVERABLE',
@@ -237,7 +243,7 @@ export class DeliverableArtifactService {
             numericFactsCount: data.facts?.length || 0,
             euclidVariance: data.euclidBalance?.variance || 0,
             quinnReviewStatus: data.quinnReviewStatus || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
-            status: data.approvalObject?.status === 'APPROVED' ? 'FINAL_CERTIFIED' : (data.status || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'),
+            status: releaseAuthorized ? 'FINAL_CERTIFIED' : (safeDraftStatuses.includes(data.status) ? data.status : 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'),
             isStale: data.isStale || false,
             approvalObject: data.approvalObject,
             dependentFactIds: data.dependentFactIds || [],
@@ -247,7 +253,7 @@ export class DeliverableArtifactService {
           };
 
           const existing = this.artifacts.get(engagementId) || [];
-          if (!existing.some(e => e.reportId === reportId)) {
+          if (!existing.some(e => e.reportId === reportId && e.version === version)) {
             existing.push(record);
             this.artifacts.set(engagementId, existing);
             rehydratedCount++;
@@ -352,12 +358,8 @@ export class DeliverableArtifactService {
 
     // Determine initial lifecycle status following Requirement 7 & 4
     let reportStatus: DeliverableArtifactRecord['status'] = 'READY_FOR_AUTHORIZED_HUMAN_REVIEW';
-    if (params.approvalObject && params.approvalObject.status === 'APPROVED') {
-      const val = professionalSignoffGuard.validateApprovalObject(params.approvalObject);
-      if (val.valid) {
-        reportStatus = 'FINAL_CERTIFIED';
-      }
-    } else if (params.status) {
+    // Compilation prepares a new artifact, never a professional approval event.
+    if (params.status && ['DRAFT', 'AI_PREPARED', 'INTERNALLY_REVIEWED', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'].includes(params.status)) {
       reportStatus = params.status;
     }
 
@@ -497,7 +499,7 @@ export class DeliverableArtifactService {
     const record: DeliverableArtifactRecord = {
       reportId,
       engagementId,
-      workspaceId: params.workspaceId || `workspace-${engagementId}`,
+      workspaceId: params.workspaceId || engagementId,
       version,
       title,
       deliverableType: params.deliverableType || 'AUDIT_FINANCIAL_DELIVERABLE',
@@ -551,7 +553,7 @@ export class DeliverableArtifactService {
       disclosureEvidenceLedger: params.disclosureEvidenceLedger || undefined
     };
 
-    const updatedList = existing.filter(r => r.reportId !== reportId);
+    const updatedList = existing.filter(r => !(r.reportId === reportId && r.version === version));
     updatedList.push(record);
     this.artifacts.set(engagementId, updatedList);
 
@@ -761,20 +763,33 @@ export class DeliverableArtifactService {
     return all.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
   }
 
-  public getArtifactByReportId(reportId: string): DeliverableArtifactRecord | undefined {
-    for (const list of this.artifacts.values()) {
-      const found = list.find(r => r.reportId === reportId);
-      if (found) return found;
-    }
+  public getArtifactByReportId(reportId: string, version?: string): DeliverableArtifactRecord | undefined {
+    const findInLists = (): DeliverableArtifactRecord | undefined => {
+      const candidates: DeliverableArtifactRecord[] = [];
+      for (const list of this.artifacts.values()) {
+        for (const r of list) {
+          if (r.reportId === reportId) {
+            if (version) {
+              if (r.version === version) return r;
+            } else {
+              candidates.push(r);
+            }
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
+        return candidates[0];
+      }
+      return undefined;
+    };
+
+    const firstTry = findInLists();
+    if (firstTry) return firstTry;
 
     // On-demand fallback: re-scan storageDir if not yet in memory
     this.rehydrateFromDisk();
-    for (const list of this.artifacts.values()) {
-      const found = list.find(r => r.reportId === reportId);
-      if (found) return found;
-    }
-
-    return undefined;
+    return findInLists();
   }
 }
 

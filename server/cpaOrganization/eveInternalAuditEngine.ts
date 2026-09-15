@@ -14,6 +14,7 @@ import { incidentCausalChainEngine } from './incidentCausalChainEngine.js';
 import { universalDataGraph } from './universalDataGraph.js';
 import { forensicQuarantineLedger } from './forensicQuarantineLedger.js';
 import { syntheticContaminationGuard } from './syntheticContaminationGuard.js';
+import { professionalSignoffGuard } from './professionalSignoffGuard.js';
 
 export type ProofLevel = 
   | 'NOT_TESTED' 
@@ -1354,10 +1355,70 @@ export class EveInternalAuditEngine {
     const findings: InternalAuditFinding[] = [];
     const reportStatus = report?.status || 'UNKNOWN';
 
-    // 1. Physical Approval Object Inspection (Never trust report.signedOffBy or report flags)
+    // Helper: validate authentic, scoped, non-revoked physical human approval
     const approval = context?.approvalObject || report?.approvalObject;
-    if (['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus)) {
-      if (!approval) {
+    // Helper: validate authentic, scoped, non-revoked physical human approval backed by trusted authority
+    const validateHumanApproval = (app: any): { valid: boolean; reason?: string } => {
+      if (!app || typeof app !== 'object') {
+        return { valid: false, reason: 'No approval object attached.' };
+      }
+      if (app.revoked === true || app.status === 'REVOKED' || app.approvalStatus === 'REVOKED') {
+        return { valid: false, reason: 'Approval has been revoked.' };
+      }
+      if (app.isAiGenerated === true || app.signedByAi === true) {
+        return { valid: false, reason: 'Approval indicates AI signature.' };
+      }
+      if (app.signatureType !== 'PHYSICAL_HUMAN') {
+        return { valid: false, reason: `Signature type must be explicitly 'PHYSICAL_HUMAN', got '${app.signatureType}'.` };
+      }
+      // Must pass trusted professional authority validation
+      const guardCheck = professionalSignoffGuard.isValidApprovalObject(app);
+      if (!guardCheck.valid) {
+        return { valid: false, reason: guardCheck.reason || 'Approval object failed trusted authority verification.' };
+      }
+      // Bound to report ID
+      if (!app.reportId || !report?.reportId || app.reportId !== report.reportId) {
+        return { valid: false, reason: `Approval reportId '${app.reportId}' does not match deliverable reportId '${report.reportId}'.` };
+      }
+      // Bound to report version
+      const appVersion = app.reportVersion || app.version;
+      const repVersion = report?.version || report?.reportVersion;
+      if (!appVersion || !repVersion || appVersion !== repVersion) {
+        return { valid: false, reason: `Approval version '${appVersion}' does not match deliverable version '${repVersion}'.` };
+      }
+      // Bound to artifact SHA256
+      const repHash = report?.formats?.pdf?.sha256 || report?.reportSha256 || report?.sha256;
+      const appHash = app.reportHash || app.reportSha256 || app.expectedReportHash;
+      if (!repHash || !appHash || repHash !== appHash) {
+        return { valid: false, reason: `Approval hash '${appHash}' does not match deliverable SHA256 '${repHash}'.` };
+      }
+      if (reportStatus === 'FINAL_CERTIFIED' && repHash && !appHash) {
+        return { valid: false, reason: 'Approval lacks cryptographic artifact hash binding for certified deliverable.' };
+      }
+      if (!app.engagementId || !report?.engagementId || app.engagementId !== report.engagementId) {
+        return { valid: false, reason: `Approval engagementId '${app.engagementId}' does not match report engagementId '${report.engagementId}'.` };
+      }
+      return { valid: true };
+    };
+
+    // Only the current persisted approval event is authority. An attached object
+    // is an identifier to resolve, never a substitute for the event ledger.
+    const reportHash = report?.formats?.pdf?.sha256 || report?.reportSha256 || report?.sha256;
+    const approvalCandidate = report?.reportId && reportHash
+      ? professionalSignoffGuard.getApprovalForReport(report.reportId, reportHash)
+      : undefined;
+    const approvalResult = approval && approval.approvalId !== approvalCandidate?.approvalId
+      ? { valid: false, reason: 'Attached approval is not the active recorded report approval.' }
+      : approvalCandidate?.approvalScope !== 'STATUTORY_DELIVERABLE_RELEASE'
+        ? { valid: false, reason: 'Missing active recorded statutory release approval.' }
+        : validateHumanApproval(approvalCandidate);
+    const hasValidHumanApproval = approvalResult.valid;
+    const quinnEligible = (report?.quinnReview?.deliveryEligible === true || report?.quinnReviewNote?.deliveryEligible === true) && report?.quinnReview?.deliveryEligible !== false && report?.quinnReviewNote?.deliveryEligible !== false;
+    const isDraftState = ['READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW_WITH_SYSTEM_FINDINGS', 'DRAFT', 'AI_PREPARED', 'UNKNOWN'].includes(reportStatus);
+    const isCertifiedState = ['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus);
+
+    if (isCertifiedState) {
+      if (!approvalCandidate) {
         findings.push({
           findingId: `FIND-SIGNOFF-${Date.now()}-1`,
           severity: 'P1_PILOT_BLOCKER',
@@ -1369,27 +1430,15 @@ export class EveInternalAuditEngine {
           remediationStatus: 'UNRESOLVED'
         });
       } else {
-        if (approval.signatureType !== 'PHYSICAL_HUMAN') {
+        if (!hasValidHumanApproval) {
           findings.push({
             findingId: `FIND-SIGNOFF-${Date.now()}-2`,
             severity: 'P0_CRITICAL_TRUTH_OR_SECURITY',
             category: 'PROFESSIONAL_SIGN_OFF',
             proofLevel: 'PRODUCT_VERIFIED',
-            title: 'Prohibited AI Autonomous Sign-off',
-            description: `Deliverable approval was generated with signatureType=${approval.signatureType}. Only physical human credentials may certify deliverables.`,
-            evidence: JSON.stringify(approval),
-            remediationStatus: 'UNRESOLVED'
-          });
-        }
-        if (!approval.approverLicenseNumber || !approval.approverName || approval.approverName.toUpperCase().includes('QUINN') || approval.approverName.toUpperCase().includes('AI')) {
-          findings.push({
-            findingId: `FIND-SIGNOFF-${Date.now()}-3`,
-            severity: 'P1_PILOT_BLOCKER',
-            category: 'PROFESSIONAL_SIGN_OFF',
-            proofLevel: 'PRODUCT_VERIFIED',
-            title: 'Invalid or AI Signatory Identity',
-            description: `Approver identity (${approval.approverName}) violates separation between AI agents and human signing authority.`,
-            evidence: `Name: ${approval.approverName}, License: ${approval.approverLicenseNumber}`,
+            title: 'Invalid, AI, or Unregistered/Untrusted Signatory for Certified Deliverable',
+            description: `Deliverable claims certified status but attached approval fails authentic human partner validation: ${approvalResult.reason}`,
+            evidence: JSON.stringify(approvalCandidate),
             remediationStatus: 'UNRESOLVED'
           });
         }
@@ -1454,12 +1503,17 @@ export class EveInternalAuditEngine {
     const p1 = findings.filter(f => f.severity === 'P1_PILOT_BLOCKER').length;
     const compliant = p0 === 0 && p1 === 0;
 
+    const deliveryEligible = compliant && quinnEligible && hasValidHumanApproval && isCertifiedState;
+    const deliveryGateStatus = deliveryEligible ? 'ELIGIBLE_FOR_DELIVERY' : 'DELIVERY_BLOCKED_PENDING_REVIEW';
+
     return {
       compliant,
       findings,
-      deliveryGateStatus: compliant ? 'ELIGIBLE_FOR_DELIVERY' : 'DELIVERY_BLOCKED_PENDING_REVIEW',
+      deliveryGateStatus,
       summary: compliant
-        ? 'Deliverable passed independent internal audit truth inspection.'
+        ? (deliveryEligible
+            ? 'Deliverable passed independent internal audit truth inspection and is authorized for external delivery.'
+            : 'Deliverable passed technical truth inspection. External delivery blocked pending authorized human review.')
         : `Deliverable failed independent internal audit: ${p0} P0 and ${p1} P1 findings.`
     };
   }

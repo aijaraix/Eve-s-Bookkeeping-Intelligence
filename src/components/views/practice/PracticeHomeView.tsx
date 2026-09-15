@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { usePractice } from '../../../context/PracticeContext';
+import { adaptFactsToBalanceSheet, formatFinancialValue } from '../../../adapters/presentationAdapters';
 import { EvePageHeader } from '../../design-system/EvePageHeader';
 import { EveKpiCard } from '../../design-system/EveKpiCard';
 import { EveCard, EveCardHeader, EveCardTitle, EveCardContent } from '../../design-system/EveCard';
@@ -57,36 +59,19 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
   onInspectFact
 }) => {
   const realClients = clients.filter((c) => c.category === 'REAL_CUSTOMER');
-  const [attentionItems, setAttentionItems] = useState<AttentionItem[]>([]);
-  const [learningInfo, setLearningInfo] = useState<any>(null);
-
-  useEffect(() => {
-    fetch('/api/cpa/operator/attention')
-      .then((res) => res.json())
-      .then((data) => setAttentionItems(data.attentionItems || []))
-      .catch(() => {});
-
-    fetch('/api/cpa/operator/learning')
-      .then((res) => res.json())
-      .then((data) => setLearningInfo(data))
-      .catch(() => {});
-  }, []);
-
-  const triggerInspect = (metricName: string, value: string, numValue: number, sourceLoc: string) => {
-    if (!onInspectFact) return;
-    const meta: SourceToPixelMetadata = {
-      factLineageId: `fl-home-${metricName.toLowerCase().replace(/\s+/g, '-')}`,
-      renderId: `rnd-home-${metricName.toLowerCase().replace(/\s+/g, '-')}`,
-      canonicalMetric: metricName,
-      period: 'FY 2025',
-      currency: 'USD',
-      scale: 'Millions',
-      provenanceStatus: 'verified',
-      sourceDocName: sourceLoc || 'Authoritative Ingested Filing',
-      sourcePage: 1,
-      sourceRawValue: value
-    };
-    onInspectFact(meta);
+  const { engagementDetail, facts, reports, selectedPeriod, selectedCompany, dataState } = usePractice();
+  const attentionItems: AttentionItem[] = (engagementDetail?.continuation?.reviewFindings || []).map((item: any) => ({
+    severity: item.severity || 'INFO', source: item.topic || item.source || 'Recorded review finding',
+    reason: item.description || item.message || (typeof item === 'string' ? item : JSON.stringify(item)),
+    suggestedAction: item.suggestedAction || 'Review source evidence', status: 'OPEN'
+  }));
+  const eligible = facts.filter((f: any) => String(f.status).toUpperCase() === 'APPROVED' && String(f.verificationStatus || f.verification_status).toUpperCase() === 'VERIFIED' && String(f.evidenceStatus || f.evidence_status).toUpperCase() === 'CONFIRMED');
+  const { lines, identityCheck } = adaptFactsToBalanceSheet(eligible, selectedPeriod, selectedCompany.currency || '');
+  const inspectLine = (line: any) => {
+    if (!line?.factLineageId || !onInspectFact) return;
+    onInspectFact({ factLineageId: line.factLineageId, canonicalMetric: line.canonicalMetric, period: selectedPeriod,
+      currency: line.currency, scale: line.scale, provenanceStatus: 'review_required', sourceDocName: line.sourceDocName,
+      sourcePage: line.sourcePage, sourceRawValue: line.values[selectedPeriod] });
   };
 
   return (
@@ -95,7 +80,7 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
       <EvePageHeader
         category="Universal Practice Management"
         title="Practice Executive Dashboard"
-        description="Unified audit attestation overview across active clients, filings, and autonomous attestation workpapers."
+        description="Saved client filings and AI-prepared review work; professional approval remains separate."
         actions={
           <div className="flex items-center gap-3">
             <button
@@ -104,7 +89,7 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
               className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg shadow-xs cursor-pointer transition-colors"
             >
               <FileText className="w-4 h-4" />
-              <span>Report Library (11)</span>
+              <span>Report Library ({reports.length})</span>
             </button>
             <button
               type="button"
@@ -122,33 +107,33 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <EveKpiCard
           title="Active Clients"
-          value={realClients.length > 0 ? realClients.length : 1}
+          value={realClients.length}
           subtext="Corporate client organizations"
-          status="verified"
+          status="unverified"
           onInspect={() => onNavigate('practice-clients')}
         />
 
         <EveKpiCard
           title="Universal Engagements"
-          value={engagements.length > 0 ? engagements.length : 2}
+          value={engagements.length}
           subtext="Customer + Academy Twins"
-          status="verified"
+          status="unverified"
           onInspect={() => onNavigate('practice-engagements')}
         />
 
         <EveKpiCard
           title="Extracted Documents"
-          value={documentsCount > 0 ? documentsCount : 1}
-          subtext="SEC Form 10-K & Audit Workpapers"
-          status="verified"
+          value={documentsCount}
+          subtext="Selected workspace source documents"
+          status="unverified"
           onInspect={() => onNavigate('practice-documents')}
         />
 
         <EveKpiCard
-          title="Certified Report Packages"
-          value={11}
-          subtext="100% Rehydrated on disk"
-          status="verified"
+          title="Selected Draft Packages"
+          value={reports.length}
+          subtext="Saved report references; review required"
+          status="unverified"
           onInspect={() => onNavigate('engagement-deliverables')}
         />
       </div>
@@ -162,17 +147,17 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-semibold font-mono">
-                ACADEMY TWIN OBSERVED
+                ACADEMY OBSERVATIONS
               </span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-semibold">
-                MINERVA 100/100
+                EVALUATION NOT MEASURED
               </span>
             </div>
             <h4 className="text-sm font-semibold text-white mt-1">
-              Autonomous Practice Twin: Vanguard Cybernetics Corp (Case 007)
+              Learning evidence requires a recorded evaluation
             </h4>
             <p className="text-xs text-slate-300">
-              Completed all 16 stages autonomously. Euclid balance variance = 0.000. Full audit package compiled to disk.
+              No Academy activation is authorized in this workflow. Historical cases do not certify customer work.
             </p>
           </div>
         </div>
@@ -236,7 +221,7 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-3 self-end sm:self-center">
-                      <EveStatusBadge status="verified" label="Clean Opinion" size="sm" />
+                      <EveStatusBadge status="review_required" label="Professional Review Required" size="sm" />
                       <button
                         type="button"
                         onClick={() => {
@@ -263,40 +248,19 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
                   Euclid mathematical identity validation: Assets = Liabilities + Equity (Click any metric for full citation trail)
                 </p>
               </div>
-              <EveStatusBadge status="clean" label="Euclid Identity Passed" size="sm" />
+              <EveStatusBadge status="review_required" label={identityCheck.gateState} size="sm" />
             </EveCardHeader>
             <EveCardContent className="p-5">
+              <p className="text-xs text-slate-500 mb-3">{selectedCompany.name} · {selectedPeriod || 'Period not recorded'} · source units</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center font-mono">
-                <div
-                  onClick={() => triggerInspect('Total Assets', '$512,163M', 512163, 'Form 10-K p.65')}
-                  className="p-4 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200/80 hover:border-indigo-300 transition cursor-pointer group"
-                >
-                  <span className="text-xs font-sans text-slate-500 block mb-1 group-hover:text-indigo-600">Total Assets</span>
-                  <span className="text-lg font-bold text-slate-900 group-hover:text-indigo-950">$512,163M</span>
-                  <span className="text-[10px] text-emerald-600 block mt-1 font-sans font-semibold">
-                    ✓ Verified in 10-K p.65 (Inspect)
-                  </span>
-                </div>
-                <div
-                  onClick={() => triggerInspect('Total Liabilities', '$243,686M', 243686, 'Form 10-K p.65')}
-                  className="p-4 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200/80 hover:border-indigo-300 transition cursor-pointer group"
-                >
-                  <span className="text-xs font-sans text-slate-500 block mb-1 group-hover:text-indigo-600">Total Liabilities</span>
-                  <span className="text-lg font-bold text-slate-900 group-hover:text-indigo-950">$243,686M</span>
-                  <span className="text-[10px] text-emerald-600 block mt-1 font-sans font-semibold">
-                    ✓ Verified in 10-K p.65 (Inspect)
-                  </span>
-                </div>
-                <div
-                  onClick={() => triggerInspect('Stockholders Equity', '$268,477M', 268477, 'Form 10-K p.65')}
-                  className="p-4 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200/80 hover:border-indigo-300 transition cursor-pointer group"
-                >
-                  <span className="text-xs font-sans text-slate-500 block mb-1 group-hover:text-indigo-600">Stockholders Equity</span>
-                  <span className="text-lg font-bold text-slate-900 group-hover:text-indigo-950">$268,477M</span>
-                  <span className="text-[10px] text-emerald-600 block mt-1 font-sans font-semibold">
-                    ✓ Verified in 10-K p.65 (Inspect)
-                  </span>
-                </div>
+                {['total_assets', 'total_liabilities', 'total_equity'].map(metric => {
+                  const line = lines.find(l => l.canonicalMetric === metric);
+                  return <button type="button" key={metric} disabled={!line?.factLineageId} onClick={() => inspectLine(line)} className="p-4 bg-slate-50 rounded-xl border border-slate-200 disabled:cursor-default">
+                    <span className="text-xs block mb-1">{metric.replaceAll('_', ' ')}</span>
+                    <span className="text-lg font-bold">{line ? formatFinancialValue(line.values[selectedPeriod], line.currency) : 'Not available'}</span>
+                    <span className="text-[10px] block mt-1">{line?.sourceDocName || 'Source linkage not recorded'}</span>
+                  </button>;
+                })}
               </div>
             </EveCardContent>
           </EveCard>
@@ -324,9 +288,9 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
                   <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2.5">
                     <CheckCircle2 className="w-5 h-5" />
                   </div>
-                  <h4 className="text-sm font-semibold text-slate-900">Zero Unresolved Discrepancies</h4>
+                  <h4 className="text-sm font-semibold text-slate-900">No review findings displayed</h4>
                   <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                    All financial surfaces mapped, Euclid identity checks passed, and services operational.
+                    This is not evidence of a clean opinion. Check the selected workspace processing evidence and current connection state.
                   </p>
                 </div>
               ) : (

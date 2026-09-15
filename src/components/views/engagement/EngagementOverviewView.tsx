@@ -46,7 +46,7 @@ export const EngagementOverviewView: React.FC<EngagementOverviewViewProps> = ({
   period,
   currency = 'USD',
   framework = 'US-GAAP',
-  readinessState = 'READY',
+  readinessState = 'REVIEW_REQUIRED',
   openFindingsCount = 0,
   factsCount,
   documentsCount,
@@ -79,7 +79,7 @@ export const EngagementOverviewView: React.FC<EngagementOverviewViewProps> = ({
     return {
       factLineageId: line.factLineageId || line.id,
       canonicalMetric: line.canonicalMetric || 'financial_metric',
-      period: period || 'FY 2025',
+      period: period || 'Period not recorded',
       currency: line.currency || currency,
       scale: line.scale || 'Millions',
       sourceDocName: line.sourceDocName,

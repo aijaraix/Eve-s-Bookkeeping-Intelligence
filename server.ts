@@ -6,6 +6,8 @@ import crypto from "crypto";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import { modelDiscoveryService } from "./server/modelDiscoveryService.js";
+import { resolveAccountingStorageFile, readOwnerEngagements } from "./server/cpaOrganization/ownerEngagementReadModel.js";
+import { operatorAccess } from "./server/operatorAccess.js";
 
 import { FileRouter } from "./src/lib/parser/router";
 import { AnyDocParser } from "./src/lib/parser/anydocParser";
@@ -17,6 +19,7 @@ import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
 import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
 import { verifiedCustomerContinuationService } from "./server/cpaOrganization/verifiedCustomerContinuationService.js";
+import { deliverableArtifactService } from "./server/cpaOrganization/deliverableArtifactService.js";
 import { runtimeAuthorityManifestManager } from "./server/cpaOrganization/runtimeAuthorityManifest.js";
 import { getLLMGatewayMetrics, getGeminiDiagnosticStatus } from "./server/llmGateway.js";
 import { DiagnosticsEngine } from "./server/diagnosticsEngine.js";
@@ -64,6 +67,7 @@ export const docIntelligenceAgent = new DocumentIntelligenceAgent();
 const wizardEngine = new DeliverableWizardEngine();
 
 const app = express();
+app.use(operatorAccess);
 const PORT = 3000;
 
 // Process safety exception handlers to prevent background queue / AI timeouts from crashing server process
@@ -76,7 +80,7 @@ process.on("unhandledRejection", (reason) => {
 
 // Configure CORS and headers for iframe and preview compatibility
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  if (process.env.NODE_ENV !== 'production') res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
   res.header("Access-Control-Allow-Headers", "*");
   if (req.method === "OPTIONS") {
@@ -398,7 +402,7 @@ function getStorageFile(): string {
   // Production workspace/accounting state must live under the same
   // PVC-backed storage root as the canonical queue. /app/storage is
   // symlinked to /storage in production and remains portable locally.
-  return process.env.STORAGE_FILE || path.join(process.cwd(), "storage", "ai_cpa_storage.json");
+  return resolveAccountingStorageFile();
 }
 
 interface Workspace {
@@ -1137,6 +1141,20 @@ loadStorage();
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
+});
+
+app.get("/api/build-info", (_req, res) => {
+  const digest = (name: string) => {
+    const file = path.join(process.cwd(), 'dist', name);
+    return fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null;
+  };
+  res.json({
+    declaredGitSha: process.env.ZEABUR_GIT_COMMIT_SHA || process.env.SOURCE_GIT_COMMIT_SHA || null,
+    serverSha256: digest('server.cjs'), workerSha256: digest('worker.cjs'),
+    storagePath: fs.realpathSync(path.dirname(getStorageFile())),
+    academyEnabled: process.env.ACADEMY_AUTONOMOUS_ENABLED === 'true',
+    observedAt: new Date().toISOString(), schemaVersion: 'owner-evidence-v1'
+  });
 });
 
 app.get("/api/ai/health", async (req, res) => {
@@ -3400,9 +3418,13 @@ app.post("/api/deliverables/generate", (req, res) => {
 });
 
 app.get("/api/reports", (req, res) => {
-  const { workspaceId } = req.query;
-  const list = (db.reports || []).filter((r: any) => !workspaceId || r.workspaceId === workspaceId);
-  res.json({ success: true, reports: list });
+  try {
+    const workspaceId = req.query.workspaceId ? String(req.query.workspaceId) : null;
+    const engagements = readOwnerEngagements().filter(e => !workspaceId || e.workspaceId === workspaceId);
+    res.json({ success: true, reports: engagements.flatMap(e => e.reports.map((r: any) => ({ ...r, id: r.reportId }))) });
+  } catch {
+    res.status(503).json({ success: false, error: 'ACCOUNTING_READ_UNAVAILABLE' });
+  }
 });
 
 app.get("/api/reports/download/:filename", (req, res) => {
@@ -3454,13 +3476,7 @@ app.get("/api/documents/:id/source-blocks", (req, res) => {
 // STAGE 2 API ENDPOINTS: Multi-Entity Corporate Group, FX & Multilingual
 app.get("/api/workspaces/:workspaceId/entities", (req, res) => {
   const { workspaceId } = req.params;
-  let entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
-  if (entities.length === 0) {
-    const ws = db.workspaces.find(w => w.id === workspaceId);
-    if (ws) {
-      entities = corporateGroupService.seedRealisticGroupIfEmpty(workspaceId, ws.name, ws.currency || 'USD');
-    }
-  }
+  const entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
   return res.json({ success: true, workspaceId, entities });
 });
 

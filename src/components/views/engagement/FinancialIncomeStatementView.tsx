@@ -24,7 +24,7 @@ export const FinancialIncomeStatementView: React.FC<FinancialIncomeStatementView
   period,
   currency = 'USD',
   framework = 'US-GAAP',
-  readinessState = 'READY',
+  readinessState = 'REVIEW_REQUIRED',
   openFindingsCount = 0,
   lines,
   onNavigate,
@@ -47,7 +47,7 @@ export const FinancialIncomeStatementView: React.FC<FinancialIncomeStatementView
         <EvePageHeader
           category="Financial Statements"
           title="Consolidated Statement of Income"
-          description="Audited revenues, operating expenses, and net income extracted from SEC Form 10-K with source-to-pixel provenance."
+          description="Extracted revenues, operating expenses, and net income with recorded source references."
         />
 
         <EveFinancialTable
@@ -57,7 +57,7 @@ export const FinancialIncomeStatementView: React.FC<FinancialIncomeStatementView
           periods={[period]}
           lines={lines}
           currency={currency}
-          scale="In Millions"
+          scale="Source units"
           onInspectFact={onInspectFact}
         />
       </div>

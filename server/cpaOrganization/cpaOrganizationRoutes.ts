@@ -1117,80 +1117,92 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ success: true, engagementId, artifacts });
   });
 
-  router.get('/report/download-pdf', (req: Request, res: Response) => {
+  router.get(['/report/download-pdf', '/reports/download-pdf'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.pdf?.filepath || !fs.existsSync(artifact.formats.pdf.filepath)) {
-        return res.status(404).json({ error: 'PDF artifact not found or not yet generated.' });
+      if (!artifact?.formats?.pdf?.filepath || !fs.existsSync(artifact.formats.pdf.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `PDF artifact for version ${version} not found.` : 'PDF artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.pdf.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.pdf.sha256);
+      if (artifact.formats.pdf.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.pdf.sha256);
+      }
       res.sendFile(artifact.formats.pdf.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/report/download-xlsx', (req: Request, res: Response) => {
+  router.get(['/report/download-xlsx', '/reports/download-xlsx'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.xlsx?.filepath || !fs.existsSync(artifact.formats.xlsx.filepath)) {
-        return res.status(404).json({ error: 'XLSX artifact not found or not yet generated.' });
+      if (!artifact?.formats?.xlsx?.filepath || !fs.existsSync(artifact.formats.xlsx.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `XLSX artifact for version ${version} not found.` : 'XLSX artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.xlsx.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.xlsx.sha256);
+      if (artifact.formats.xlsx.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.xlsx.sha256);
+      }
       res.sendFile(artifact.formats.xlsx.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/report/download-json', (req: Request, res: Response) => {
+  router.get(['/report/download-json', '/reports/download-json'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.json?.filepath || !fs.existsSync(artifact.formats.json.filepath)) {
-        return res.status(404).json({ error: 'JSON artifact not found or not yet generated.' });
+      if (!artifact?.formats?.json?.filepath || !fs.existsSync(artifact.formats.json.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `JSON artifact for version ${version} not found.` : 'JSON artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.json.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.json.sha256);
+      if (artifact.formats.json.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.json.sha256);
+      }
       res.sendFile(artifact.formats.json.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get('/report/download-csv', (req: Request, res: Response) => {
+  router.get(['/report/download-csv', '/reports/download-csv'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.csvLeadSchedules?.filepath || !fs.existsSync(artifact.formats.csvLeadSchedules.filepath)) {
-        return res.status(404).json({ error: 'CSV artifact not found or not yet generated.' });
+      if (!artifact?.formats?.csvLeadSchedules?.filepath || !fs.existsSync(artifact.formats.csvLeadSchedules.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `CSV artifact for version ${version} not found.` : 'CSV artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.csvLeadSchedules.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.csvLeadSchedules.sha256);
+      if (artifact.formats.csvLeadSchedules.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.csvLeadSchedules.sha256);
+      }
       res.sendFile(artifact.formats.csvLeadSchedules.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1416,7 +1428,7 @@ export function createCPAOrganizationRouter(): Router {
   });
 
   // 29. Phase H.9.31 — Universal Engagements Model
-  router.get('/engagements/universal', async (req: Request, res: Response) => {
+  router.get(['/engagements/universal', '/engagements'], async (req: Request, res: Response) => {
     try {
       const classification = (req.query.classification as any) || 'ALL';
       const status = (req.query.status as any) || 'ALL';
@@ -1428,7 +1440,7 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.get('/engagements/universal/:engagementId', async (req: Request, res: Response) => {
+  router.get(['/engagements/universal/:engagementId', '/engagements/:engagementId'], async (req: Request, res: Response) => {
     try {
       const detail = await universalEngagementManager.getEngagementDetail(req.params.engagementId);
       if (!detail) {
@@ -1444,11 +1456,17 @@ export function createCPAOrganizationRouter(): Router {
   router.get('/reports/library', (req: Request, res: Response) => {
     try {
       const all = deliverableArtifactService.getAllArtifacts();
+      const latestVersions = new Map<string, string>();
+      for (const report of all) {
+        const key = JSON.stringify([report.engagementId, report.reportId]);
+        if (!latestVersions.has(key)) latestVersions.set(key, report.version);
+      }
       const classification = req.query.classification ? String(req.query.classification) : 'ALL';
       const reportType = req.query.reportType ? String(req.query.reportType) : 'ALL';
       const search = req.query.search ? String(req.query.search).toLowerCase() : '';
 
       let filtered = all;
+      if (req.query.engagementId) filtered = filtered.filter(r => r.engagementId === String(req.query.engagementId));
       if (reportType !== 'ALL') {
         filtered = filtered.filter(r => r.deliverableType === reportType);
       }
@@ -1461,7 +1479,13 @@ export function createCPAOrganizationRouter(): Router {
       }
 
       res.json({
-        reports: filtered.map(r => ({
+        reports: filtered.map(r => {
+          const isHistorical = latestVersions.get(JSON.stringify([r.engagementId, r.reportId])) !== r.version;
+          let sourceStatus: string | null = null;
+          if (r.formats?.json?.filepath && fs.existsSync(r.formats.json.filepath)) {
+            sourceStatus = JSON.parse(fs.readFileSync(r.formats.json.filepath, 'utf8')).status || null;
+          }
+          return ({
           reportId: r.reportId,
           title: r.title,
           deliverableType: r.deliverableType,
@@ -1469,6 +1493,10 @@ export function createCPAOrganizationRouter(): Router {
           engagementId: r.engagementId,
           version: r.version,
           status: r.status,
+          sourceStatus,
+          isHistorical,
+          displayStatus: isHistorical ? 'HISTORICAL_SUPERSEDED' : r.status,
+          warning: isHistorical ? 'Legacy wording; not an audit or assurance opinion' : null,
           generatedAt: r.generatedAt,
           numericFactsCount: r.numericFactsCount,
           euclidVariance: r.euclidVariance,
@@ -1479,7 +1507,7 @@ export function createCPAOrganizationRouter(): Router {
             json: Boolean(r.formats?.json)
           },
           sha256: r.formats?.pdf?.sha256 || r.formats?.xlsx?.sha256
-        })),
+        }); }),
         total: filtered.length
       });
     } catch (err: any) {

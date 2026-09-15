@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import {
   ActiveView,
   ViewMode,
@@ -17,8 +17,9 @@ import {
   FirmBranding,
   UserSession
 } from '../types';
-import { mockCompanies, mockFindings } from '../data/mockData';
+
 import {
+  apiGet,
   fetchWorkspaces,
   fetchFacts,
   fetchSummary,
@@ -45,6 +46,11 @@ import {
 } from '../api/practiceClient';
 
 export interface PracticeContextType {
+  engagementDetail: any;
+  dataState: string;
+  dataError: string | null;
+  lastSuccessfulRead: string | null;
+  selectedEngagementId: string;
   // Navigation & Session
   currentView: ViewMode;
   setCurrentView: (view: ViewMode) => void;
@@ -254,15 +260,32 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [firmBranding, setFirmBranding] = useState<FirmBranding>(defaultBranding);
 
   // Modals & Period
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('FY2025');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isReportWizardOpen, setIsReportWizardOpen] = useState(false);
 
-  const selectedWorkspaceId = selectedCompanyId;
+  const [engagementDetail, setEngagementDetail] = useState<any>(null);
+  const [loadedScope, setLoadedScope] = useState('');
+  const sessionScope = JSON.stringify([userSession?.id, userSession?.email, userSession?.organization, userSession?.isAuthenticated]);
+  const dataScope = sessionScope + ':' + selectedCompanyId;
+  const scopeIsCurrent = loadedScope === dataScope;
+  const [dataState, setDataState] = useState('loading');
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [lastSuccessfulRead, setLastSuccessfulRead] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
+  const selectedRecord = companies.find(c => c.id === selectedCompanyId);
+  const selectedWorkspaceId = selectedRecord?.workspaceId || '';
+  const selectedEngagementId = selectedRecord?.engagementId || '';
+  const clearScopeData = useCallback(() => {
+    setEngagementDetail(null); setLoadedScope('');
+    setFacts([]); setDocuments([]); setSummary(null); setFindings([]); setAuditLogs([]);
+    setReports([]); setQueueJobs([]); setActiveJob(null); setEntities([]); setRelationships([]);
+    setSwarmStatus(null); setSwarmAgents(initialSwarmAgents); setIsAnalyzing(false); setFxRates([]);
+  }, []);
   const selectedCompany: CompanyEntity =
     companies.find((c) => c.id === selectedCompanyId) ||
-    companies[0] || {
+    {
       id: '',
       name: 'No Engagement Selected',
       ticker: '',
@@ -280,140 +303,78 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
   const hasFacts = facts.length > 0;
   const financialFacts: FinancialFact[] = facts.map((f) => toFinancialFact(f));
 
-  // Load Workspaces & Initial Data
+  // A response belongs to one actual workspace and session generation only.
   const loadWorkspaceData = useCallback(async (wsId: string) => {
-    if (!wsId) return;
+    const generation = ++requestGeneration.current;
+    clearScopeData();
+    if (!wsId) { setDataState('not-found'); return; }
+    setDataState('loading'); setDataError(null);
     try {
-      const email = userSession?.email;
-      const [f, s, docs, qj, rep, fd, logs, sw, ent, rel, fx, univDetail] = await Promise.allSettled([
-        fetchFacts(wsId, email),
-        fetchSummary(wsId, email),
-        fetchDocuments(wsId, email),
-        fetchQueueJobs(wsId, email),
-        fetchReports(wsId, email),
-        fetchFindings(wsId, email),
-        fetchAuditLogs(wsId, email),
-        fetchSwarmStatus(wsId, email),
-        fetchEntities(wsId, email),
-        fetchRelationships(wsId, email),
-        fetchFxRates(email),
-        fetch(`/api/cpa/engagements/${wsId}`).then((r) => (r.ok ? r.json() : null))
-      ]);
-
-      const univEngagement = univDetail.status === 'fulfilled' && univDetail.value?.engagement ? univDetail.value.engagement : null;
-
-      if (f.status === 'fulfilled' && f.value && f.value.length > 0) {
-        setFacts(f.value);
-      } else if (univEngagement && univEngagement.financialFacts && univEngagement.financialFacts.length > 0) {
-        setFacts(univEngagement.financialFacts);
-      } else {
-        setFacts([]);
+      const record = companies.find(c => c.workspaceId === wsId && c.id === selectedCompanyId);
+      if (!record?.engagementId) throw new Error('No persisted engagement mapping for this workspace.');
+      const detail = await apiGet<any>(`/api/cpa/engagements/${encodeURIComponent(record.engagementId)}`);
+      if (generation !== requestGeneration.current) return;
+      const eng = detail.engagement;
+      if (!eng || eng.workspaceId !== wsId || eng.engagementId !== record.engagementId ||
+          !Array.isArray(eng.facts) || !Array.isArray(eng.documents) || !Array.isArray(eng.reports)) {
+        throw new Error('Malformed response or mismatched workspace/engagement identity.');
       }
-
-      if (s.status === 'fulfilled') setSummary(s.value || null);
-
-      if (docs.status === 'fulfilled' && docs.value && docs.value.length > 0) {
-        setDocuments(docs.value);
-      } else if (univEngagement && univEngagement.documents && univEngagement.documents.length > 0) {
-        setDocuments(univEngagement.documents);
-      } else {
-        setDocuments([]);
-      }
-
-      if (qj.status === 'fulfilled') {
-        const mapped = (qj.value || []).map(mapQueueJob);
-        setQueueJobs(mapped);
-        const inProg = mapped.find((j) => j.status === 'PROCESSING' || j.status === 'QUEUED');
-        setActiveJob(inProg || null);
-        setIsAnalyzing(Boolean(inProg));
-      }
-
-      if (rep.status === 'fulfilled' && rep.value && rep.value.length > 0) {
-        setReports(rep.value);
-      } else if (univEngagement && univEngagement.reports && univEngagement.reports.length > 0) {
-        setReports(univEngagement.reports);
-      } else {
-        setReports([]);
-      }
-
-      if (fd.status === 'fulfilled' && fd.value.length > 0) setFindings(fd.value);
-      if (logs.status === 'fulfilled') setAuditLogs(logs.value || []);
-      if (sw.status === 'fulfilled') setSwarmStatus(sw.value || null);
-      if (ent.status === 'fulfilled') setEntities(ent.value || []);
-      if (rel.status === 'fulfilled') setRelationships(rel.value || []);
-      if (fx.status === 'fulfilled') setFxRates(fx.value || []);
-    } catch (err) {
-      console.warn('[PracticeContext] Error loading workspace data:', err);
+      setLoadedScope(dataScope); setEngagementDetail(eng);
+      setFacts(eng.facts); setDocuments(eng.documents); setReports(eng.reports);
+      setFindings(Array.isArray(eng.findings) ? eng.findings : []);
+      if (eng.period) setSelectedPeriod(eng.period);
+      setDataState(eng.facts.length || eng.documents.length || eng.reports.length ? 'ready' : 'authenticated-empty');
+      setLastSuccessfulRead(new Date().toISOString());
+    } catch (error: any) {
+      if (generation !== requestGeneration.current) return;
+      clearScopeData();
+      setDataState(error.status === 401 ? 'unauthorized' : error.status === 403 ? 'forbidden' : error.status === 404 ? 'not-found' : 'disconnected-or-invalid');
+      setDataError(error.message || 'Workspace read failed.');
     }
-  }, [userSession?.email]);
+  }, [companies, selectedCompanyId, clearScopeData, dataScope]);
 
-  // Initial Boot
   useEffect(() => {
-    let mounted = true;
+    let active = true;
+    ++requestGeneration.current;
+    clearScopeData(); setCompanies([]); setProjects([]); setFirmBranding(defaultBranding);
+    setDataState('loading'); setDataError(null); setLastSuccessfulRead(null);
     async function boot() {
       try {
-        const email = userSession?.email;
-        const [wsList, branding, univRes] = await Promise.allSettled([
-          fetchWorkspaces(email),
-          fetchFirmBranding(email),
-          fetch('/api/cpa/engagements/universal').then((r) => (r.ok ? r.json() : null))
-        ]);
-
-        if (branding.status === 'fulfilled' && branding.value) {
-          setFirmBranding((prev) => ({ ...prev, ...branding.value }));
-        }
-
-        const combinedCompanies: CompanyEntity[] = [];
-
-        // 1. Authoritative Universal Engagements
-        if (univRes.status === 'fulfilled' && univRes.value?.engagements?.length > 0) {
-          const univMapped: CompanyEntity[] = univRes.value.engagements.map((eng: any) => ({
-            id: eng.engagementId,
-            name: eng.clientName,
-            ticker: eng.classification || 'ENGAGEMENT',
-            reportingStandard: eng.framework || 'US-GAAP',
-            currency: eng.functionalCurrency || 'USD',
-            scale: 'millions',
-            fiscalYear: eng.period || 'FY 2025',
-            auditStatus: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Clean Opinion' : 'Under Review',
-            verificationScore: typeof eng.minervaOverallScore === 'number' ? eng.minervaOverallScore : 0
-          }));
-          combinedCompanies.push(...univMapped);
-        }
-
-        // 2. Real workspaces from storage
-        if (wsList.status === 'fulfilled' && wsList.value?.length > 0) {
-          const mappedCompanies = wsList.value.map((w) => workspaceToCompany(w));
-          const mappedProjects = wsList.value.map((w) => workspaceToProject(w, 'Lead CPA Partner'));
-          setProjects(mappedProjects);
-
-          mappedCompanies.forEach((mc) => {
-            if (!combinedCompanies.some((c) => c.id === mc.id)) {
-              combinedCompanies.push(mc);
-            }
-          });
-        }
-
-        if (mounted) {
-          setCompanies(combinedCompanies);
-          if (combinedCompanies.length > 0) {
-            setSelectedCompanyId(combinedCompanies[0].id);
-          }
-        }
-      } catch (err) {
-        console.warn('[PracticeContext] Boot error:', err);
+        const result = await apiGet<any>('/api/cpa/engagements/universal');
+        if (!active) return;
+        if (!Array.isArray(result.engagements)) throw new Error('Malformed engagement list response.');
+        const mapped: CompanyEntity[] = result.engagements.map((eng: any) => {
+          if (!eng.engagementId) throw new Error('Engagement identity missing from response.');
+          return {
+            ...eng, id: eng.engagementId, engagementId: eng.engagementId,
+            workspaceId: eng.workspaceId, name: eng.clientName,
+            reportingStandard: eng.framework, currency: eng.functionalCurrency,
+            fiscalYear: eng.period, period: eng.period,
+            auditStatus: 'Professional review required',
+            verificationScore: typeof eng.minervaOverallScore === 'number' ? eng.minervaOverallScore : undefined
+          };
+        });
+        setCompanies(mapped);
+        setSelectedCompanyId(previous => mapped.some(c => c.id === previous) ? previous :
+          (mapped.find(c => c.isCustomer && c.workspaceId)?.id || mapped.find(c => c.workspaceId)?.id || ''));
+        setDataState(mapped.length ? 'loading' : 'authenticated-empty');
+        setLastSuccessfulRead(new Date().toISOString());
+      } catch (error: any) {
+        if (!active) return;
+        setSelectedCompanyId('');
+        setDataState(error.status === 401 ? 'unauthorized' : error.status === 403 ? 'forbidden' : 'disconnected-or-invalid');
+        setDataError(error.message || 'Client list read failed.');
       }
     }
     boot();
-    return () => { mounted = false; };
-  }, [userSession?.email]);
+    return () => { active = false; ++requestGeneration.current; };
+  }, [userSession?.id, userSession?.email, userSession?.organization, userSession?.isAuthenticated, clearScopeData]);
 
-  // When selected workspace changes, fetch its specific data
   useEffect(() => {
-    if (selectedCompanyId) {
-      loadWorkspaceData(selectedCompanyId);
-    }
-  }, [selectedCompanyId, loadWorkspaceData]);
+    if (selectedWorkspaceId) void loadWorkspaceData(selectedWorkspaceId);
+    else { ++requestGeneration.current; clearScopeData(); }
+    return () => { ++requestGeneration.current; };
+  }, [selectedWorkspaceId, loadWorkspaceData, clearScopeData]);
 
   const resolveFinding = (id: string) => {
     setFindings((prev) =>
@@ -507,11 +468,11 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
         workspaceId: selectedWorkspaceId,
         deliverableType: params.deliverableType || 'Financial Report',
         audience: params.audience || 'Board of Directors',
-        signedOffBy: params.signedOffBy || userSession?.name || 'Lead CPA Partner',
+        signedOffBy: params.signedOffBy || '',
         companyName: selectedCompany?.name
       });
       await loadWorkspaceData(selectedWorkspaceId);
-      return { success: true, report: res };
+      return res;
     } catch (err: any) {
       return { success: false, error: err.message || 'REFUSED: cannot generate report without verified source facts.' };
     }
@@ -534,6 +495,8 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
   return (
     <PracticeContext.Provider
       value={{
+        engagementDetail: scopeIsCurrent ? engagementDetail : null,
+        dataState, dataError, lastSuccessfulRead, selectedEngagementId,
         currentView,
         setCurrentView,
         userSession,
@@ -548,38 +511,38 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
         projects,
         selectedProjectId,
         setSelectedProjectId,
-        facts,
-        financialFacts,
-        documents,
-        summary,
-        hasFacts,
+        facts: scopeIsCurrent ? facts : [],
+        financialFacts: scopeIsCurrent ? financialFacts : [],
+        documents: scopeIsCurrent ? documents : [],
+        summary: scopeIsCurrent ? summary : null,
+        hasFacts: scopeIsCurrent && hasFacts,
         selectedPeriod,
         setSelectedPeriod,
-        findings,
+        findings: scopeIsCurrent ? findings : [],
         resolveFinding,
-        auditLogs,
+        auditLogs: scopeIsCurrent ? auditLogs : [],
         swarmStatus,
         swarmAgents,
         agents: swarmAgents,
         isSwarmRunning,
         runSwarmPass,
-        queueJobs,
+        queueJobs: scopeIsCurrent ? queueJobs : [],
         activeJob,
         intakeStatus,
         activeIntake,
         isAnalyzing,
         submitDocuments,
         createEngagementWorkspace,
-        entities,
-        relationships,
+        entities: scopeIsCurrent ? entities : [],
+        relationships: scopeIsCurrent ? relationships : [],
         addEntity,
         removeEntity,
         activeScope,
         setActiveScope,
         activeCurrency,
         setActiveCurrency,
-        fxRates,
-        reports,
+        fxRates: scopeIsCurrent ? fxRates : [],
+        reports: scopeIsCurrent ? reports : [],
         compileReport,
         firmBranding,
         updateFirmBranding,

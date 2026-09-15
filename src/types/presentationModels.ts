@@ -193,15 +193,15 @@ export interface NamedCpaAgentPresentation {
   callsign: string;
   role: string;
   charter: string;
-  status: 'ACTIVE' | 'IDLE' | 'PROCESSING' | 'COOLDOWN';
+  status: 'ACTIVE' | 'IDLE' | 'PROCESSING' | 'COOLDOWN' | 'NOT_MEASURED';
   modelTier: string;
   currentJob: string | null;
-  recentTasksCount: number;
-  successRatePct: number;
-  reviewRatePct: number;
-  academyCompetencyScore: number;
-  learningIncidentsCount: number;
-  lastActivityAt: string;
+  recentTasksCount: number | null;
+  successRatePct: number | null;
+  reviewRatePct: number | null;
+  academyCompetencyScore: number | null;
+  learningIncidentsCount: number | null;
+  lastActivityAt: string | null;
   avatarColor: string;
 }
 

@@ -66,6 +66,25 @@ export function isProofCompleteFact(fact: any): boolean {
     Boolean(String(fact?.sourceText || fact?.source_text || '').trim());
 }
 
+export function formatUncertainty(u: any): string {
+  if (u === null || u === undefined) return '';
+  if (typeof u === 'string') return u;
+  if (typeof u === 'number' || typeof u === 'boolean') return String(u);
+  if (typeof u === 'object') {
+    if (u.topic && u.description) return `[${u.topic}] ${u.description}`;
+    if (u.description) return String(u.description);
+    if (u.topic) return String(u.topic);
+    if (u.text) return String(u.text);
+    if (u.message) return String(u.message);
+    try {
+      return JSON.stringify(u);
+    } catch {
+      return String(u);
+    }
+  }
+  return String(u);
+}
+
 export function selectProofCompleteFacts(facts: any[], workspaceId: string): any[] {
   return (facts || []).filter(f => (f.workspaceId === workspaceId || f.workspace_id === workspaceId) && isProofCompleteFact(f));
 }
@@ -217,6 +236,35 @@ export class VerifiedCustomerContinuationService {
     try {
       const p = this.statePath(jobId);
       return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public getContinuationByEngagementId(engagementId: string): VerifiedContinuationState | null {
+    try {
+      if (!fs.existsSync(this.storageDir)) return null;
+      const files = fs.readdirSync(this.storageDir).filter(f => f.endsWith('.json'));
+      const candidates: VerifiedContinuationState[] = [];
+      for (const file of files) {
+        try {
+          const raw = fs.readFileSync(path.join(this.storageDir, file), 'utf-8');
+          const state = JSON.parse(raw) as VerifiedContinuationState;
+          if (state && (state.engagementId === engagementId || state.workspaceId === engagementId || state.continuationId === engagementId || state.jobId === engagementId)) {
+            candidates.push(state);
+          }
+        } catch {
+          // Explicitly ignore corrupt or partial records
+        }
+      }
+      if (candidates.length === 0) return null;
+      // Sort deterministically by latest updatedAt or completedAt
+      candidates.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.completedAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.completedAt || 0).getTime();
+        return timeB - timeA;
+      });
+      return candidates[0];
     } catch {
       return null;
     }
@@ -450,7 +498,7 @@ export class VerifiedCustomerContinuationService {
       const systemFindings = [
         ...swarm.jobs
           .filter(j => j.status !== 'JOB_COMPLETED_SUCCESS')
-          .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.join(' | ')}` : ''}`),
+          .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.map(formatUncertainty).join(' | ')}` : ''}`),
         ...disclosureEvidenceGaps
       ];
       const technicalPass = internalTruthAudit.compliant && minervaLiveValidation.certifiedStatus === 'TECHNICAL_VALIDATION_PASSED';
@@ -463,7 +511,7 @@ export class VerifiedCustomerContinuationService {
         status: finalStatus,
         completedAt: new Date().toISOString(),
         systemFindings,
-        reviewFindings: swarm.jobs.flatMap(j => (j.uncertainties || []).map(u => `${j.agentId}: ${u}`))
+        reviewFindings: swarm.jobs.flatMap(j => (j.uncertainties || []).map(u => `${j.agentId}: ${formatUncertainty(u)}`))
       });
     } catch (err: any) {
       return this.persist({

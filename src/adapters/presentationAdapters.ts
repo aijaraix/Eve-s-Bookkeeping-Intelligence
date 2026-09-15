@@ -19,6 +19,11 @@ import {
   OrganizationCategory
 } from '../types/presentationModels';
 
+function matchesPeriod(f: any, period: string): boolean {
+  const normalize = (value: unknown) => String(value ?? '').replace(/^FY\s*/i, '').trim();
+  return !period || period === 'Period not recorded' || normalize(f.reportingPeriod || f.periodOriginal || f.fiscalYear || f.period) === normalize(period);
+}
+
 // Helper to format currency values cleanly
 export function formatFinancialValue(
   val: number | null | undefined,
@@ -27,15 +32,9 @@ export function formatFinancialValue(
 ): string {
   if (val === null || val === undefined || isNaN(val)) return '—';
   
-  const absVal = Math.abs(val);
-  // Scale down if value is in raw units (> 1,000,000)
-  let displayVal = val;
-  if (absVal >= 1_000_000) {
-    displayVal = val / 1_000_000;
-  }
-
-  const sign = displayVal < 0 ? '-' : '';
-  const numStr = Math.abs(Math.round(displayVal)).toLocaleString('en-US');
+  // Source values must not be rescaled solely because they are large.
+  const sign = val < 0 ? '-' : '';
+  const numStr = Math.abs(val).toLocaleString('en-US', { maximumFractionDigits: 6 });
   const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : `${currency} `;
 
   return `${sign}${symbol}${numStr}`;
@@ -46,7 +45,7 @@ export function adaptUniversalEngagementsToClients(engagements: any[] = []): Pra
   const clientMap = new Map<string, PracticeClientSummary>();
 
   engagements.forEach((eng) => {
-    const clientId = eng.clientId || `client-${eng.engagementId}`;
+    const clientId = eng.engagementId;
     if (!clientMap.has(clientId)) {
       let category: OrganizationCategory = 'REAL_CUSTOMER';
       if (eng.classification === 'CANARY' || eng.engagementId?.includes('canary')) {
@@ -63,10 +62,10 @@ export function adaptUniversalEngagementsToClients(engagements: any[] = []): Pra
         industry: eng.industry || 'Commercial Enterprise',
         category,
         activeEngagementsCount: 1,
-        latestPeriod: eng.period || 'FY 2025',
+        latestPeriod: eng.period || 'Period not recorded',
         status: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Active' : 'Pending Review',
         openReviewItemsCount: eng.openReviewNotesCount || 0,
-        lastActivity: eng.lastActivityAt || eng.startedAt || new Date().toISOString(),
+        lastActivity: eng.lastActivityAt || eng.startedAt || '',
         reportingCurrency: eng.functionalCurrency || 'USD'
       });
     } else {
@@ -81,26 +80,21 @@ export function adaptUniversalEngagementsToClients(engagements: any[] = []): Pra
 // Legacy Workspace to Client Adapter (strictly without hardcoded fallback names)
 export function adaptWorkspacesToClients(workspaces: any[] = []): PracticeClientSummary[] {
   return workspaces.map((ws) => {
-    let category: OrganizationCategory = 'REAL_CUSTOMER';
-    if (ws.id?.includes('academy') || ws.name?.includes('academy') || ws.id?.startsWith('eng-practice-')) {
-      category = 'ACADEMY_CASE';
-    } else if (ws.id?.includes('fixture') || ws.id?.includes('canary') || ws.name?.includes('test')) {
-      category = 'TEST_FIXTURE';
-    }
+    const category: OrganizationCategory = ws.isCustomer === true ? 'REAL_CUSTOMER' : ws.classification === 'CANARY' ? 'TEST_FIXTURE' : 'ACADEMY_CASE';
 
     const clientName = ws.name || 'Unnamed Client';
     return {
       id: ws.id,
       name: clientName,
       legalName: clientName,
-      jurisdiction: ws.jurisdiction || ws.country || 'United States',
+      jurisdiction: ws.jurisdiction || ws.country || 'Not recorded',
       industry: ws.industry || 'Enterprise',
       category,
       activeEngagementsCount: 1,
-      latestPeriod: ws.period || 'FY 2025',
+      latestPeriod: ws.period || ws.fiscalYear || 'Period not recorded',
       status: 'Active',
-      openReviewItemsCount: 0,
-      lastActivity: ws.updatedAt || ws.createdAt || new Date().toISOString(),
+      openReviewItemsCount: ws.openReviewNotesCount || 0,
+      lastActivity: ws.updatedAt || ws.createdAt || '',
       reportingCurrency: ws.currency || 'USD'
     };
   });
@@ -111,19 +105,19 @@ export function adaptUniversalToEngagementSummaries(engagements: any[] = []): En
   return engagements.map((eng) => {
     return {
       id: eng.engagementId,
-      clientId: eng.clientId || `client-${eng.engagementId}`,
+      clientId: eng.engagementId,
       clientName: eng.clientName || 'Client Entity',
-      name: eng.title || `${eng.period || 'FY 2025'} Annual Audit & Attestation`,
-      period: eng.period || 'FY 2025',
+      name: eng.title || `${eng.period || 'Period not recorded'} Annual Audit & Attestation`,
+      period: eng.period || 'Period not recorded',
       framework: eng.framework || 'US_GAAP',
       reportingCurrency: eng.functionalCurrency || 'USD',
-      status: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Ready' : (eng.openReviewNotesCount > 0 ? 'Review Required' : 'In Progress'),
-      readinessState: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'READY' : (eng.openReviewNotesCount > 0 ? 'REVIEW_REQUIRED' : 'DATA_VERIFICATION_REQUIRED'),
+      status: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Review Required' : (eng.openReviewNotesCount > 0 ? 'Review Required' : 'In Progress'),
+      readinessState: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'REVIEW_REQUIRED' : (eng.openReviewNotesCount > 0 ? 'REVIEW_REQUIRED' : 'DATA_VERIFICATION_REQUIRED'),
       openFindingsCount: eng.openReviewNotesCount || 0,
       documentsCount: eng.documentsCount || 0,
       factsCount: eng.canonicalFactsCount || 0,
-      lastActivity: eng.lastActivityAt || eng.startedAt || new Date().toISOString(),
-      nextAction: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Issue signed deliverable' : 'Continue audit verification'
+      lastActivity: eng.lastActivityAt || eng.startedAt || '',
+      nextAction: eng.currentStage === 'ENGAGEMENT_COMPLETE' ? 'Review draft and authorization requirements' : 'Continue audit verification'
     };
   });
 }
@@ -138,26 +132,27 @@ export function adaptWorkspacesToEngagements(
   return workspaces.map((ws) => {
     const clientName = ws.name || 'Client';
     return {
-      id: ws.id?.startsWith('eng-') ? ws.id : `eng-${ws.id}`,
+      id: ws.engagementId || ws.id,
       clientId: ws.id,
       clientName,
-      name: `${ws.period || 'FY 2025'} Annual Audit & Attestation`,
-      period: ws.period || 'FY 2025',
+      name: `${ws.period || 'Period not recorded'} Annual Audit & Attestation`,
+      period: ws.period || 'Period not recorded',
       framework: ws.reportingStandard || 'US_GAAP',
       reportingCurrency: ws.currency || 'USD',
-      status: findingsCount > 0 ? 'Review Required' : 'Ready',
-      readinessState: findingsCount > 0 ? 'READY_WITH_REVIEW_ITEMS' : 'READY',
-      openFindingsCount: findingsCount,
-      documentsCount: docsCount,
-      factsCount: factsCount,
-      lastActivity: ws.updatedAt || new Date().toISOString(),
-      nextAction: findingsCount > 0 ? 'Review findings' : 'Issue signed deliverable'
+      status: 'Review Required',
+      readinessState: 'REVIEW_REQUIRED',
+      openFindingsCount: ws.openReviewNotesCount ?? findingsCount,
+      documentsCount: ws.documentsCount ?? 0,
+      factsCount: ws.canonicalFactsCount ?? 0,
+      lastActivity: ws.updatedAt || '',
+      nextAction: 'Review source evidence and draft findings'
     };
   });
 }
 
 // 3. Facts to Income Statement Presentation Adapter (STRICTLY DATA-DRIVEN, ZERO FALLBACK)
-export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 'FY 2025', currency: string = 'USD'): StatementLinePresentation[] {
+export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 'Period not recorded', currency: string = 'USD'): StatementLinePresentation[] {
+  facts = facts.filter(f => matchesPeriod(f, period));
   if (!facts || facts.length === 0) return [];
 
   // Group facts by metric
@@ -199,8 +194,8 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
       values: {},
       formattedValues: {},
       currency: revFact?.currencyOriginal || currency,
-      scale: 'Millions',
-      verificationStatus: 'verified'
+      scale: 'Source units',
+      verificationStatus: 'review_required'
     });
 
     lines.push({
@@ -211,9 +206,9 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
       values: { [period]: revVal },
       formattedValues: { [period]: formatFinancialValue(revVal, revFact?.currencyOriginal || currency) },
       currency: revFact?.currencyOriginal || currency,
-      scale: 'Millions',
-      verificationStatus: (revFact?.verificationStatus || 'verified').toLowerCase() as any,
-      sourceDocName: revFact?.documentTitle || revFact?.sourceDoc || undefined,
+      scale: 'Source units',
+      verificationStatus: (revFact?.verificationStatus || 'review_required').toLowerCase() as any,
+      sourceDocName: revFact?.documentTitle || revFact?.sourceDocument || revFact?.documentId || undefined,
       sourcePage: revFact?.pageNumber || revFact?.page || undefined,
       factLineageId: revFact?.id
     });
@@ -232,9 +227,9 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
       values: { [period]: cogsVal },
       formattedValues: { [period]: formatFinancialValue(cogsVal, cogsFact?.currencyOriginal || currency) },
       currency: cogsFact?.currencyOriginal || currency,
-      scale: 'Millions',
-      verificationStatus: (cogsFact?.verificationStatus || 'verified').toLowerCase() as any,
-      sourceDocName: cogsFact?.documentTitle || cogsFact?.sourceDoc || undefined,
+      scale: 'Source units',
+      verificationStatus: (cogsFact?.verificationStatus || 'review_required').toLowerCase() as any,
+      sourceDocName: cogsFact?.documentTitle || cogsFact?.sourceDocument || cogsFact?.documentId || undefined,
       sourcePage: cogsFact?.pageNumber || cogsFact?.page || undefined,
       factLineageId: cogsFact?.id
     });
@@ -255,8 +250,8 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
       values: { [period]: grossProfit },
       formattedValues: { [period]: formatFinancialValue(grossProfit, currency) },
       currency,
-      scale: 'Millions',
-      verificationStatus: gpValDirect !== null ? 'verified' : 'calculated',
+      scale: 'Source units',
+      verificationStatus: gpValDirect !== null ? 'review_required' : 'calculated',
       factLineageId: gpFact?.id
     });
   }
@@ -277,8 +272,8 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
       values: {},
       formattedValues: {},
       currency,
-      scale: 'Millions',
-      verificationStatus: 'verified'
+      scale: 'Source units',
+      verificationStatus: 'review_required'
     });
 
     if (rdVal !== null) {
@@ -290,9 +285,9 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
         values: { [period]: rdVal },
         formattedValues: { [period]: formatFinancialValue(rdVal, rdFact?.currencyOriginal || currency) },
         currency: rdFact?.currencyOriginal || currency,
-        scale: 'Millions',
-        verificationStatus: (rdFact?.verificationStatus || 'verified').toLowerCase() as any,
-        sourceDocName: rdFact?.documentTitle || rdFact?.sourceDoc || undefined,
+        scale: 'Source units',
+        verificationStatus: (rdFact?.verificationStatus || 'review_required').toLowerCase() as any,
+        sourceDocName: rdFact?.documentTitle || rdFact?.sourceDocument || rdFact?.documentId || undefined,
         sourcePage: rdFact?.pageNumber || rdFact?.page || undefined,
         factLineageId: rdFact?.id
       });
@@ -307,9 +302,9 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
         values: { [period]: sgaVal },
         formattedValues: { [period]: formatFinancialValue(sgaVal, sgaFact?.currencyOriginal || currency) },
         currency: sgaFact?.currencyOriginal || currency,
-        scale: 'Millions',
-        verificationStatus: (sgaFact?.verificationStatus || 'verified').toLowerCase() as any,
-        sourceDocName: sgaFact?.documentTitle || sgaFact?.sourceDoc || undefined,
+        scale: 'Source units',
+        verificationStatus: (sgaFact?.verificationStatus || 'review_required').toLowerCase() as any,
+        sourceDocName: sgaFact?.documentTitle || sgaFact?.sourceDocument || sgaFact?.documentId || undefined,
         sourcePage: sgaFact?.pageNumber || sgaFact?.page || undefined,
         factLineageId: sgaFact?.id
       });
@@ -330,9 +325,9 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
       values: { [period]: opIncVal },
       formattedValues: { [period]: formatFinancialValue(opIncVal, opIncFact?.currencyOriginal || currency) },
       currency: opIncFact?.currencyOriginal || currency,
-      scale: 'Millions',
-      verificationStatus: (opIncFact?.verificationStatus || 'verified').toLowerCase() as any,
-      sourceDocName: opIncFact?.documentTitle || opIncFact?.sourceDoc || undefined,
+      scale: 'Source units',
+      verificationStatus: (opIncFact?.verificationStatus || 'review_required').toLowerCase() as any,
+      sourceDocName: opIncFact?.documentTitle || opIncFact?.sourceDocument || opIncFact?.documentId || undefined,
       sourcePage: opIncFact?.pageNumber || opIncFact?.page || undefined,
       factLineageId: opIncFact?.id
     });
@@ -352,9 +347,9 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
       values: { [period]: netIncVal },
       formattedValues: { [period]: formatFinancialValue(netIncVal, netIncFact?.currencyOriginal || currency) },
       currency: netIncFact?.currencyOriginal || currency,
-      scale: 'Millions',
-      verificationStatus: (netIncFact?.verificationStatus || 'verified').toLowerCase() as any,
-      sourceDocName: netIncFact?.documentTitle || netIncFact?.sourceDoc || undefined,
+      scale: 'Source units',
+      verificationStatus: (netIncFact?.verificationStatus || 'review_required').toLowerCase() as any,
+      sourceDocName: netIncFact?.documentTitle || netIncFact?.sourceDocument || netIncFact?.documentId || undefined,
       sourcePage: netIncFact?.pageNumber || netIncFact?.page || undefined,
       factLineageId: netIncFact?.id
     });
@@ -364,10 +359,11 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
 }
 
 // 4. Facts to Balance Sheet Presentation Adapter (STRICTLY DATA-DRIVEN, ZERO FALLBACK)
-export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY 2025', currency: string = 'USD'): {
+export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'Period not recorded', currency: string = 'USD'): {
   lines: StatementLinePresentation[];
   identityCheck: BalanceSheetIdentityCheck;
 } {
+  facts = facts.filter(f => matchesPeriod(f, period));
   if (!facts || facts.length === 0) {
     return {
       lines: [],
@@ -430,8 +426,8 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
       values: {},
       formattedValues: {},
       currency,
-      scale: 'Millions',
-      verificationStatus: 'verified'
+      scale: 'Source units',
+      verificationStatus: 'review_required'
     });
 
     if (cashVal !== null) {
@@ -443,9 +439,9 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
         values: { [period]: cashVal },
         formattedValues: { [period]: formatFinancialValue(cashVal, cashFact?.currencyOriginal || currency) },
         currency: cashFact?.currencyOriginal || currency,
-        scale: 'Millions',
-        verificationStatus: (cashFact?.verificationStatus || 'verified').toLowerCase() as any,
-        sourceDocName: cashFact?.documentTitle || cashFact?.sourceDoc || undefined,
+        scale: 'Source units',
+        verificationStatus: (cashFact?.verificationStatus || 'review_required').toLowerCase() as any,
+        sourceDocName: cashFact?.documentTitle || cashFact?.sourceDocument || cashFact?.documentId || undefined,
         sourcePage: cashFact?.pageNumber || cashFact?.page || undefined,
         factLineageId: cashFact?.id
       });
@@ -461,9 +457,9 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
         values: { [period]: totalAssetsVal },
         formattedValues: { [period]: formatFinancialValue(totalAssetsVal, totalAssetsFact?.currencyOriginal || currency) },
         currency: totalAssetsFact?.currencyOriginal || currency,
-        scale: 'Millions',
-        verificationStatus: (totalAssetsFact?.verificationStatus || 'verified').toLowerCase() as any,
-        sourceDocName: totalAssetsFact?.documentTitle || totalAssetsFact?.sourceDoc || undefined,
+        scale: 'Source units',
+        verificationStatus: (totalAssetsFact?.verificationStatus || 'review_required').toLowerCase() as any,
+        sourceDocName: totalAssetsFact?.documentTitle || totalAssetsFact?.sourceDocument || totalAssetsFact?.documentId || undefined,
         sourcePage: totalAssetsFact?.pageNumber || totalAssetsFact?.page || undefined,
         factLineageId: totalAssetsFact?.id
       });
@@ -480,8 +476,8 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
       values: {},
       formattedValues: {},
       currency,
-      scale: 'Millions',
-      verificationStatus: 'verified'
+      scale: 'Source units',
+      verificationStatus: 'review_required'
     });
 
     if (totalLiabVal !== null) {
@@ -494,9 +490,9 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
         values: { [period]: totalLiabVal },
         formattedValues: { [period]: formatFinancialValue(totalLiabVal, totalLiabFact?.currencyOriginal || currency) },
         currency: totalLiabFact?.currencyOriginal || currency,
-        scale: 'Millions',
-        verificationStatus: (totalLiabFact?.verificationStatus || 'verified').toLowerCase() as any,
-        sourceDocName: totalLiabFact?.documentTitle || totalLiabFact?.sourceDoc || undefined,
+        scale: 'Source units',
+        verificationStatus: (totalLiabFact?.verificationStatus || 'review_required').toLowerCase() as any,
+        sourceDocName: totalLiabFact?.documentTitle || totalLiabFact?.sourceDocument || totalLiabFact?.documentId || undefined,
         sourcePage: totalLiabFact?.pageNumber || totalLiabFact?.page || undefined,
         factLineageId: totalLiabFact?.id
       });
@@ -512,9 +508,9 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
         values: { [period]: totalEquityVal },
         formattedValues: { [period]: formatFinancialValue(totalEquityVal, totalEquityFact?.currencyOriginal || currency) },
         currency: totalEquityFact?.currencyOriginal || currency,
-        scale: 'Millions',
-        verificationStatus: (totalEquityFact?.verificationStatus || 'verified').toLowerCase() as any,
-        sourceDocName: totalEquityFact?.documentTitle || totalEquityFact?.sourceDoc || undefined,
+        scale: 'Source units',
+        verificationStatus: (totalEquityFact?.verificationStatus || 'review_required').toLowerCase() as any,
+        sourceDocName: totalEquityFact?.documentTitle || totalEquityFact?.sourceDocument || totalEquityFact?.documentId || undefined,
         sourcePage: totalEquityFact?.pageNumber || totalEquityFact?.page || undefined,
         factLineageId: totalEquityFact?.id
       });
@@ -531,7 +527,7 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
         values: { [period]: sum },
         formattedValues: { [period]: formatFinancialValue(sum, currency) },
         currency,
-        scale: 'Millions',
+        scale: 'Source units',
         verificationStatus: 'calculated'
       });
     }
@@ -568,7 +564,8 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'FY
 }
 
 // 5. Calculate Financial Ratios with Lineage Proof (STRICTLY DATA-DRIVEN, ZERO FALLBACK)
-export function deriveFinancialRatios(facts: any[] = [], period: string = 'FY 2025', currency: string = 'USD'): RatioDerivationPresentation[] {
+export function deriveFinancialRatios(facts: any[] = [], period: string = 'Period not recorded', currency: string = 'USD'): RatioDerivationPresentation[] {
+  facts = facts.filter(f => matchesPeriod(f, period));
   if (!facts || facts.length === 0) return [];
 
   const metricMap: Record<string, { val: number; id: string }> = {};
@@ -729,16 +726,16 @@ export function adaptBackendAgents(rawAgents: any[] = []): NamedCpaAgentPresenta
       name: a.name || callsign,
       callsign,
       role: (a.role || 'CPA Specialist').replace(/_/g, ' '),
-      charter: a.charter || 'Autonomous Accounting & Audit Assurance',
-      status: a.status === 'ACTIVE' ? 'ACTIVE' : 'IDLE',
-      modelTier: a.modelTier || a.model || 'Deterministic / Fast Tier',
+      charter: a.charter || 'Charter not recorded',
+      status: ['ACTIVE', 'IDLE', 'PROCESSING', 'COOLDOWN'].includes(String(a.status).toUpperCase()) ? String(a.status).toUpperCase() as NamedCpaAgentPresentation['status'] : 'NOT_MEASURED',
+      modelTier: a.modelTier || a.model || 'Not recorded',
       currentJob: a.currentJob || null,
-      recentTasksCount: a.tasksCompleted || 42,
-      successRatePct: a.successRate || 100,
-      reviewRatePct: 0,
-      academyCompetencyScore: 99.8,
-      learningIncidentsCount: 0,
-      lastActivityAt: new Date().toISOString(),
+      recentTasksCount: a.tasksCompleted ?? a.recentTasksCount ?? null,
+      successRatePct: a.successRate ?? a.successRatePct ?? null,
+      reviewRatePct: a.reviewRatePct ?? null,
+      academyCompetencyScore: a.academyCompetencyScore ?? null,
+      learningIncidentsCount: a.learningIncidentsCount ?? null,
+      lastActivityAt: a.lastActivityAt ?? null,
       avatarColor: colors[callsign] || 'bg-slate-700'
     };
   });

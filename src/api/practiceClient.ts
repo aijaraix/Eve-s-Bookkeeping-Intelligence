@@ -16,6 +16,12 @@ import {
 
 const DASH = '—';
 
+function requireArray<T>(value: unknown, field: string): T[] {
+  if (!Array.isArray(value)) throw new Error(`Malformed response: ${field} must be an array.`);
+  return value as T[];
+}
+
+
 function userHeaders(email?: string): HeadersInit {
   const headers: Record<string, string> = {};
   if (email) headers['x-user-email'] = email;
@@ -33,7 +39,11 @@ async function readError(res: Response): Promise<string> {
 
 export async function apiGet<T>(path: string, email?: string): Promise<T> {
   const res = await fetch(path, { headers: userHeaders(email) });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) {
+    const error = new Error(await readError(res)) as Error & { status: number };
+    error.status = res.status;
+    throw error;
+  }
   return res.json();
 }
 
@@ -71,13 +81,13 @@ export async function fetchDocuments(workspaceId?: string, email?: string): Prom
   const q = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
   const data = await apiGet<DocumentRecord[] | { documents?: DocumentRecord[] }>(`/api/documents${q}`, email);
   if (Array.isArray(data)) return data;
-  return data.documents || [];
+  return requireArray(data.documents, 'documents');
 }
 
 export async function fetchQueueJobs(workspaceId?: string, email?: string): Promise<any[]> {
   const q = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
   const data = await apiGet<{ jobs?: any[] }>(`/api/queue/jobs${q}`, email);
-  return data.jobs || [];
+  return requireArray(data.jobs, 'jobs');
 }
 
 export async function fetchIntake(intakeId: string, email?: string): Promise<any> {
@@ -96,34 +106,26 @@ export async function fetchReports(workspaceId?: string, email?: string): Promis
   const q = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
   const data = await apiGet<any[] | { reports?: any[] }>(`/api/reports${q}`, email);
   if (Array.isArray(data)) return data;
-  return data.reports || [];
+  return requireArray(data.reports, 'reports');
 }
 
 export async function fetchFindings(workspaceId?: string, email?: string): Promise<any[]> {
   const q = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
   const data = await apiGet<any[] | { findings?: any[] }>(`/api/findings${q}`, email);
   if (Array.isArray(data)) return data;
-  return data.findings || [];
+  return requireArray(data.findings, 'findings');
 }
 
 export async function fetchAuditLogs(workspaceId?: string, email?: string): Promise<any[]> {
   const q = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
-  try {
     const data = await apiGet<any[] | { logs?: any[]; auditLogs?: any[] }>(`/api/audit-logs${q}`, email);
     if (Array.isArray(data)) return data;
-    return data.logs || data.auditLogs || [];
-  } catch {
-    return [];
-  }
+    return requireArray(data.logs ?? data.auditLogs, 'auditLogs');
 }
 
 export async function fetchSwarmStatus(workspaceId?: string, email?: string): Promise<any> {
   const q = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
-  try {
     return await apiGet<any>(`/api/swarm/status${q}`, email);
-  } catch {
-    return null;
-  }
 }
 
 export interface UploadDocumentsResult {
@@ -203,12 +205,8 @@ export async function sendEveChat(message: string, workspaceId?: string, email?:
 
 export async function fetchEntities(workspaceId: string, email?: string): Promise<any[]> {
   if (!workspaceId) return [];
-  try {
     const res = await apiGet<{ success: boolean; entities: any[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/entities`, email);
-    return res.entities || [];
-  } catch {
-    return [];
-  }
+    return requireArray(res.entities, 'entities');
 }
 
 export async function createEntity(workspaceId: string, entity: any, email?: string): Promise<any> {
@@ -235,12 +233,8 @@ export async function deleteEntity(workspaceId: string, entityId: string, email?
 
 export async function fetchRelationships(workspaceId: string, email?: string): Promise<any[]> {
   if (!workspaceId) return [];
-  try {
     const res = await apiGet<{ success: boolean; relationships: any[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/relationships`, email);
-    return res.relationships || [];
-  } catch {
-    return [];
-  }
+    return requireArray(res.relationships, 'relationships');
 }
 
 export async function createRelationship(workspaceId: string, rel: any, email?: string): Promise<any> {
@@ -248,21 +242,13 @@ export async function createRelationship(workspaceId: string, rel: any, email?: 
 }
 
 export async function fetchFxRates(email?: string): Promise<any[]> {
-  try {
     const res = await apiGet<{ success: boolean; fxRates: any[] }>('/api/fx-rates', email);
-    return res.fxRates || [];
-  } catch {
-    return [];
-  }
+    return requireArray(res.fxRates, 'fxRates');
 }
 
 export async function fetchFirmBranding(email?: string): Promise<any> {
-  try {
     const res = await apiGet<{ success: boolean; branding: any }>('/api/firm/branding', email);
     return res.branding;
-  } catch {
-    return null;
-  }
 }
 
 export async function saveFirmBranding(branding: any, email?: string): Promise<any> {
@@ -271,18 +257,14 @@ export async function saveFirmBranding(branding: any, email?: string): Promise<a
 
 export async function fetchLeadSchedules(workspaceId: string, email?: string): Promise<any[]> {
   if (!workspaceId) return [];
-  try {
     const res = await apiGet<{ success: boolean; leadSchedules: any[] }>(`/api/deliverables/lead-schedules?workspaceId=${encodeURIComponent(workspaceId)}`, email);
-    return res.leadSchedules || [];
-  } catch {
-    return [];
-  }
+    return requireArray(res.leadSchedules, 'leadSchedules');
 }
 
 export function dash(value?: string | number | null): string {
   if (value == null) return DASH;
   const s = String(value).trim();
-  if (!s || s === '0' || s === 'undefined' || s === 'null') return DASH;
+  if (!s || s === 'undefined' || s === 'null') return DASH;
   return s;
 }
 
@@ -440,35 +422,19 @@ export function jobIsSuccess(status?: string): boolean {
 // =========================================================================
 
 export async function fetchCPAAgents(email?: string): Promise<{ agents: any[]; total: number }> {
-  try {
     return await apiGet<{ agents: any[]; total: number }>('/api/cpa/agents', email);
-  } catch {
-    return { agents: [], total: 0 };
-  }
 }
 
 export async function fetchCPASwarms(email?: string): Promise<{ swarms: any[]; total: number }> {
-  try {
     return await apiGet<{ swarms: any[]; total: number }>('/api/cpa/swarms', email);
-  } catch {
-    return { swarms: [], total: 0 };
-  }
 }
 
 export async function fetchCPARouterTelemetry(email?: string): Promise<any> {
-  try {
     return await apiGet<any>('/api/cpa/router/telemetry', email);
-  } catch {
-    return null;
-  }
 }
 
 export async function fetchCPAAcademyEvaluations(email?: string): Promise<any> {
-  try {
     return await apiGet<any>('/api/cpa/academy/evaluations', email);
-  } catch {
-    return { evaluations: [], benchmarks: [] };
-  }
 }
 
 export async function runCPAAcademyEvaluation(email?: string): Promise<any> {
@@ -476,35 +442,19 @@ export async function runCPAAcademyEvaluation(email?: string): Promise<any> {
 }
 
 export async function fetchCPADarwinLog(email?: string): Promise<{ proposals: any[]; total: number }> {
-  try {
     return await apiGet<{ proposals: any[]; total: number }>('/api/cpa/darwin/evolution-log', email);
-  } catch {
-    return { proposals: [], total: 0 };
-  }
 }
 
 export async function fetchCPAMemory(agentId: string, email?: string): Promise<{ memories: any[]; total: number }> {
-  try {
     return await apiGet<{ memories: any[]; total: number }>(`/api/cpa/memory/${encodeURIComponent(agentId)}`, email);
-  } catch {
-    return { memories: [], total: 0 };
-  }
 }
 
 export async function fetchCPASkills(email?: string): Promise<{ skills: any[]; total: number }> {
-  try {
     return await apiGet<{ skills: any[]; total: number }>('/api/cpa/skills', email);
-  } catch {
-    return { skills: [], total: 0 };
-  }
 }
 
 export async function fetchCPAHeartbeatStatus(email?: string): Promise<any> {
-  try {
     return await apiGet<any>('/api/cpa/heartbeat/status', email);
-  } catch {
-    return null;
-  }
 }
 
 export async function spawnCPASpecialist(topic: string, customTitle?: string, targetWorkspaceId?: string, email?: string): Promise<any> {
@@ -528,10 +478,6 @@ export async function recordCPALearningCase(agentId: string, data: { context: st
 }
 
 export async function fetchCPACanaryResult(email?: string): Promise<any> {
-  try {
     return await apiGet<any>('/api/cpa/academy/canary-result', email);
-  } catch {
-    return null;
-  }
 }
 
