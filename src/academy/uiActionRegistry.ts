@@ -10,7 +10,7 @@ export interface UiActionDefinition {
   prerequisites: string[];
   expectedTransition: string;
   expectedEvidence: string;
-  role: 'operator';
+  role: 'operator' | 'account' | 'platform-admin';
   destructive: boolean;
   academyAllowed: boolean;
   professionalApprovalRequired: boolean;
@@ -39,6 +39,15 @@ function definition(id: string, label: string, view: string, workflow: string, t
 }
 
 export const uiActionRegistry: Record<string, UiActionDefinition> = Object.fromEntries([
+  ...[
+    ['auth.login','Sign in','/login','Validated account session or mandatory password setup','Authentication audit event'],
+    ['auth.password.change','Save permanent password','/account/password','Password replaced and all sessions revoked','Hash-only password record and revocation event'],
+    ['auth.logout','Log out','/account','Current session revoked','Logout audit event'],
+    ['auth.sessions.revoke','Revoke sessions','/account','All account sessions revoked','Session revocation audit event'],
+    ['access.invite','Invite account','/owner/users','Single-use invitation created','Persisted account and invitation audit event'],
+    ['access.tenant.assign','Assign customer organization','/owner/users','Customer workspaces assigned exclusively','Tenant assignment audit event'],
+    ['access.password.reset','Reset account','/owner/users','Previous credential and sessions revoked','Single-use recovery and audit event']
+  ].map(([id,label,view,transition,evidence])=>({...definition(id,label,view,'account-access',transition,evidence),role:(id.startsWith('access.')?'platform-admin':'account') as UiActionDefinition['role'],prerequisites:[id==='auth.login'?'Account credential':'Authenticated account and CSRF verification'],academyAllowed:false})),
   ...Object.entries(navigation).map(([view, label]) => definition(`nav.${view}`, label, view, 'navigation', `Active view becomes ${view}`, 'Visible view heading, scope and screenshot')),
   ...['header', 'home', 'documents', 'clients', 'clients-empty'].map(entry => definition(`intake.open.${entry}`, 'Upload', entry, 'canonical-intake', 'Upload dialog opens', 'Visible upload dialog; same canonical intake form')),
   ...[

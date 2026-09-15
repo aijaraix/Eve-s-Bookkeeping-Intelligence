@@ -57,3 +57,7 @@ storage/academy/execution_memory/*
 !storage/academy/execution_memory/.gitkeep
 
 
+# Private identity and invitation state
+storage/identity/
+**/owner-setup.json
+**/access-acceptance-private/

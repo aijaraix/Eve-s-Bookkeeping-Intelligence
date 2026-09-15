@@ -9,14 +9,15 @@
     "dev:studio": "tsx server.ts",
     "dev:api": "API_ONLY=true PORT=8787 tsx server.ts",
     "dev:ui": "vite --host 0.0.0.0 --port 3000",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/worker.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/worker.cjs && node scripts/build-access.mjs",
     "start": "NODE_ENV=production node dist/server.cjs",
     "start:worker": "NODE_ENV=production node dist/worker.cjs",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "tsx run_tests.ts && tsx server/tests/company1StructuredOutputIntegrity.test.ts && tsx server/tests/company1CanonicalPromotionIntegrity.test.ts && tsx server/tests/company1DurableHandoff.test.ts && tsx server/tests/company1WorkspacePersistence.test.ts && tsx server/tests/company1AuthoritativeCurrency.test.ts && tsx server/tests/company1VerifiedContinuation.test.ts && tsx server/tests/company1BoundedLexiconReview.test.ts",
-    "build:academy": "esbuild scripts/academy-ui-tick.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/academy-ui-tick.cjs"
+    "build:academy": "esbuild scripts/academy-ui-tick.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/academy-ui-tick.cjs",
+    "test:access": "node --import tsx server/tests/accessPortal.test.ts && node --import tsx server/tests/operatorAccess.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
