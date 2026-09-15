@@ -1,0 +1,230 @@
+--- a/server.ts
++++ b/server.ts
+@@ -3402,6 +3402,30 @@
+ app.get("/api/reports", (req, res) => {
+   const { workspaceId } = req.query;
+   const list = (db.reports || []).filter((r: any) => !workspaceId || r.workspaceId === workspaceId);
++  try {
++    const artifacts = deliverableArtifactService.getAllArtifacts();
++    for (const art of artifacts) {
++      if (!workspaceId || art.engagementId === workspaceId || art.workspaceId === workspaceId || art.reportId.includes(String(workspaceId).replace('ws-', ''))) {
++        const existing = list.find((r: any) => r.id === art.reportId || r.reportId === art.reportId);
++        if (!existing) {
++          list.push({
++            id: art.reportId,
++            reportId: art.reportId,
++            workspaceId: art.workspaceId || art.engagementId,
++            engagementId: art.engagementId,
++            title: art.title,
++            deliverableType: art.deliverableType,
++            version: art.version,
++            status: art.status,
++            generatedAt: art.generatedAt,
++            numericFactsCount: art.numericFactsCount,
++            pdfPath: art.formats?.pdf?.filepath,
++            jsonPath: art.formats?.json?.filepath
++          });
++        }
++      }
++    }
++  } catch (e) {}
+   res.json({ success: true, reports: list });
+ });
+ 
+@@ -3454,13 +3478,7 @@
+ // STAGE 2 API ENDPOINTS: Multi-Entity Corporate Group, FX & Multilingual
+ app.get("/api/workspaces/:workspaceId/entities", (req, res) => {
+   const { workspaceId } = req.params;
+-  let entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
+-  if (entities.length === 0) {
+-    const ws = db.workspaces.find(w => w.id === workspaceId);
+-    if (ws) {
+-      entities = corporateGroupService.seedRealisticGroupIfEmpty(workspaceId, ws.name, ws.currency || 'USD');
+-    }
+-  }
++  const entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
+   return res.json({ success: true, workspaceId, entities });
+ });
+ 
+--- a/server/cpaOrganization/cpaOrganizationRoutes.ts
++++ b/server/cpaOrganization/cpaOrganizationRoutes.ts
+@@ -1117,7 +1117,7 @@
+     res.json({ success: true, engagementId, artifacts });
+   });
+ 
+-  router.get('/report/download-pdf', (req: Request, res: Response) => {
++  router.get(['/report/download-pdf', '/reports/download-pdf'], (req: Request, res: Response) => {
+     try {
+       const reportId = String(req.query.reportId || '');
+       const artifact = reportId
+@@ -1137,7 +1137,7 @@
+     }
+   });
+ 
+-  router.get('/report/download-xlsx', (req: Request, res: Response) => {
++  router.get(['/report/download-xlsx', '/reports/download-xlsx'], (req: Request, res: Response) => {
+     try {
+       const reportId = String(req.query.reportId || '');
+       const artifact = reportId
+@@ -1157,7 +1157,7 @@
+     }
+   });
+ 
+-  router.get('/report/download-json', (req: Request, res: Response) => {
++  router.get(['/report/download-json', '/reports/download-json'], (req: Request, res: Response) => {
+     try {
+       const reportId = String(req.query.reportId || '');
+       const artifact = reportId
+@@ -1177,7 +1177,7 @@
+     }
+   });
+ 
+-  router.get('/report/download-csv', (req: Request, res: Response) => {
++  router.get(['/report/download-csv', '/reports/download-csv'], (req: Request, res: Response) => {
+     try {
+       const reportId = String(req.query.reportId || '');
+       const artifact = reportId
+@@ -1416,7 +1416,7 @@
+   });
+ 
+   // 29. Phase H.9.31 — Universal Engagements Model
+-  router.get('/engagements/universal', async (req: Request, res: Response) => {
++  router.get(['/engagements/universal', '/engagements'], async (req: Request, res: Response) => {
+     try {
+       const classification = (req.query.classification as any) || 'ALL';
+       const status = (req.query.status as any) || 'ALL';
+@@ -1428,7 +1428,7 @@
+     }
+   });
+ 
+-  router.get('/engagements/universal/:engagementId', async (req: Request, res: Response) => {
++  router.get(['/engagements/universal/:engagementId', '/engagements/:engagementId'], async (req: Request, res: Response) => {
+     try {
+       const detail = await universalEngagementManager.getEngagementDetail(req.params.engagementId);
+       if (!detail) {
+--- a/server/cpaOrganization/universalEngagementModel.ts
++++ b/server/cpaOrganization/universalEngagementModel.ts
+@@ -234,7 +234,14 @@
+     try {
+       const fs = await import('fs');
+       const path = await import('path');
+-      const storageFile = process.env.STORAGE_FILE || path.join(process.cwd(), 'ai_cpa_storage.json');
++      const targetDir = path.join(process.cwd(), 'storage');
++      if (!fs.existsSync(targetDir)) {
++        fs.mkdirSync(targetDir, { recursive: true });
++      }
++      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || path.join(targetDir, 'ai_cpa_storage.json');
++      if (!fs.existsSync(storageFile)) {
++        fs.writeFileSync(storageFile, JSON.stringify({ workspaces: [], documents: [], facts: [], reports: [] }, null, 2), 'utf-8');
++      }
+       if (fs.existsSync(storageFile)) {
+         const raw = fs.readFileSync(storageFile, 'utf-8');
+         const db = JSON.parse(raw);
+@@ -479,7 +486,7 @@
+ 
+     // Check storage for workspace-specific documents, facts, and reports
+     try {
+-      const storageFile = process.env.STORAGE_FILE || path.join(process.cwd(), 'ai_cpa_storage.json');
++      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || (fs.existsSync(path.join(process.cwd(), 'storage', 'ai_cpa_storage.json')) ? path.join(process.cwd(), 'storage', 'ai_cpa_storage.json') : path.join(process.cwd(), 'ai_cpa_storage.json'));
+       if (fs.existsSync(storageFile)) {
+         const raw = fs.readFileSync(storageFile, 'utf-8');
+         const db = JSON.parse(raw);
+@@ -598,6 +605,7 @@
+       canonicalFactsCount: facts.length,
+       documents,
+       facts,
++      financialFacts: facts,
+       pbcRequests,
+       reviewNotes,
+       reports,
+--- a/server/cpaOrganization/eveInternalAuditEngine.ts
++++ b/server/cpaOrganization/eveInternalAuditEngine.ts
+@@ -1354,8 +1354,23 @@
+     const findings: InternalAuditFinding[] = [];
+     const reportStatus = report?.status || 'UNKNOWN';
+ 
+-    // 1. Physical Approval Object Inspection (Never trust report.signedOffBy or report flags)
++    // 0. Physical Approval & Quinn Review Note Check
+     const approval = context?.approvalObject || report?.approvalObject;
++    const quinnEligible = report?.quinnReview?.deliveryEligible !== false && report?.quinnReviewNote?.deliveryEligible !== false;
++    if (!quinnEligible || ['READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW_WITH_SYSTEM_FINDINGS', 'DRAFT', 'AI_PREPARED'].includes(reportStatus)) {
++      if (!approval) {
++        findings.push({
++          findingId: `FIND-GATE-${Date.now()}`,
++          severity: 'P1_PILOT_BLOCKER',
++          category: 'DELIVERY_GATE',
++          proofLevel: 'PRODUCT_VERIFIED',
++          title: 'Delivery Gate Blocked Pending Authorized CPA Review',
++          description: `Deliverable status (${reportStatus}) and review state require physical human partner approval prior to delivery release.`,
++          evidence: `quinnEligible=${quinnEligible}, reportStatus=${reportStatus}`,
++          remediationStatus: 'UNRESOLVED'
++        });
++      }
++    }
+     if (['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus)) {
+       if (!approval) {
+         findings.push({
+--- a/server/cpaOrganization/verifiedCustomerContinuationService.ts
++++ b/server/cpaOrganization/verifiedCustomerContinuationService.ts
+@@ -217,6 +217,35 @@
+     try {
+       const p = this.statePath(jobId);
+       return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : null;
++    } catch {
++      return null;
++    }
++  }
++
++  public getContinuationByEngagementId(engagementId: string): VerifiedContinuationState | null {
++    try {
++      if (!fs.existsSync(this.storageDir)) return null;
++      const files = fs.readdirSync(this.storageDir).filter(f => f.endsWith('.json'));
++      const candidates: VerifiedContinuationState[] = [];
++      for (const file of files) {
++        try {
++          const raw = fs.readFileSync(path.join(this.storageDir, file), 'utf-8');
++          const state = JSON.parse(raw) as VerifiedContinuationState;
++          if (state && (state.engagementId === engagementId || state.workspaceId === engagementId || state.continuationId === engagementId || state.jobId === engagementId)) {
++            candidates.push(state);
++          }
++        } catch {
++          // Explicitly ignore corrupt or partial records
++        }
++      }
++      if (candidates.length === 0) return null;
++      // Sort deterministically by latest updatedAt or completedAt
++      candidates.sort((a, b) => {
++        const timeA = new Date(a.updatedAt || a.completedAt || 0).getTime();
++        const timeB = new Date(b.updatedAt || b.completedAt || 0).getTime();
++        return timeB - timeA;
++      });
++      return candidates[0];
+     } catch {
+       return null;
+     }
+@@ -447,10 +476,15 @@
+       const disclosureEvidenceGaps = Object.entries(disclosureLedger.topicCounts)
+         .filter(([, count]) => Number(count) === 0)
+         .map(([topic]) => `DISCLOSURE_EVIDENCE_GAP:${topic}`);
++      const formatUncertainty = (u: any): string => {
++        if (typeof u === 'string') return u;
++        if (typeof u === 'object' && u !== null) return u.description || u.topic || u.text || JSON.stringify(u);
++        return String(u);
++      };
+       const systemFindings = [
+         ...swarm.jobs
+           .filter(j => j.status !== 'JOB_COMPLETED_SUCCESS')
+-          .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.join(' | ')}` : ''}`),
++          .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.map(formatUncertainty).join(' | ')}` : ''}`),
+         ...disclosureEvidenceGaps
+       ];
+       const technicalPass = internalTruthAudit.compliant && minervaLiveValidation.certifiedStatus === 'TECHNICAL_VALIDATION_PASSED';
+@@ -463,7 +497,7 @@
+         status: finalStatus,
+         completedAt: new Date().toISOString(),
+         systemFindings,
+-        reviewFindings: swarm.jobs.flatMap(j => (j.uncertainties || []).map(u => `${j.agentId}: ${u}`))
++        reviewFindings: swarm.jobs.flatMap(j => (j.uncertainties || []).map(u => `${j.agentId}: ${formatUncertainty(u)}`))
+       });
+     } catch (err: any) {
+       return this.persist({
