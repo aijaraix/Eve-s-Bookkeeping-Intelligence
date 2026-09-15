@@ -603,6 +603,9 @@ export class RealBrowserCustomerSimulatorEngine {
         const grades: any[] = [];
         for (const view of ['financials-income', 'financials-balance']) {
           await navigate(view);
+          // The route marker changes before its asynchronous accounting rows render.
+          // Wait for real cells; the grader still rejects missing or unsupported values.
+          await waitWithPriority('[data-eve-financial-value="true"]', 30000);
           const screenshot = path.join(evidenceDir, `${view}.png`);
           await page.screenshot({ path: screenshot, fullPage: true });
           const grade = await auditor.gradeFinancialScreen(await detail(), screenshot, params.academy.expectedMetrics?.[view] || {});
@@ -637,7 +640,11 @@ export class RealBrowserCustomerSimulatorEngine {
           await checkCustomerPriority();
           if (Date.now() > deadline) throw new Error('DRAFT_GENERATION_TIMEOUT');
           await new Promise(resolve => setTimeout(resolve, 5000));
-          await page.click('[data-eve-action-id="draft.refresh"]');
+          // Refresh clears the list while its request is in flight. Observe the
+          // completed response before another refresh can erase the download control.
+          if (!(await page.$('[data-eve-action-id="draft.download.pdf"]'))) {
+            await page.click('[data-eve-action-id="draft.refresh"]');
+          }
         }
         const downloadDir = path.join(evidenceDir, 'downloads', crypto.randomUUID());
         fs.mkdirSync(downloadDir, { recursive: true });
