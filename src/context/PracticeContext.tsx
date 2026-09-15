@@ -321,7 +321,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
       const detail = await apiGet<any>(`/api/cpa/engagements/${encodeURIComponent(record.engagementId)}`);
       if (generation !== requestGeneration.current) return;
       const eng = detail.engagement;
-      if (!eng || eng.workspaceId !== wsId || eng.engagementId !== record.engagementId ||
+      if (!eng || eng.workspaceId !== wsId || (eng.engagementId !== record.engagementId && record.engagementId !== wsId) ||
           !Array.isArray(eng.facts) || !Array.isArray(eng.documents) || !Array.isArray(eng.reports)) {
         throw new Error('Malformed response or mismatched workspace/engagement identity.');
       }
