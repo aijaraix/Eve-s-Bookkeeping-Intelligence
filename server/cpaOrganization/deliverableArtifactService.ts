@@ -147,7 +147,7 @@ export class DeliverableArtifactService {
           const record: DeliverableArtifactRecord = {
             reportId,
             engagementId,
-            workspaceId: `workspace-${engagementId}`,
+            workspaceId: data.workspaceId || engagementId,
             version,
             title: data.title || `${data.clientName || 'Practice Client'} Audited Financial Deliverable Package`,
             deliverableType: 'AUDIT_FINANCIAL_DELIVERABLE',
@@ -247,7 +247,7 @@ export class DeliverableArtifactService {
           };
 
           const existing = this.artifacts.get(engagementId) || [];
-          if (!existing.some(e => e.reportId === reportId)) {
+          if (!existing.some(e => e.reportId === reportId && e.version === version)) {
             existing.push(record);
             this.artifacts.set(engagementId, existing);
             rehydratedCount++;
@@ -497,7 +497,7 @@ export class DeliverableArtifactService {
     const record: DeliverableArtifactRecord = {
       reportId,
       engagementId,
-      workspaceId: params.workspaceId || `workspace-${engagementId}`,
+      workspaceId: params.workspaceId || engagementId,
       version,
       title,
       deliverableType: params.deliverableType || 'AUDIT_FINANCIAL_DELIVERABLE',
@@ -551,7 +551,7 @@ export class DeliverableArtifactService {
       disclosureEvidenceLedger: params.disclosureEvidenceLedger || undefined
     };
 
-    const updatedList = existing.filter(r => r.reportId !== reportId);
+    const updatedList = existing.filter(r => !(r.reportId === reportId && r.version === version));
     updatedList.push(record);
     this.artifacts.set(engagementId, updatedList);
 
@@ -762,19 +762,32 @@ export class DeliverableArtifactService {
   }
 
   public getArtifactByReportId(reportId: string, version?: string): DeliverableArtifactRecord | undefined {
-    for (const list of this.artifacts.values()) {
-      const found = list.find(r => r.reportId === reportId && (!version || r.version === version));
-      if (found) return found;
-    }
+    const findInLists = (): DeliverableArtifactRecord | undefined => {
+      const candidates: DeliverableArtifactRecord[] = [];
+      for (const list of this.artifacts.values()) {
+        for (const r of list) {
+          if (r.reportId === reportId) {
+            if (version) {
+              if (r.version === version) return r;
+            } else {
+              candidates.push(r);
+            }
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
+        return candidates[0];
+      }
+      return undefined;
+    };
+
+    const firstTry = findInLists();
+    if (firstTry) return firstTry;
 
     // On-demand fallback: re-scan storageDir if not yet in memory
     this.rehydrateFromDisk();
-    for (const list of this.artifacts.values()) {
-      const found = list.find(r => r.reportId === reportId && (!version || r.version === version));
-      if (found) return found;
-    }
-
-    return undefined;
+    return findInLists();
   }
 }
 

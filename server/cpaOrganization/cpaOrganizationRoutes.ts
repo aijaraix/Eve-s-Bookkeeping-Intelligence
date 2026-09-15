@@ -1120,17 +1120,20 @@ export function createCPAOrganizationRouter(): Router {
   router.get(['/report/download-pdf', '/reports/download-pdf'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.pdf?.filepath || !fs.existsSync(artifact.formats.pdf.filepath)) {
-        return res.status(404).json({ error: 'PDF artifact not found or not yet generated.' });
+      if (!artifact?.formats?.pdf?.filepath || !fs.existsSync(artifact.formats.pdf.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `PDF artifact for version ${version} not found.` : 'PDF artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.pdf.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.pdf.sha256);
+      if (artifact.formats.pdf.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.pdf.sha256);
+      }
       res.sendFile(artifact.formats.pdf.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1140,17 +1143,20 @@ export function createCPAOrganizationRouter(): Router {
   router.get(['/report/download-xlsx', '/reports/download-xlsx'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.xlsx?.filepath || !fs.existsSync(artifact.formats.xlsx.filepath)) {
-        return res.status(404).json({ error: 'XLSX artifact not found or not yet generated.' });
+      if (!artifact?.formats?.xlsx?.filepath || !fs.existsSync(artifact.formats.xlsx.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `XLSX artifact for version ${version} not found.` : 'XLSX artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.xlsx.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.xlsx.sha256);
+      if (artifact.formats.xlsx.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.xlsx.sha256);
+      }
       res.sendFile(artifact.formats.xlsx.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1160,17 +1166,20 @@ export function createCPAOrganizationRouter(): Router {
   router.get(['/report/download-json', '/reports/download-json'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.json?.filepath || !fs.existsSync(artifact.formats.json.filepath)) {
-        return res.status(404).json({ error: 'JSON artifact not found or not yet generated.' });
+      if (!artifact?.formats?.json?.filepath || !fs.existsSync(artifact.formats.json.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `JSON artifact for version ${version} not found.` : 'JSON artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.json.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.json.sha256);
+      if (artifact.formats.json.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.json.sha256);
+      }
       res.sendFile(artifact.formats.json.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1180,17 +1189,20 @@ export function createCPAOrganizationRouter(): Router {
   router.get(['/report/download-csv', '/reports/download-csv'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
+      const version = req.query.version ? String(req.query.version).trim() : undefined;
       const artifact = reportId
-        ? deliverableArtifactService.getArtifactByReportId(reportId)
+        ? deliverableArtifactService.getArtifactByReportId(reportId, version)
         : deliverableArtifactService.getArtifacts('eng-sim-canary-01')[0];
 
-      if (!artifact?.formats?.csvLeadSchedules?.filepath || !fs.existsSync(artifact.formats.csvLeadSchedules.filepath)) {
-        return res.status(404).json({ error: 'CSV artifact not found or not yet generated.' });
+      if (!artifact?.formats?.csvLeadSchedules?.filepath || !fs.existsSync(artifact.formats.csvLeadSchedules.filepath) || (version && artifact.version !== version)) {
+        return res.status(404).json({ error: version ? `CSV artifact for version ${version} not found.` : 'CSV artifact not found or not yet generated.' });
       }
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${artifact.formats.csvLeadSchedules.filename}"`);
-      res.setHeader('X-Artifact-SHA256', artifact.formats.csvLeadSchedules.sha256);
+      if (artifact.formats.csvLeadSchedules.sha256) {
+        res.setHeader('X-Artifact-SHA256', artifact.formats.csvLeadSchedules.sha256);
+      }
       res.sendFile(artifact.formats.csvLeadSchedules.filepath);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

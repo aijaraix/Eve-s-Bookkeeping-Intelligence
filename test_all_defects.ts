@@ -1,3 +1,4 @@
+process.env.TEST_MODE = 'true';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -5,6 +6,7 @@ import { universalEngagementManager } from './server/cpaOrganization/universalEn
 import { verifiedCustomerContinuationService, formatUncertainty } from './server/cpaOrganization/verifiedCustomerContinuationService.js';
 import { deliverableArtifactService } from './server/cpaOrganization/deliverableArtifactService.js';
 import { eveInternalAuditEngine } from './server/cpaOrganization/eveInternalAuditEngine.js';
+import { professionalSignoffGuard } from './server/cpaOrganization/professionalSignoffGuard.js';
 
 function request(options: http.RequestOptions, postData?: any): Promise<{ statusCode?: number; headers: http.IncomingHttpHeaders; body: any }> {
   return new Promise((resolve, reject) => {
@@ -171,14 +173,47 @@ async function runVerification() {
     const aiSignedOk = aiSigned.compliant === false && aiSigned.deliveryGateStatus === 'DELIVERY_BLOCKED_PENDING_REVIEW';
 
     // 4. Authentic Physical Human Partner Sign-off: PASSES both compliance and delivery eligibility
+    professionalSignoffGuard.registerTrustedPrincipal({
+      principalId: 'usr-partner-steve-01',
+      displayName: 'Steve Stein, CPA',
+      email: 'sstein@cpa-audit.com',
+      isHuman: true,
+      role: 'ENGAGEMENT_PARTNER',
+      licenseDetails: {
+        licenseNumber: 'CPA-NY-094821',
+        jurisdiction: 'NY',
+        status: 'ACTIVE',
+        verificationSource: 'STATE_BOARD_OF_ACCOUNTANCY',
+        verifiedAt: '2026-01-01T00:00:00Z'
+      },
+      authorizedEngagements: ['eng-test-human'],
+      sessionValid: true,
+      status: 'ACTIVE'
+    });
+
     const validHumanAudit = eveInternalAuditEngine.auditDeliverableTruth({
       reportId: 'REP-TEST-HUMAN',
+      engagementId: 'eng-test-human',
+      version: '1.0',
       status: 'FINAL_CERTIFIED',
+      formats: { pdf: { sha256: 'a'.repeat(64) } },
       approvalObject: {
+        principalId: 'usr-partner-steve-01',
+        authorizedRole: 'ENGAGEMENT_PARTNER',
         status: 'APPROVED',
+        approvalStatus: 'APPROVED',
         signatureType: 'PHYSICAL_HUMAN',
         approverName: 'Steve Stein, CPA',
-        approverLicenseNumber: 'CPA-NY-094821'
+        approverLicenseNumber: 'CPA-NY-094821',
+        engagementId: 'eng-test-human',
+        reportId: 'REP-TEST-HUMAN',
+        reportVersion: '1.0',
+        reportHash: 'a'.repeat(64),
+        authenticationContext: {
+          sessionId: 'sess-test-01',
+          authenticationMethod: 'BEARER_TOKEN',
+          timestamp: new Date().toISOString()
+        }
       },
       facts: []
     });
