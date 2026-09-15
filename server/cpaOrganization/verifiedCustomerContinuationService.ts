@@ -66,6 +66,25 @@ export function isProofCompleteFact(fact: any): boolean {
     Boolean(String(fact?.sourceText || fact?.source_text || '').trim());
 }
 
+export function formatUncertainty(u: any): string {
+  if (u === null || u === undefined) return '';
+  if (typeof u === 'string') return u;
+  if (typeof u === 'number' || typeof u === 'boolean') return String(u);
+  if (typeof u === 'object') {
+    if (u.topic && u.description) return `[${u.topic}] ${u.description}`;
+    if (u.description) return String(u.description);
+    if (u.topic) return String(u.topic);
+    if (u.text) return String(u.text);
+    if (u.message) return String(u.message);
+    try {
+      return JSON.stringify(u);
+    } catch {
+      return String(u);
+    }
+  }
+  return String(u);
+}
+
 export function selectProofCompleteFacts(facts: any[], workspaceId: string): any[] {
   return (facts || []).filter(f => (f.workspaceId === workspaceId || f.workspace_id === workspaceId) && isProofCompleteFact(f));
 }
@@ -476,11 +495,6 @@ export class VerifiedCustomerContinuationService {
       const disclosureEvidenceGaps = Object.entries(disclosureLedger.topicCounts)
         .filter(([, count]) => Number(count) === 0)
         .map(([topic]) => `DISCLOSURE_EVIDENCE_GAP:${topic}`);
-      const formatUncertainty = (u: any): string => {
-        if (typeof u === 'string') return u;
-        if (typeof u === 'object' && u !== null) return u.description || u.topic || u.text || JSON.stringify(u);
-        return String(u);
-      };
       const systemFindings = [
         ...swarm.jobs
           .filter(j => j.status !== 'JOB_COMPLETED_SUCCESS')

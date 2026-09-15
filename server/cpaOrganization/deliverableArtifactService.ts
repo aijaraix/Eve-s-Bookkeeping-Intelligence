@@ -761,16 +761,16 @@ export class DeliverableArtifactService {
     return all.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
   }
 
-  public getArtifactByReportId(reportId: string): DeliverableArtifactRecord | undefined {
+  public getArtifactByReportId(reportId: string, version?: string): DeliverableArtifactRecord | undefined {
     for (const list of this.artifacts.values()) {
-      const found = list.find(r => r.reportId === reportId);
+      const found = list.find(r => r.reportId === reportId && (!version || r.version === version));
       if (found) return found;
     }
 
     // On-demand fallback: re-scan storageDir if not yet in memory
     this.rehydrateFromDisk();
     for (const list of this.artifacts.values()) {
-      const found = list.find(r => r.reportId === reportId);
+      const found = list.find(r => r.reportId === reportId && (!version || r.version === version));
       if (found) return found;
     }
 

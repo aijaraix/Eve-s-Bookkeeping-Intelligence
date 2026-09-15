@@ -17,6 +17,7 @@ import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
 import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
 import { verifiedCustomerContinuationService } from "./server/cpaOrganization/verifiedCustomerContinuationService.js";
+import { deliverableArtifactService } from "./server/cpaOrganization/deliverableArtifactService.js";
 import { runtimeAuthorityManifestManager } from "./server/cpaOrganization/runtimeAuthorityManifest.js";
 import { getLLMGatewayMetrics, getGeminiDiagnosticStatus } from "./server/llmGateway.js";
 import { DiagnosticsEngine } from "./server/diagnosticsEngine.js";
@@ -3404,28 +3405,46 @@ app.get("/api/reports", (req, res) => {
   const list = (db.reports || []).filter((r: any) => !workspaceId || r.workspaceId === workspaceId);
   try {
     const artifacts = deliverableArtifactService.getAllArtifacts();
+    let targetEngagementId: string | null = null;
+    let targetWorkspaceId: string | null = null;
+    if (workspaceId) {
+      const qWs = String(workspaceId);
+      targetWorkspaceId = qWs;
+      const cont = verifiedCustomerContinuationService.getContinuationByEngagementId(qWs);
+      if (cont) {
+        targetEngagementId = cont.engagementId;
+        if (!targetWorkspaceId && cont.workspaceId) targetWorkspaceId = cont.workspaceId;
+      }
+    }
     for (const art of artifacts) {
-      if (!workspaceId || art.engagementId === workspaceId || art.workspaceId === workspaceId || art.reportId.includes(String(workspaceId).replace('ws-', ''))) {
+      const matches = !workspaceId ||
+        art.workspaceId === targetWorkspaceId ||
+        art.engagementId === targetWorkspaceId ||
+        (targetEngagementId !== null && art.engagementId === targetEngagementId);
+      if (matches) {
         const existing = list.find((r: any) => r.id === art.reportId || r.reportId === art.reportId);
         if (!existing) {
           list.push({
             id: art.reportId,
             reportId: art.reportId,
-            workspaceId: art.workspaceId || art.engagementId,
+            workspaceId: art.workspaceId || targetWorkspaceId || art.engagementId,
             engagementId: art.engagementId,
             title: art.title,
             deliverableType: art.deliverableType,
             version: art.version,
             status: art.status,
             generatedAt: art.generatedAt,
-            numericFactsCount: art.numericFactsCount,
+            numericFactsCount: (art as any).numericFactsCount,
             pdfPath: art.formats?.pdf?.filepath,
             jsonPath: art.formats?.json?.filepath
           });
         }
       }
     }
-  } catch (e) {}
+  } catch (e: any) {
+    console.error("[/api/reports] Error fetching deliverable artifacts:", e);
+    return res.status(500).json({ success: false, error: e?.message || "Failed to load deliverable artifacts" });
+  }
   res.json({ success: true, reports: list });
 });
 

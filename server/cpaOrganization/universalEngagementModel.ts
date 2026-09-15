@@ -99,6 +99,7 @@ export interface UniversalEngagementDetail extends UniversalEngagementSummary {
     pagesCount?: number;
   }>;
   facts?: Array<any>;
+  financialFacts?: Array<any>;
   pbcRequests: Array<{
     requestId: string;
     requestedByAgent: string;
@@ -234,14 +235,7 @@ export class UniversalEngagementManager {
     try {
       const fs = await import('fs');
       const path = await import('path');
-      const targetDir = path.join(process.cwd(), 'storage');
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || path.join(targetDir, 'ai_cpa_storage.json');
-      if (!fs.existsSync(storageFile)) {
-        fs.writeFileSync(storageFile, JSON.stringify({ workspaces: [], documents: [], facts: [], reports: [] }, null, 2), 'utf-8');
-      }
+      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || path.join(process.cwd(), 'storage', 'ai_cpa_storage.json');
       if (fs.existsSync(storageFile)) {
         const raw = fs.readFileSync(storageFile, 'utf-8');
         const db = JSON.parse(raw);
@@ -265,22 +259,22 @@ export class UniversalEngagementManager {
             entityName: ws.name || 'Client Legal Entity',
             industry: isAcademyRun ? (ws.name?.includes('Bio') ? 'Biotechnology & Pharmaceuticals' : ws.name?.includes('Cybernetics') ? 'Defense & Robotics' : 'Industrial Engineering') : 'Commercial / Client Account',
             jurisdiction: ws.country || 'US',
-            period: 'FY 2025',
+            period: ws.period || (wsFacts.find((f: any) => f.reportingPeriod)?.reportingPeriod) || (isAcademyRun ? 'FY 2025' : 'FY 2024'),
             framework: 'US_GAAP',
             functionalCurrency: ws.currency || 'USD',
             presentationCurrency: ws.currency || 'USD',
-            currentStage: wsFacts.length > 0 ? 'ENGAGEMENT_COMPLETE' : 'ONBOARDING',
-            stageProgressPercent: wsFacts.length > 0 ? 100 : 15,
-            assignedPartner: 'Steve Stein, CPA',
+            currentStage: wsFacts.length > 0 ? (wsReports.length > 0 ? 'FINAL_DELIVERABLE' : 'EVIDENCE_REVIEW') : 'ONBOARDING',
+            stageProgressPercent: wsFacts.length > 0 ? (wsReports.length > 0 ? 85 : 50) : 15,
+            assignedPartner: ws.assignedPartner || ws.partner || (isAcademyRun ? 'Steve Stein, CPA' : undefined),
             assignedManager: 'CPA Lead Senior',
             leadAgents: ['eve-hermes', 'eve-ledger', 'eve-veritas'],
-            documentsCount: wsDocs.length > 0 ? wsDocs.length : (wsFacts.length > 0 ? 1 : 0),
+            documentsCount: wsDocs.length,
             canonicalFactsCount: wsFacts.length,
             openPbcCount: 0,
-            clearedPbcCount: wsFacts.length > 0 ? 2 : 0,
+            clearedPbcCount: (ws.pbcRequests || []).filter((p: any) => p.status === 'CLEARED').length,
             openReviewNotesCount: wsFindings.filter((f: any) => f.status !== 'Auto Resolved').length,
             clearedReviewNotesCount: wsFindings.filter((f: any) => f.status === 'Auto Resolved').length,
-            reportsGeneratedCount: wsReports.length > 0 ? wsReports.length : (wsFacts.length > 0 ? 1 : 0),
+            reportsGeneratedCount: wsReports.length,
             materiality: {
               overallMateriality: 2500000,
               performanceMateriality: 1875000,
@@ -289,7 +283,7 @@ export class UniversalEngagementManager {
             },
             startedAt: ws.createdAt || new Date().toISOString(),
             lastActivityAt: ws.updatedAt || ws.createdAt || new Date().toISOString(),
-            minervaOverallScore: wsFacts.length > 0 ? 100 : undefined,
+            minervaOverallScore: ws.minervaOverallScore !== undefined ? ws.minervaOverallScore : undefined,
             numericVariance: 0.000,
             crossEngagementLeakageScore: 0.000,
             notes: isAcademyRun ? 'Historical Academy practice run' : 'Commercial customer engagement'
@@ -405,7 +399,12 @@ export class UniversalEngagementManager {
    */
   public async getEngagementDetail(engagementId: string): Promise<UniversalEngagementDetail | null> {
     const all = await this.getAllEngagements({ classification: 'ALL', status: 'ALL' });
-    const summary = all.find(e => e.engagementId === engagementId || e.engagementId === `eng-${engagementId}`);
+    const summary = all.find(e =>
+      e.engagementId === engagementId ||
+      e.engagementId === `eng-${engagementId}` ||
+      e.clientId === engagementId ||
+      (e.engagementId?.startsWith('eng-') && e.engagementId.replace('eng-', '') === engagementId)
+    );
     if (!summary) return null;
 
     let pbcRequests: any[] = [];
@@ -486,7 +485,7 @@ export class UniversalEngagementManager {
 
     // Check storage for workspace-specific documents, facts, and reports
     try {
-      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || (fs.existsSync(path.join(process.cwd(), 'storage', 'ai_cpa_storage.json')) ? path.join(process.cwd(), 'storage', 'ai_cpa_storage.json') : path.join(process.cwd(), 'ai_cpa_storage.json'));
+      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || path.join(process.cwd(), 'storage', 'ai_cpa_storage.json');
       if (fs.existsSync(storageFile)) {
         const raw = fs.readFileSync(storageFile, 'utf-8');
         const db = JSON.parse(raw);

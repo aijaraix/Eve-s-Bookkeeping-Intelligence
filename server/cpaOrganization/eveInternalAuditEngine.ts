@@ -1354,24 +1354,30 @@ export class EveInternalAuditEngine {
     const findings: InternalAuditFinding[] = [];
     const reportStatus = report?.status || 'UNKNOWN';
 
-    // 0. Physical Approval & Quinn Review Note Check
+    // Helper: validate authentic, scoped, non-revoked physical human approval
     const approval = context?.approvalObject || report?.approvalObject;
+    const isAuthenticHumanApproval = (app: any): boolean => {
+      if (!app || typeof app !== 'object') return false;
+      if (app.revoked === true || app.status === 'REVOKED') return false;
+      const st = String(app.status || app.approvalStatus || '').toUpperCase();
+      if (st !== 'APPROVED' && st !== 'GRANTED' && st !== 'PHYSICAL_HUMAN_SIGN_OFF') return false;
+      if (app.signatureType && app.signatureType !== 'PHYSICAL_HUMAN') return false;
+      if (app.isAiGenerated === true || app.signedByAi === true) return false;
+      const approverName = String(app.approverName || app.signerName || '').trim().toUpperCase();
+      if (!approverName || approverName.includes('QUINN') || approverName.includes('AI') || approverName.includes('BOT')) return false;
+      if (!app.approverLicenseNumber || String(app.approverLicenseNumber).trim().length === 0) return false;
+      if (app.reportId && report?.reportId && app.reportId !== report.reportId) return false;
+      if (app.version && report?.version && app.version !== report.version) return false;
+      if (app.reportSha256 && report?.formats?.pdf?.sha256 && app.reportSha256 !== report.formats.pdf.sha256) return false;
+      return true;
+    };
+
+    const hasValidHumanApproval = isAuthenticHumanApproval(approval);
     const quinnEligible = report?.quinnReview?.deliveryEligible !== false && report?.quinnReviewNote?.deliveryEligible !== false;
-    if (!quinnEligible || ['READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW_WITH_SYSTEM_FINDINGS', 'DRAFT', 'AI_PREPARED'].includes(reportStatus)) {
-      if (!approval) {
-        findings.push({
-          findingId: `FIND-GATE-${Date.now()}`,
-          severity: 'P1_PILOT_BLOCKER',
-          category: 'DELIVERY_GATE',
-          proofLevel: 'PRODUCT_VERIFIED',
-          title: 'Delivery Gate Blocked Pending Authorized CPA Review',
-          description: `Deliverable status (${reportStatus}) and review state require physical human partner approval prior to delivery release.`,
-          evidence: `quinnEligible=${quinnEligible}, reportStatus=${reportStatus}`,
-          remediationStatus: 'UNRESOLVED'
-        });
-      }
-    }
-    if (['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus)) {
+    const isDraftState = ['READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW_WITH_SYSTEM_FINDINGS', 'DRAFT', 'AI_PREPARED', 'UNKNOWN'].includes(reportStatus);
+    const isCertifiedState = ['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus);
+
+    if (isCertifiedState) {
       if (!approval) {
         findings.push({
           findingId: `FIND-SIGNOFF-${Date.now()}-1`,
@@ -1384,27 +1390,15 @@ export class EveInternalAuditEngine {
           remediationStatus: 'UNRESOLVED'
         });
       } else {
-        if (approval.signatureType !== 'PHYSICAL_HUMAN') {
+        if (!hasValidHumanApproval) {
           findings.push({
             findingId: `FIND-SIGNOFF-${Date.now()}-2`,
             severity: 'P0_CRITICAL_TRUTH_OR_SECURITY',
             category: 'PROFESSIONAL_SIGN_OFF',
             proofLevel: 'PRODUCT_VERIFIED',
-            title: 'Prohibited AI Autonomous Sign-off',
-            description: `Deliverable approval was generated with signatureType=${approval.signatureType}. Only physical human credentials may certify deliverables.`,
+            title: 'Invalid, AI, or Unscoped Signatory for Certified Deliverable',
+            description: `Deliverable claims certified status but attached approval fails authentic human partner validation.`,
             evidence: JSON.stringify(approval),
-            remediationStatus: 'UNRESOLVED'
-          });
-        }
-        if (!approval.approverLicenseNumber || !approval.approverName || approval.approverName.toUpperCase().includes('QUINN') || approval.approverName.toUpperCase().includes('AI')) {
-          findings.push({
-            findingId: `FIND-SIGNOFF-${Date.now()}-3`,
-            severity: 'P1_PILOT_BLOCKER',
-            category: 'PROFESSIONAL_SIGN_OFF',
-            proofLevel: 'PRODUCT_VERIFIED',
-            title: 'Invalid or AI Signatory Identity',
-            description: `Approver identity (${approval.approverName}) violates separation between AI agents and human signing authority.`,
-            evidence: `Name: ${approval.approverName}, License: ${approval.approverLicenseNumber}`,
             remediationStatus: 'UNRESOLVED'
           });
         }
@@ -1469,12 +1463,17 @@ export class EveInternalAuditEngine {
     const p1 = findings.filter(f => f.severity === 'P1_PILOT_BLOCKER').length;
     const compliant = p0 === 0 && p1 === 0;
 
+    const deliveryEligible = compliant && quinnEligible && hasValidHumanApproval && !isDraftState;
+    const deliveryGateStatus = deliveryEligible ? 'ELIGIBLE_FOR_DELIVERY' : 'DELIVERY_BLOCKED_PENDING_REVIEW';
+
     return {
       compliant,
       findings,
-      deliveryGateStatus: compliant ? 'ELIGIBLE_FOR_DELIVERY' : 'DELIVERY_BLOCKED_PENDING_REVIEW',
+      deliveryGateStatus,
       summary: compliant
-        ? 'Deliverable passed independent internal audit truth inspection.'
+        ? (deliveryEligible
+            ? 'Deliverable passed independent internal audit truth inspection and is authorized for external delivery.'
+            : 'Deliverable passed technical truth inspection. External delivery blocked pending authorized human review.')
         : `Deliverable failed independent internal audit: ${p0} P0 and ${p1} P1 findings.`
     };
   }

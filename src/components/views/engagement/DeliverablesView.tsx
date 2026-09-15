@@ -88,15 +88,16 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
     fetchReports();
   }, [typeFilter, searchQuery]);
 
-  const downloadReportFile = (reportId: string, format: 'pdf' | 'xlsx' | 'csv' | 'json') => {
+  const downloadReportFile = (reportId: string, format: 'pdf' | 'xlsx' | 'csv' | 'json', version?: string) => {
+    const vParam = version ? `&version=${encodeURIComponent(version)}` : '';
     if (format === 'pdf') {
-      window.open(`/api/cpa/report/download-pdf?reportId=${encodeURIComponent(reportId)}`, '_blank');
+      window.open(`/api/cpa/report/download-pdf?reportId=${encodeURIComponent(reportId)}${vParam}`, '_blank');
     } else if (format === 'xlsx') {
-      window.open(`/api/cpa/report/download-xlsx?reportId=${encodeURIComponent(reportId)}`, '_blank');
+      window.open(`/api/cpa/report/download-xlsx?reportId=${encodeURIComponent(reportId)}${vParam}`, '_blank');
     } else if (format === 'csv') {
-      window.open(`/api/cpa/report/download-csv?reportId=${encodeURIComponent(reportId)}`, '_blank');
+      window.open(`/api/cpa/report/download-csv?reportId=${encodeURIComponent(reportId)}${vParam}`, '_blank');
     } else {
-      window.open(`/api/cpa/audit-report/download?format=json&reportId=${encodeURIComponent(reportId)}`, '_blank');
+      window.open(`/api/cpa/report/download-json?reportId=${encodeURIComponent(reportId)}${vParam}`, '_blank');
     }
   };
 
@@ -290,7 +291,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                     {rep.formatsAvailable.pdf && (
                       <button
                         type="button"
-                        onClick={() => downloadReportFile(rep.reportId, 'pdf')}
+                        onClick={() => downloadReportFile(rep.reportId, 'pdf', rep.version)}
                         className="px-2.5 py-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-md cursor-pointer transition flex items-center gap-1"
                         title="Download Certified PDF Report"
                       >
@@ -301,7 +302,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                     {rep.formatsAvailable.xlsx && (
                       <button
                         type="button"
-                        onClick={() => downloadReportFile(rep.reportId, 'xlsx')}
+                        onClick={() => downloadReportFile(rep.reportId, 'xlsx', rep.version)}
                         className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md cursor-pointer transition flex items-center gap-1"
                         title="Download Multi-Tab Excel Workbook"
                       >
@@ -312,7 +313,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                     {rep.formatsAvailable.csv && (
                       <button
                         type="button"
-                        onClick={() => downloadReportFile(rep.reportId, 'csv')}
+                        onClick={() => downloadReportFile(rep.reportId, 'csv', rep.version)}
                         className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md cursor-pointer transition flex items-center gap-1"
                         title="Download CSV Lead Schedules"
                       >
@@ -323,7 +324,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                     {rep.formatsAvailable.json && (
                       <button
                         type="button"
-                        onClick={() => downloadReportFile(rep.reportId, 'json')}
+                        onClick={() => downloadReportFile(rep.reportId, 'json', rep.version)}
                         className="px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md cursor-pointer transition flex items-center gap-1"
                         title="Download Complete JSON Audit Package"
                       >
