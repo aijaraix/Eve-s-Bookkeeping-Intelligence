@@ -9,7 +9,20 @@ const MAX_LOGIN_BODY_BYTES = 4096;
 const attempts = new Map<string, { count: number; resetAt: number }>();
 
 function operatorSecret(): string {
-  return (process.env.EVE_OPERATOR_PIN || process.env.PASSWORD || '').trim();
+  return (process.env.PASSWORD || process.env.EVE_OPERATOR_PIN || '').trim();
+}
+
+export function deriveDevelopmentPin(secret: string): string {
+  if (!secret) return '';
+  const bytes = crypto.createHmac('sha256', secret).update('eve-development-owner-pin:v1').digest();
+  return String(bytes.readUInt32BE(0) % 1_000_000).padStart(6, '0');
+}
+
+function operatorPin(): string {
+  const explicit = (process.env.EVE_OPERATOR_PIN || '').trim();
+  if (explicit) return explicit;
+  const protectedSecret = (process.env.PASSWORD || '').trim();
+  return deriveDevelopmentPin(protectedSecret);
 }
 
 function digest(value: string): Buffer {
@@ -133,10 +146,11 @@ export function operatorLogin(req: Request, res: Response): void {
   if (process.env.NODE_ENV !== 'production') { res.redirect(cleanNext(req.body?.next)); return; }
   res.setHeader('Cache-Control', 'no-store');
   const secret = operatorSecret();
-  if (!secret) { res.status(503).type('html').send(page('Owner PIN is not configured.', cleanNext(req.body?.next))); return; }
+  const expectedPin = operatorPin();
+  if (!secret || !expectedPin) { res.status(503).type('html').send(page('Owner PIN is not configured.', cleanNext(req.body?.next))); return; }
   if (isRateLimited(req)) { res.status(429).type('html').send(page('Too many attempts. Try again in a few minutes.', cleanNext(req.body?.next))); return; }
   const supplied = String(req.body?.pin || '').trim();
-  if (!supplied || !safeEqual(supplied, secret)) {
+  if (!supplied || !safeEqual(supplied, expectedPin)) {
     recordFailure(req);
     res.status(401).type('html').send(page('That PIN was not accepted.', cleanNext(req.body?.next)));
     return;
@@ -197,7 +211,6 @@ export function operatorAccess(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  // Protect even legacy GET routes with side effects from cross-site requests.
   const origin = req.get('origin');
   let sameOrigin = true;
   if (origin) {
@@ -206,6 +219,6 @@ export function operatorAccess(req: Request, res: Response, next: NextFunction):
   if (!sameOrigin || req.get('sec-fetch-site') === 'cross-site') {
     res.status(403).json({ error: 'CROSS_ORIGIN_OPERATOR_REQUEST_REJECTED' }); return;
   }
-  // Do not populate req.user/auth: professional authority is separately verified.
+  // Operator access is not professional approval; never populate req.user/auth here.
   next();
 }
