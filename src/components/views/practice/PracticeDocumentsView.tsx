@@ -1,3 +1,4 @@
+import { actionAttributes } from '../../../academy/uiActionRegistry';
 import React, { useState } from 'react';
 import { EvePageHeader } from '../../design-system/EvePageHeader';
 import { EveCard, EveCardHeader, EveCardTitle, EveCardContent } from '../../design-system/EveCard';
@@ -114,7 +115,7 @@ export const PracticeDocumentsView: React.FC<PracticeDocumentsViewProps> = ({
               </p>
               <button
                 type="button"
-                onClick={onOpenUpload}
+                {...actionAttributes('intake.open.documents')} onClick={onOpenUpload}
                 className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer"
               >
                 <UploadCloud className="w-4 h-4" />

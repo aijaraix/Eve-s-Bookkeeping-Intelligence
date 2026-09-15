@@ -71,6 +71,7 @@ export class IntakeService {
 
   public createIntakeSession(params: {
     requestedWorkspaceName?: string;
+    classification?: 'ACADEMY' | 'CUSTOMER';
     targetProjectId?: string | null;
     userId?: string;
     userEmail?: string;
@@ -90,6 +91,7 @@ export class IntakeService {
     const session: IntakeSessionRecord = {
       id: intakeId,
       targetProjectId: params.targetProjectId || null,
+      classification: params.classification || 'CUSTOMER',
       requestedWorkspaceName: params.targetProjectId ? undefined : params.requestedWorkspaceName,
       userId: params.userId || 'usr-default',
       userEmail: params.userEmail || '',
@@ -283,6 +285,7 @@ export class IntakeService {
       targetWs = {
         id: `ws-${Date.now()}`,
         name: intake.requestedWorkspaceName || primaryEntityName,
+        classification: intake.classification || 'CUSTOMER',
         code: `${cleanCode}-${Math.floor(100 + Math.random() * 900)}`,
         currency: resolvedCurrency,
         country: resolvedCurrency === 'USD' ? 'United States' : 'Consolidated Group',

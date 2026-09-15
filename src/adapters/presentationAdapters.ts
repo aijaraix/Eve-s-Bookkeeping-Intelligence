@@ -1,3 +1,4 @@
+import { renderRegistry } from '../utils/renderRegistry';
 /**
  * EVE FRONTEND — authoritative presentation adapters.
  *
@@ -84,7 +85,7 @@ function factNumber(fact: any): number | null {
 }
 
 function factCurrency(fact: any, fallback: string): string {
-  return fact?.currencyFunctional || fact?.currencyOriginal || fact?.currency || fallback;
+  return fact?.functionalCurrency || fact?.currencyFunctional || fact?.currencyOriginal || fact?.currency || fallback;
 }
 
 function factScale(fact: any): string {
@@ -125,8 +126,28 @@ function makeLine(
     sourceDocName: factSourceName(fact),
     sourcePage: factSourcePage(fact),
     factLineageId: fact?.id,
+    renderId: fact?.id ? renderRegistry.registerRender({
+      route: id.startsWith('bs-') ? 'financials-balance' : 'financials-income', screen: 'Financial statements',
+      component: 'EveFinancialTable', widget: id, factLineageId: fact.id, canonicalFactId: fact.id,
+      entityId: fact.entityId || fact.workspaceId || '', period, currency: lineCurrency, displayScale: factScale(fact),
+      displayValue: formatFinancialValue(value, lineCurrency), normalizedBaseValue: value,
+      verificationState: String(fact.verificationStatus).toUpperCase() === 'VERIFIED' ? 'VERIFIED' : 'REVIEW_REQUIRED'
+    }) : undefined,
     ...options
   };
+}
+
+function derivedLineage(metric: string, period: string, currency: string, operands: any[], values: number[], result: number, formula: string) {
+  const operandFactIds = operands.map(f => f?.id);
+  if (operandFactIds.some(id => !id)) return {};
+  const derivedCalculationId = `DER-${metric}-${period}-${operandFactIds.join('-')}`;
+  renderRegistry.registerDerivedCalculation({ derivedCalculationId, metric, formula, operandFactIds,
+    operandValues: Object.fromEntries(operandFactIds.map((id, i) => [id, values[i]])), result, timestamp: new Date().toISOString() });
+  const renderId = renderRegistry.registerRender({ route: metric === 'gross_profit' ? 'financials-income' : 'financials-balance',
+    screen: 'Financial statements', component: 'EveFinancialTable', widget: metric, factLineageId: '', derivedCalculationId,
+    entityId: operands[0]?.workspaceId || '', period, currency, displayScale: 'Source units',
+    displayValue: formatFinancialValue(result, currency), normalizedBaseValue: result, verificationState: 'REVIEW_REQUIRED' });
+  return { derivedCalculationId, operandFactIds, renderId };
 }
 
 export function formatFinancialValue(
@@ -283,7 +304,8 @@ export function adaptFactsToIncomeStatement(facts: any[] = [], period: string = 
     lines.push(makeLine('is-gross-profit', 'gross_profit', 'Gross Profit / (Loss)', gpFact, grossProfit, period, currency, {
       isSubtotal: true,
       verificationStatus: gpDirect !== null ? 'review_required' : 'calculated',
-      factLineageId: gpFact?.id
+      factLineageId: gpFact?.id,
+      ...(gpDirect === null ? derivedLineage('gross_profit', period, currency, [revFact, cogsFact], [revVal!, cogsVal!], grossProfit, 'revenue - cost_of_goods_sold') : {})
     }));
   }
 
@@ -343,7 +365,7 @@ export function adaptFactsToBalanceSheet(facts: any[] = [], period: string = 'Pe
     if (totalEquityVal !== null) lines.push(makeLine('bs-total-equity', 'total_equity', 'Total Stockholders Equity', equityFact, totalEquityVal, period, currency, { isSubtotal: true }));
     if (totalLiabVal !== null && totalEquityVal !== null) {
       const sum = totalLiabVal + totalEquityVal;
-      lines.push({ id: 'bs-total-liab-equity', label: 'Total Liabilities and Stockholders Equity', canonicalMetric: 'total_liabilities_and_equity', level: 0, isTotal: true, values: { [period]: sum }, formattedValues: { [period]: formatFinancialValue(sum, currency) }, currency, scale: 'Source units', verificationStatus: 'calculated' });
+      lines.push({ ...derivedLineage('total_liabilities_and_equity', period, currency, [liabilitiesFact, equityFact], [totalLiabVal, totalEquityVal], sum, 'total_liabilities + total_equity'), id: 'bs-total-liab-equity', label: 'Total Liabilities and Stockholders Equity', canonicalMetric: 'total_liabilities_and_equity', level: 0, isTotal: true, values: { [period]: sum }, formattedValues: { [period]: formatFinancialValue(sum, currency) }, currency, scale: 'Source units', verificationStatus: 'calculated' });
     }
   }
 

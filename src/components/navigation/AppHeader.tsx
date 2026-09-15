@@ -1,4 +1,5 @@
 import React from 'react';
+import { actionAttributes } from '../../academy/uiActionRegistry';
 import { cn } from '../../lib/utils';
 import {
   Search,
@@ -100,11 +101,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {onOpenUpload && (
           <button
             type="button"
+            aria-label="Intake / Upload" {...actionAttributes('intake.open.header')}
             onClick={onOpenUpload}
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer transition-colors"
           >
             <UploadCloud className="w-3.5 h-3.5" />
-            <span>Intake / Upload</span>
+            <span className="hidden sm:inline">Intake / Upload</span>
           </button>
         )}
 

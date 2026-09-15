@@ -33,6 +33,8 @@ export type ProcessingState =
   | 'FAILED';
 
 export interface SourceToPixelMetadata {
+  sourceText?: string;
+  documentId?: string;
   factLineageId?: string;
   renderId?: string;
   canonicalMetric?: string;
@@ -111,6 +113,8 @@ export interface EngagementSummary {
 }
 
 export interface StatementLinePresentation {
+  derivedCalculationId?: string;
+  operandFactIds?: string[];
   id: string;
   label: string;
   canonicalMetric?: string;

@@ -15,7 +15,8 @@
     "preview": "vite preview --host 0.0.0.0 --port 3000",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx run_tests.ts && tsx server/tests/company1StructuredOutputIntegrity.test.ts && tsx server/tests/company1CanonicalPromotionIntegrity.test.ts && tsx server/tests/company1DurableHandoff.test.ts && tsx server/tests/company1WorkspacePersistence.test.ts && tsx server/tests/company1AuthoritativeCurrency.test.ts && tsx server/tests/company1VerifiedContinuation.test.ts && tsx server/tests/company1BoundedLexiconReview.test.ts"
+    "test": "tsx run_tests.ts && tsx server/tests/company1StructuredOutputIntegrity.test.ts && tsx server/tests/company1CanonicalPromotionIntegrity.test.ts && tsx server/tests/company1DurableHandoff.test.ts && tsx server/tests/company1WorkspacePersistence.test.ts && tsx server/tests/company1AuthoritativeCurrency.test.ts && tsx server/tests/company1VerifiedContinuation.test.ts && tsx server/tests/company1BoundedLexiconReview.test.ts",
+    "build:academy": "esbuild scripts/academy-ui-tick.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/academy-ui-tick.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

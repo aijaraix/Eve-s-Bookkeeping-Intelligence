@@ -1,3 +1,4 @@
+import { actionAttributes } from '../academy/uiActionRegistry';
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import {
   Upload,
@@ -24,7 +25,7 @@ import {
 } from 'lucide-react';
 import { usePractice } from '../context/PracticeContext';
 import { ActiveView } from '../types';
-import { EMPTY_DISPLAY } from '../api/practiceClient';
+import { EMPTY_DISPLAY, apiGet } from '../api/practiceClient';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -44,7 +45,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   initialTargetProjectId
 }) => {
   const {
-    submitDocuments,
+    submitDocuments, observeSavedIntake,
     selectedWorkspaceId,
     companies,
     intakeStatus,
@@ -71,6 +72,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [newClientName, setNewClientName] = useState('');
   const [reportingStandard, setReportingStandard] = useState<'IFRS' | 'US_GAAP' | 'UK_FRS' | 'STATUTORY'>('IFRS');
   const [engagementCurrency, setEngagementCurrency] = useState('USD');
+  const [academyExercise, setAcademyExercise] = useState(false);
+  const [savedIntakes, setSavedIntakes] = useState<any[]>([]);
+  const [savedIntakeId, setSavedIntakeId] = useState('');
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void apiGet<any>('/api/academy/ui/intakes').then(result => { if (!cancelled) setSavedIntakes(result.intakes || []); }).catch(() => { if (!cancelled) setSavedIntakes([]); });
+    return () => { cancelled = true; };
+  }, [isOpen, userSession?.id]);
 
   // Live Analysis UI State
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -81,7 +91,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   useEffect(() => {
     setPhase('SETUP'); setSelectedFiles([]); setError(null); setLastCompletedJob(null);
     setNewEngagementName(''); setNewClientName(''); setTargetWorkspaceId('');
-    setRoutingMode('NEW_ENGAGEMENT');
+    setRoutingMode('NEW_ENGAGEMENT'); setAcademyExercise(false);
   }, [operatorScope]);
 
   // Sync target workspace if prop changes
@@ -205,6 +215,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       }
 
       await submitDocuments(selectedFiles, {
+        academyExercise: routingMode === 'NEW_ENGAGEMENT' && academyExercise,
         uploadIntent: routingMode === 'NEW_ENGAGEMENT' ? 'CREATE_NEW_INTAKE' : 'ATTACH_TO_EXISTING_PROJECT',
         targetWorkspaceId: finalTargetWsId,
         requestedWorkspaceName: routingMode === 'NEW_ENGAGEMENT' ? newEngagementName.trim() : undefined,
@@ -296,7 +307,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div id="upload-modal-container" data-testid="upload-modal-container" className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] font-mono">
+      <div data-eve-intake-status={intakeStatus || 'SETUP'} data-eve-intake-phase={phase} id="upload-modal-container" data-testid="upload-modal-container" className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] font-mono">
         
         {/* Modal Top Header */}
         <div className="bg-[#0B132B] px-6 py-4 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
@@ -329,7 +340,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           <div className="flex items-center gap-1.5">
             {phase === 'ANALYZING' && (
               <button
-                onClick={onClose}
+                {...actionAttributes('intake.close')} onClick={onClose}
                 className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 text-xs"
                 title="Minimize and run in background"
               >
@@ -385,7 +396,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <span>Browse Local Files</span>
                   </button>
                   <input
-                    id="customer-intake-file-input"
+                    id="customer-intake-file-input" {...actionAttributes('intake.files')}
                     data-testid="customer-intake-file-input"
                     ref={inputRef}
                     type="file"
@@ -453,11 +464,26 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   <span className="text-[11px] text-slate-500">Choose destination</span>
                 </div>
 
+                {routingMode === 'NEW_ENGAGEMENT' && (
+                  <label className="flex items-start gap-2 text-xs text-slate-700">
+                    <input type="checkbox" {...actionAttributes('intake.academy')} checked={academyExercise}
+                      onChange={event => setAcademyExercise(event.target.checked)} />
+                    <span>Isolated Academy exercise — synthetic training documents only</span>
+                  </label>
+                )}
+                {savedIntakes.length > 0 && <div className="flex flex-wrap gap-2 text-xs">
+                  <select aria-label="Saved Academy intake" {...actionAttributes('intake.saved.select')} value={savedIntakeId} onChange={e => setSavedIntakeId(e.target.value)}>
+                    <option value="">Select saved Academy intake</option>
+                    {savedIntakes.map(s => <option key={s.id} value={s.id}>{s.name || s.id} — {s.status}</option>)}
+                  </select>
+                  <button type="button" {...actionAttributes('intake.saved.resume')} disabled={!savedIntakeId}
+                    onClick={() => { observeSavedIntake(savedIntakeId); setPhase('ANALYZING'); }}>Observe saved intake</button>
+                </div>}
                 {/* Routing Mode Buttons */}
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    id="routing-mode-new-engagement"
+                    id="routing-mode-new-engagement" {...actionAttributes('intake.route.new')}
                     data-testid="routing-mode-new-engagement"
                     onClick={() => setRoutingMode('NEW_ENGAGEMENT')}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
@@ -477,7 +503,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
                   <button
                     type="button"
-                    id="routing-mode-existing-engagement"
+                    id="routing-mode-existing-engagement" {...actionAttributes('intake.route.existing')}
                     data-testid="routing-mode-existing-engagement"
                     onClick={() => setRoutingMode('EXISTING_ENGAGEMENT')}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
@@ -506,7 +532,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         </label>
                         <input
                           type="text"
-                          id="new-engagement-name-input"
+                          id="new-engagement-name-input" {...actionAttributes('intake.name')}
                           data-testid="new-engagement-name-input"
                           placeholder="e.g. FY2025 Audit - Acme Corp"
                           value={newEngagementName}
@@ -928,7 +954,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   Cancel
                 </button>
                 <button
-                  id="start-analysis-button"
+                  id="start-analysis-button" {...actionAttributes('intake.submit')}
                   data-testid="start-analysis-button"
                   type="button"
                   onClick={handleStartAnalysis}

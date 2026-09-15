@@ -760,9 +760,6 @@ export class BackgroundIngestionQueue {
   }
 
   public getAllJobs(workspaceId?: string): Omit<QueueJob, 'textData'>[] {
-    if (this.isQueueProcessingAuthorized()) {
-      this.checkStalledJobs();
-    }
     const all = Array.from(this.jobs.values());
     const filtered = workspaceId ? all.filter(j => j.workspaceId === workspaceId) : all;
     return filtered.map(({ textData, ...rest }) => rest);
@@ -826,7 +823,7 @@ export class BackgroundIngestionQueue {
 
     this.checkStalledJobs();
     // Interleave processing across queued jobs for fair scheduling
-    const queuedJob = Array.from(this.jobs.values()).find(j => j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "WAITING_FOR_LLM" || j.status === "RATE_LIMITED");
+    const queuedJob = Array.from(this.jobs.values()).sort((a, b) => Number(a.classification === "ACADEMY") - Number(b.classification === "ACADEMY")).find(j => j.status === "QUEUED" || j.status === "PROCESSING" || j.status === "WAITING_FOR_LLM" || j.status === "RATE_LIMITED");
     if (!queuedJob) return;
 
     this.isProcessingQueue = true;

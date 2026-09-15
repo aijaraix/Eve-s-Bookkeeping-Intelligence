@@ -267,6 +267,7 @@ export interface StatementLineItem {
 // ==========================================
 
 export interface DocumentRecord {
+  classification?: 'ACADEMY' | 'CUSTOMER';
   id: string;
   workspaceId: string;
   filename: string;

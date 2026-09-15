@@ -98,6 +98,7 @@ export interface PracticeContextType {
   intakeStatus: any;
   activeIntake: any;
   isAnalyzing: boolean;
+  observeSavedIntake: (id: string) => void;
   submitDocuments: (files: File[], options?: any) => Promise<any>;
   createEngagementWorkspace: (name: string, currency?: string, country?: string) => Promise<any>;
 
@@ -382,6 +383,18 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
     return () => { ++requestGeneration.current; };
   }, [selectedWorkspaceId, loadWorkspaceData, clearScopeData]);
 
+  useEffect(() => {
+    if (!selectedWorkspaceId || engagementDetail?.classification !== 'ACADEMY') return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const result = await apiGet<any>(`/api/cpa/engagements/${encodeURIComponent(selectedWorkspaceId)}`);
+        if (!cancelled && result.engagement?.workspaceId === selectedWorkspaceId) setEngagementDetail(result.engagement);
+      } catch { /* Existing screen and explicit refresh retain their error handling. */ }
+    }, 5000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [selectedWorkspaceId, engagementDetail?.classification, userSession?.id]);
+
   const resolveFinding = (id: string) => {
     setFindings((prev) =>
       prev.map((f) => (f.id === id ? { ...f, resolved: !f.resolved } : f))
@@ -439,6 +452,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
         workspaceId: options?.uploadIntent === 'CREATE_NEW_INTAKE' ? undefined : options?.targetWorkspaceId || selectedWorkspaceId,
         files,
         requestedWorkspaceName: options?.requestedWorkspaceName,
+        academyExercise: options?.academyExercise === true,
         uploadIntent: options?.uploadIntent || 'ATTACH_TO_EXISTING_PROJECT',
         userEmail: userSession?.email
       });
@@ -584,6 +598,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
       value={{
         engagementDetail: scopeIsCurrent ? engagementDetail : null,
         dataState, dataError, lastSuccessfulRead, selectedEngagementId,
+        observeSavedIntake: (id: string) => { setActiveIntakeId(id); setIsAnalyzing(true); setDataError(null); },
         currentView,
         setCurrentView,
         userSession,

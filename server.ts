@@ -408,6 +408,7 @@ function getStorageFile(): string {
 }
 
 interface Workspace {
+  classification?: 'ACADEMY' | 'CUSTOMER';
   id: string;
   name: string;
   code: string;
@@ -419,6 +420,7 @@ interface Workspace {
 }
 
 interface DocumentRecord {
+  classification?: 'ACADEMY' | 'CUSTOMER';
   id: string;
   workspaceId: string;
   filename: string;
@@ -721,8 +723,11 @@ async function sweepVerifiedCustomerContinuations(): Promise<void> {
 
   verifiedContinuationSweepRunning = true;
   try {
-    const jobs = backgroundIngestionQueue.getAllJobs();
+    const jobs = backgroundIngestionQueue.getAllJobs().sort((a, b) => Number(a.classification === 'ACADEMY') - Number(b.classification === 'ACADEMY'));
     for (const job of jobs) {
+      if (job.classification === 'ACADEMY' && jobs.some(j => j.classification !== 'ACADEMY' &&
+        (['QUEUED', 'PROCESSING', 'WAITING_FOR_LLM', 'RATE_LIMITED', 'RECOVERING'].includes(j.status) ||
+        (j.status === 'COMPLETED' && !verifiedCustomerContinuationService.getState(j.id)?.completedAt)))) continue;
       if (job?.engineMode !== 'HYBRID_GEMINI_NATIVE' || job?.status !== 'COMPLETED') continue;
       const state = await verifiedCustomerContinuationService.continueCompletedHybridJob(job, db);
       if (state) {
@@ -735,6 +740,18 @@ async function sweepVerifiedCustomerContinuations(): Promise<void> {
     verifiedContinuationSweepRunning = false;
   }
 }
+
+app.post('/api/academy/ui/draft-request', async (req, res) => {
+  const workspace = db.workspaces.find(w => w.id === req.body?.workspaceId);
+  if (workspace?.classification !== 'ACADEMY') return res.status(403).json({ error: 'An isolated Academy engagement is required.' });
+  const jobs = backgroundIngestionQueue.getAllJobs().filter(j => j.workspaceId === workspace.id && j.classification === 'ACADEMY');
+  if (jobs.length !== 1) return res.status(409).json({ error: 'Select an Academy engagement with exactly one recorded intake.' });
+  try {
+    verifiedCustomerContinuationService.requestAcademyDraft(jobs[0], db);
+    void sweepVerifiedCustomerContinuations();
+    return res.status(202).json({ success: true, jobId: jobs[0].id, professionalApproval: false });
+  } catch (error: any) { return res.status(409).json({ error: error.message }); }
+});
 
 setTimeout(() => { void sweepVerifiedCustomerContinuations(); }, 5000);
 setInterval(() => { void sweepVerifiedCustomerContinuations(); }, 15000);
@@ -1116,25 +1133,12 @@ function loadStorage() {
     if (fs.existsSync(storageFile)) {
       const data = fs.readFileSync(storageFile, "utf-8");
       db = JSON.parse(data);
-      if (db && Array.isArray(db.documents)) {
-        db.documents = Array.from(new Map(db.documents.map((d: any) => [d.id, d])).values());
-      }
-      if (db && Array.isArray(db.facts)) {
-        db.facts = db.facts.filter((f: any) => {
-          if (isBannedMockFact(f)) return false;
-          if (String(f.valueOriginal).includes("59.60B") || String(f.valueFunctional).includes("59.60B")) return false;
-          const valNum = parseFloat(String(f.valueFunctional || "0"));
-          if (valNum > 1e14 || valNum < -1e14) return false;
-          return true;
-        });
-        db.workspaces = (db.workspaces || []).filter((w: any) => !isDemoRecord(w));
-        db.documents = (db.documents || []).filter((d: any) => !isDemoRecord(d));
-        db.findings = (db.findings || []).filter((f: any) => !isDemoRecord(f));
-        saveStorage();
-      }
+      // Loading saved accounting evidence must never silently clean or rewrite it.
+      // Any migration requires an explicit, separately reviewed operation.
+
     }
   } catch (err) {
-    console.error("Failed to load storage, using default:", err);
+    throw new Error(`Persisted accounting storage could not be loaded: ${err instanceof Error ? err.message : String(err)}`);
   }
   // loadStorage replaces the db object. Rebind queue promotion logic
   // to the physically loaded object instead of the pre-load empty one.
@@ -2671,6 +2675,12 @@ app.post("/api/documents/upload", (req, res) => {
       } catch (error: any) {
         return res.status(400).json({ error: error.message });
       }
+      if (targetWorkspaceId && db.workspaces.find(w => w.id === targetWorkspaceId)?.classification === 'ACADEMY') {
+        return res.status(400).json({ error: 'Academy engagements accept one isolated intake; create a new exercise.' });
+      }
+      if (req.body?.academyExercise === 'true' && (targetWorkspaceId || req.body?.uploadIntent !== 'CREATE_NEW_INTAKE')) {
+        return res.status(400).json({ error: 'Academy exercises require a new isolated engagement.' });
+      }
       const confirmAttachToExisting = req.body?.confirmAttachToExisting === "true";
 
       if (shouldRejectDriveUrlOnlyUpload(fileList.length, driveUrl)) {
@@ -2955,6 +2965,7 @@ app.post("/api/documents/upload", (req, res) => {
       // Trigger Hermes Asynchronous Background Processing Queue for chunked multi-agent ingestion!
       const effectiveEngineMode = process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE';
       const intakeSession = intakeService.createIntakeSession({
+        classification: req.body?.academyExercise === 'true' ? 'ACADEMY' : 'CUSTOMER',
         requestedWorkspaceName: uploadIntent === 'CREATE_NEW_INTAKE' && typeof req.body?.requestedWorkspaceName === 'string' ? req.body.requestedWorkspaceName.trim().slice(0, 200) : undefined,
         targetProjectId: uploadIntent === 'CREATE_NEW_INTAKE' ? null : ws?.id || null,
         userId: req.body?.userId || "usr-default",
@@ -2999,6 +3010,8 @@ app.post("/api/documents/upload", (req, res) => {
             docRec.sha256,
             assignedJobId
           );
+          job.classification = intakeSession.classification;
+          docRec.classification = intakeSession.classification;
           createdQueueJobs.push(job);
 
           // Register DataCustodyEnvelope for physical document
@@ -3234,10 +3247,16 @@ app.get("/api/intakes/:id/trace", (req, res) => {
   });
 });
 
+app.get('/api/academy/ui/intakes', (_req, res) => {
+  res.json({ intakes: intakeService.getAllIntakeSessions().filter(s => s.classification === 'ACADEMY').map(s => ({
+    id: s.id, name: s.requestedWorkspaceName, status: s.status, createdAt: s.createdAt
+  })) });
+});
+
 app.get("/api/intake/active", (req, res) => {
   const activeSessions = intakeService.getActiveIntakeSessions();
   const allJobs = Array.from((backgroundIngestionQueue as any).jobs.values());
-  const updatedSessions = activeSessions.map(s => intakeService.updateIntakeSessionFromJobs(s.id, allJobs) || s);
+  const updatedSessions = activeSessions;
   res.json({ activeIntakeSessions: updatedSessions });
 });
 
@@ -3245,8 +3264,7 @@ app.get("/api/intake/:id", (req, res) => {
   const session = intakeService.getIntakeSession(req.params.id);
   if (!session) return res.status(404).json({ error: "Intake session not found" });
   const allJobs = Array.from((backgroundIngestionQueue as any).jobs.values());
-  const updated = intakeService.updateIntakeSessionFromJobs(session.id, allJobs);
-  res.json({ intakeSession: updated || session });
+  res.json({ intakeSession: session });
 });
 
 app.post("/api/intake/:id/promote", (req, res) => {
@@ -5142,23 +5160,8 @@ async function startServer() {
         console.warn("[Server Boot] Initial model discovery warning:", discErr);
       }
 
-      // Auto-run extraction in background for any workspace that has documents but 0 extracted facts
-      setImmediate(() => {
-        try {
-          if (db.workspaces && db.workspaces.length > 0) {
-            db.workspaces.forEach(ws => {
-              const wsFacts = db.facts.filter(f => f.workspaceId === ws.id || (f as any).project_id === ws.id);
-              const wsDocs = db.documents.filter(d => d.workspaceId === ws.id);
-              if (wsDocs.length > 0 && wsFacts.length === 0) {
-                console.log(`Auto-executing financial extraction pipeline for workspace: ${ws.name} (${ws.id})`);
-                reprocessWorkspaceExtraction(ws.id);
-              }
-            });
-          }
-        } catch (err) {
-          console.error("Background auto-extraction error:", err);
-        }
-      });
+      // Persisted intake queue owns processing; startup never repairs accounting records.
+
     });
   }
 }

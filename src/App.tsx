@@ -1,3 +1,4 @@
+import { actionAttributes } from './academy/uiActionRegistry';
 import React, { useState, useEffect } from 'react';
 import { PracticeProvider, usePractice } from './context/PracticeContext';
 import { AppSidebar } from './components/navigation/AppSidebar';
@@ -33,6 +34,7 @@ import { EngagementOverviewView } from './components/views/engagement/Engagement
 import { FinancialIncomeStatementView } from './components/views/engagement/FinancialIncomeStatementView';
 import { FinancialBalanceSheetView } from './components/views/engagement/FinancialBalanceSheetView';
 import { AnalysisRatiosView } from './components/views/engagement/AnalysisRatiosView';
+import { RecordedEngagementEvidenceView } from './components/views/engagement/RecordedEngagementEvidenceView';
 import { DeliverablesView } from './components/views/engagement/DeliverablesView';
 import { EveIntelligenceCenterView } from './components/views/eve/EveIntelligenceCenterView';
 import { EveAcademyView } from './components/views/eve/EveAcademyView';
@@ -102,7 +104,7 @@ function EveCpaStudioMain() {
   ];
 
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
+    <div data-eve-view={activeView} data-eve-workspace-id={selectedWorkspaceId || ''} className="flex h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
       {/* Sidebar Navigation */}
       <AppSidebar
         activeView={activeView}
@@ -141,10 +143,10 @@ function EveCpaStudioMain() {
               <span>Source documents: {engagementDetail.measurements?.sourceDocumentCount ?? 'Not measured'}</span>
             </div>
             <p>AI-prepared draft · Professional approval is required for issuance. Financial tables show eligible evidence for the selected period.</p>
-            {engagementDetail.periods?.length > 0 && <label>Reporting period <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className="border rounded ml-2 p-1">
+            {engagementDetail.periods?.length > 0 && <label>Reporting period <select {...actionAttributes('period.select')} value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className="border rounded ml-2 p-1">
               {[...new Set([selectedPeriod, ...engagementDetail.periods].filter(Boolean))].map((p: string) => <option key={p}>{p}</option>)}
             </select></label>}
-            {engagementDetail.continuation && <details><summary className="cursor-pointer">Recorded processing and review evidence</summary>
+            {engagementDetail.continuation && <details><summary {...actionAttributes('evidence.processing')} className="cursor-pointer">Recorded processing and review evidence</summary>
               <p>Status: {engagementDetail.continuation.status} · Job: {engagementDetail.continuation.jobId} · Attempt: {engagementDetail.continuation.jobAttempt ?? 'Not recorded'}</p>
               <pre className="whitespace-pre-wrap break-words max-h-72 overflow-auto mt-2">{JSON.stringify({ specialistSummary: engagementDetail.continuation.specialistSummary, systemFindings: engagementDetail.continuation.systemFindings, reviewFindings: engagementDetail.continuation.reviewFindings, internalTruthAudit: engagementDetail.continuation.internalTruthAudit, minervaLiveValidation: engagementDetail.continuation.minervaLiveValidation }, null, 2)}</pre>
             </details>}
@@ -159,7 +161,12 @@ function EveCpaStudioMain() {
               onNavigate={setActiveView}
               onSelectClient={handleSelectClient}
               onOpenUpload={() => setIsUploadOpen(true)}
-              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
+              onInspectFact={(meta) => {
+                const fact = facts.find(f => f.id === meta.factLineageId);
+                const doc = documents.find(d => d.id === fact?.documentId);
+                setSelectedFactMetadata({ ...meta, sourceText: fact?.sourceText, documentId: doc?.id,
+                  sha256Hash: doc?.sha256, sourceDocName: doc?.filename || meta.sourceDocName });
+              }}
             />
           )}
 
@@ -209,7 +216,12 @@ function EveCpaStudioMain() {
               incomeStatementLines={incomeStatementLines}
               balanceSheetLines={balanceSheetLines}
               onNavigate={setActiveView}
-              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
+              onInspectFact={(meta) => {
+                const fact = facts.find(f => f.id === meta.factLineageId);
+                const doc = documents.find(d => d.id === fact?.documentId);
+                setSelectedFactMetadata({ ...meta, sourceText: fact?.sourceText, documentId: doc?.id,
+                  sha256Hash: doc?.sha256, sourceDocName: doc?.filename || meta.sourceDocName });
+              }}
             />
           )}
 
@@ -224,7 +236,12 @@ function EveCpaStudioMain() {
               openFindingsCount={activeEngagement?.openFindingsCount || 0}
               lines={incomeStatementLines}
               onNavigate={setActiveView}
-              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
+              onInspectFact={(meta) => {
+                const fact = facts.find(f => f.id === meta.factLineageId);
+                const doc = documents.find(d => d.id === fact?.documentId);
+                setSelectedFactMetadata({ ...meta, sourceText: fact?.sourceText, documentId: doc?.id,
+                  sha256Hash: doc?.sha256, sourceDocName: doc?.filename || meta.sourceDocName });
+              }}
             />
           )}
 
@@ -240,7 +257,12 @@ function EveCpaStudioMain() {
               lines={balanceSheetLines}
               identityCheck={identityCheck}
               onNavigate={setActiveView}
-              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
+              onInspectFact={(meta) => {
+                const fact = facts.find(f => f.id === meta.factLineageId);
+                const doc = documents.find(d => d.id === fact?.documentId);
+                setSelectedFactMetadata({ ...meta, sourceText: fact?.sourceText, documentId: doc?.id,
+                  sha256Hash: doc?.sha256, sourceDocName: doc?.filename || meta.sourceDocName });
+              }}
             />
           )}
 
@@ -255,11 +277,17 @@ function EveCpaStudioMain() {
               openFindingsCount={activeEngagement?.openFindingsCount || 0}
               ratios={financialRatios}
               onNavigate={setActiveView}
-              onInspectFact={(meta) => setSelectedFactMetadata(meta)}
+              onInspectFact={(meta) => {
+                const fact = facts.find(f => f.id === meta.factLineageId);
+                const doc = documents.find(d => d.id === fact?.documentId);
+                setSelectedFactMetadata({ ...meta, sourceText: fact?.sourceText, documentId: doc?.id,
+                  sha256Hash: doc?.sha256, sourceDocName: doc?.filename || meta.sourceDocName });
+              }}
             />
           )}
 
-          {(activeView === 'engagement-structure' || activeView === 'engagement-currencies' || activeView === 'engagement-evidence' || activeView === 'engagement-findings' || activeView === 'engagement-deliverables') && (
+          {(activeView === 'engagement-evidence' || activeView === 'engagement-findings') && <RecordedEngagementEvidenceView detail={engagementDetail} period={selectedPeriod || ''} findingsOnly={activeView === 'engagement-findings'} />}
+          {(activeView === 'engagement-structure' || activeView === 'engagement-currencies' || activeView === 'engagement-deliverables') && (
             <DeliverablesView
               clientName={activeClient?.name || 'No Engagement Selected'}
               engagementName={activeEngagement?.name || 'Attestation & Review'}
