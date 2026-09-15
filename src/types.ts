@@ -341,6 +341,7 @@ export interface ProcessingUnitRecord {
 }
 
 export interface IntakeSessionRecord {
+  requestedWorkspaceName?: string;
   id: string;
   workspaceId?: string;
   targetProjectId?: string;

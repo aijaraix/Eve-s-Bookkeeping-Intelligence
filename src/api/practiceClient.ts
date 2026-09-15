@@ -144,6 +144,7 @@ export interface UploadDocumentsResult {
 
 export async function uploadDocuments(params: {
   files: File[];
+  requestedWorkspaceName?: string;
   uploadIntent: 'CREATE_NEW_INTAKE' | 'ATTACH_TO_EXISTING_PROJECT';
   workspaceId?: string;
   userEmail?: string;
@@ -155,6 +156,7 @@ export async function uploadDocuments(params: {
     fd.append('files', file);
   }
   fd.append('uploadIntent', params.uploadIntent);
+  if (params.uploadIntent === 'CREATE_NEW_INTAKE' && params.requestedWorkspaceName) fd.append('requestedWorkspaceName', params.requestedWorkspaceName);
   if (params.workspaceId) fd.append('workspaceId', params.workspaceId);
   if (params.userEmail) fd.append('userEmail', params.userEmail);
   if (params.userId) fd.append('userId', params.userId);
@@ -480,4 +482,3 @@ export async function recordCPALearningCase(agentId: string, data: { context: st
 export async function fetchCPACanaryResult(email?: string): Promise<any> {
     return await apiGet<any>('/api/cpa/academy/canary-result', email);
 }
-

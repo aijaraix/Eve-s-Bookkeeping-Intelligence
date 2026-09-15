@@ -70,6 +70,7 @@ export class IntakeService {
   }
 
   public createIntakeSession(params: {
+    requestedWorkspaceName?: string;
     targetProjectId?: string | null;
     userId?: string;
     userEmail?: string;
@@ -89,6 +90,7 @@ export class IntakeService {
     const session: IntakeSessionRecord = {
       id: intakeId,
       targetProjectId: params.targetProjectId || null,
+      requestedWorkspaceName: params.targetProjectId ? undefined : params.requestedWorkspaceName,
       userId: params.userId || 'usr-default',
       userEmail: params.userEmail || '',
       engineMode: effectiveEngineMode,
@@ -171,9 +173,10 @@ export class IntakeService {
     let completedPages = 0;
     let totalFactsCount = session.stagedFacts?.length || 0;
     let stageNames: string[] = [];
-    let isAllComplete = true;
+    let isAllComplete = session.queueJobIds.every(id => intakeJobs.some(job => job.id === id));
     let hasTerminalFailures = false;
     let hasReviewRequired = false;
+    let hasBlockedJobs = false;
 
     intakeJobs.forEach(job => {
       totalPages += job.pagesTotal || job.unitsTotal || 1;
@@ -183,12 +186,17 @@ export class IntakeService {
       }
       if (job.currentStage) stageNames.push(job.currentStage);
 
-      if (job.status === 'PROCESSING' || job.status === 'QUEUED' || job.status === 'STALLED' || job.status === 'RECOVERING' || job.status === 'WAITING_FOR_AI_CAPACITY' || job.status === 'WAITING_FOR_DAILY_CAPACITY') {
+      if (['PROCESSING', 'QUEUED', 'STALLED', 'RECOVERING', 'WAITING_FOR_LLM', 'RATE_LIMITED', 'WAITING_FOR_AI_CAPACITY', 'WAITING_FOR_DAILY_CAPACITY'].includes(job.status)) {
         isAllComplete = false;
-      } else if (job.status === 'FAILED') {
+      } else if (job.status === 'FAILED' || job.status === 'CANCELLED') {
         hasTerminalFailures = true;
       } else if (job.status === 'REVIEW_REQUIRED' || job.status === 'COMPLETED_WITH_WARNINGS') {
         hasReviewRequired = true;
+      } else if (job.status !== 'COMPLETED') {
+        // Only explicit successful completion is eligible for promotion.
+        // Configuration failures and future/unknown statuses must fail closed.
+        isAllComplete = false;
+        hasBlockedJobs = true;
       }
     });
 
@@ -208,7 +216,9 @@ export class IntakeService {
     const hasWaitingAi = intakeJobs.some(j => j.status === 'WAITING_FOR_AI_CAPACITY');
     const hasWaitingDaily = intakeJobs.some(j => j.status === 'WAITING_FOR_DAILY_CAPACITY');
 
-    if (isAllComplete) {
+    if (hasBlockedJobs) {
+      session.status = 'BLOCKED';
+    } else if (isAllComplete) {
       if (hasTerminalFailures && session.pagesProcessed === 0) {
         session.status = 'FAILED';
         session.completionState = 'FAILED';
@@ -272,7 +282,7 @@ export class IntakeService {
 
       targetWs = {
         id: `ws-${Date.now()}`,
-        name: `${primaryEntityName}`,
+        name: intake.requestedWorkspaceName || primaryEntityName,
         code: `${cleanCode}-${Math.floor(100 + Math.random() * 900)}`,
         currency: resolvedCurrency,
         country: resolvedCurrency === 'USD' ? 'United States' : 'Consolidated Group',

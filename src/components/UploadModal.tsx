@@ -46,15 +46,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const {
     submitDocuments,
     selectedWorkspaceId,
-    setSelectedCompanyId,
-    setSelectedProjectId,
     companies,
-    projects,
     intakeStatus,
     activeJob,
     activeIntake,
     isAnalyzing,
-    createEngagementWorkspace
+    dataError,
+    userSession
   } = usePractice();
 
   // Navigation / Phase
@@ -77,6 +75,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   // Live Analysis UI State
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [lastCompletedJob, setLastCompletedJob] = useState<any | null>(null);
+  const operatorScope = JSON.stringify([userSession?.id, userSession?.email, userSession?.organization, userSession?.isAuthenticated]);
+  const operatorScopeRef = useRef(operatorScope);
+  operatorScopeRef.current = operatorScope;
+  useEffect(() => {
+    setPhase('SETUP'); setSelectedFiles([]); setError(null); setLastCompletedJob(null);
+    setNewEngagementName(''); setNewClientName(''); setTargetWorkspaceId('');
+    setRoutingMode('NEW_ENGAGEMENT');
+  }, [operatorScope]);
 
   // Sync target workspace if prop changes
   useEffect(() => {
@@ -91,7 +97,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     if (isOpen) {
       if (isAnalyzing) {
         setPhase('ANALYZING');
-      } else if (phase === 'ANALYZING' && intakeStatus && (intakeStatus === 'COMPLETED' || intakeStatus === 'READY_FOR_PROMOTION' || intakeStatus === 'PROMOTED')) {
+      } else if (phase === 'ANALYZING' && intakeStatus === 'PROMOTED') {
         setPhase('COMPLETE');
       }
     }
@@ -115,13 +121,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   // Watch for completion of active job
   useEffect(() => {
     if (phase === 'ANALYZING') {
-      const isComplete =
-        activeJob?.status === 'COMPLETED' ||
-        activeIntake?.status === 'READY_FOR_PROMOTION' ||
-        activeIntake?.status === 'PROMOTED' ||
-        intakeStatus === 'COMPLETED' ||
-        intakeStatus === 'READY_FOR_PROMOTION' ||
-        intakeStatus === 'PROMOTED';
+      const isComplete = !isAnalyzing && intakeStatus === 'PROMOTED';
+      if (!isAnalyzing && ['FAILED', 'CANCELLED', 'BLOCKED', 'REVIEW_REQUIRED', 'ACCESS_REQUIRED'].includes(intakeStatus)) {
+        setError(intakeStatus === 'ACCESS_REQUIRED'
+          ? 'Sign in again to inspect the saved intake. Do not upload the files again.'
+          : 'The saved intake requires review. No successful completion is asserted.');
+        setPhase('SETUP');
+        return;
+      }
 
       if (isComplete) {
         setLastCompletedJob(activeJob || activeIntake);
@@ -131,7 +138,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         return () => clearTimeout(timeout);
       }
     }
-  }, [phase, activeJob, activeIntake, intakeStatus]);
+  }, [phase, activeJob, activeIntake, intakeStatus, isAnalyzing]);
 
   if (!isOpen) return null;
 
@@ -195,24 +202,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
       if (routingMode === 'EXISTING_ENGAGEMENT') {
         finalTargetWsId = targetWorkspaceId || selectedWorkspaceId;
-      } else {
-        // Create new workspace if user specified custom engagement name
-        if (newEngagementName.trim()) {
-          const ws = await createEngagementWorkspace(
-            newEngagementName.trim(),
-            engagementCurrency,
-            'US'
-          );
-          finalTargetWsId = ws.id;
-        }
       }
 
       await submitDocuments(selectedFiles, {
-        uploadIntent: finalTargetWsId ? 'ATTACH_TO_EXISTING_PROJECT' : 'CREATE_NEW_INTAKE',
+        uploadIntent: routingMode === 'NEW_ENGAGEMENT' ? 'CREATE_NEW_INTAKE' : 'ATTACH_TO_EXISTING_PROJECT',
         targetWorkspaceId: finalTargetWsId,
+        requestedWorkspaceName: routingMode === 'NEW_ENGAGEMENT' ? newEngagementName.trim() : undefined,
         description: `Ingestion of ${selectedFiles.map((f) => f.name).join(', ')}`
       });
     } catch (err: any) {
+      if (operatorScopeRef.current !== operatorScope) return;
       setError(err.message || 'Ingestion failed. Please check file format.');
       setPhase('SETUP');
     }
@@ -225,7 +224,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     setElapsedSeconds(0);
   };
 
-  const selectedCompany = companies.find((c) => c.id === targetWorkspaceId);
+  const selectedCompany = companies.find((c) => c.workspaceId === targetWorkspaceId);
 
   // Deterministic Extraction Pipeline stages
   const STAGES_ORDER = [
@@ -238,29 +237,33 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     'COMPLETED'
   ];
 
-  const currentStage = activeJob?.currentStage || activeIntake?.stage || 'FILE_ANALYSIS';
+  const currentStage = activeIntake?.currentStageName || activeJob?.currentStage || 'FILE_ANALYSIS';
   const stageIndex = Math.max(0, STAGES_ORDER.indexOf(currentStage));
 
-  const hasRealUnits = typeof activeJob?.unitsTotal === 'number' && activeJob.unitsTotal > 0;
-  const unitsTotal = hasRealUnits ? activeJob!.unitsTotal : null;
-  const unitsCompleted = hasRealUnits ? (activeJob?.unitsCompleted ?? 0) : null;
+  const observedTotal = activeIntake?.pagesTotal ?? activeJob?.unitsTotal;
+  const hasRealUnits = typeof observedTotal === 'number' && observedTotal > 0;
+  const unitsTotal = hasRealUnits ? observedTotal : null;
+  const unitsCompleted = hasRealUnits ? (activeIntake?.pagesProcessed ?? activeJob?.unitsCompleted ?? 0) : null;
   
   // Real percentage: only when backend provides percentComplete or real units exist
   const realPercentage: number | null =
-    typeof activeJob?.percentComplete === 'number'
+    typeof activeIntake?.progress === 'number'
+      ? Math.max(0, Math.min(100, activeIntake.progress))
+      : typeof activeJob?.percentComplete === 'number'
       ? activeJob.percentComplete
       : hasRealUnits && unitsCompleted !== null && unitsTotal !== null && unitsTotal > 0
       ? Math.min(100, Math.round((unitsCompleted / unitsTotal) * 100))
       : null;
 
   const factsExtractedCount =
-    activeJob?.result?.facts?.length ||
-    activeIntake?.stagedFactsCount ||
+    activeIntake?.factsFoundCount ??
+    activeJob?.result?.facts?.length ??
     ((activeJob as any)?.progress?.factsNormalized ?? 0);
 
   const verifiedFactsCount = (activeJob as any)?.result?.verifiedFactsCount ?? (activeJob as any)?.clearance?.verifiedFactsCount ?? null;
   const hasVerifiedFacts = typeof verifiedFactsCount === 'number';
-  const isPromoted = activeJob?.status === 'COMPLETED' && Boolean((activeJob as any)?.promoted || (activeJob as any)?.result?.promoted);
+  const isPromoted = intakeStatus === 'PROMOTED' && activeIntake?.completionState === 'PROMOTED';
+  const fileCount = activeIntake?.uploadedFiles?.length ?? selectedFiles.length;
 
   // Real agent execution state from backend job model or neutral waiting/pending
   const getAgentStatus = (agentRoleOrId: string): string => {
@@ -589,8 +592,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         className="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 cursor-pointer"
                       >
                         <option value="">-- Choose existing client workspace --</option>
-                        {companies.map((c) => (
-                          <option key={c.id} value={c.id}>
+                        {companies.filter(c => c.workspaceId).map((c) => (
+                          <option key={c.id} value={c.workspaceId}>
                             {c.name} ({c.ticker || 'CPA-ENG'}) • {c.country}
                           </option>
                         ))}
@@ -623,13 +626,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
              ======================================================== */}
           {phase === 'ANALYZING' && (
             <div className="space-y-6 animate-in fade-in duration-300">
+              {dataError && <p role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3">{dataError}</p>}
               {/* Progress Bar & Header */}
               <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-blue-500 animate-ping" />
                     <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
-                      Hermes Swarm Autonomous Extraction Active
+                      Observing saved intake
                     </span>
                   </div>
                   <div className="flex items-center gap-3 text-xs">
@@ -671,7 +675,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     {unitsTotal !== null ? (
                       <>Units: <span className="text-white font-bold">{unitsCompleted ?? 0}</span> / {unitsTotal}</>
                     ) : (
-                      <>Files: <span className="text-white font-bold">{selectedFiles.length || 1}</span></>
+                      <>Files: <span className="text-white font-bold">{fileCount}</span></>
                     )}
                   </div>
                 </div>
@@ -837,7 +841,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                   <div className="text-[10px] uppercase font-bold text-slate-400">Documents Ingested</div>
                   <div className="text-lg font-extrabold text-slate-800 font-mono mt-0.5">
-                    {selectedFiles.length || 1}
+                    {fileCount}
                   </div>
                 </div>
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
@@ -928,7 +932,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   data-testid="start-analysis-button"
                   type="button"
                   onClick={handleStartAnalysis}
-                  disabled={!selectedFiles.length}
+                  disabled={!selectedFiles.length || intakeStatus === 'ACCESS_REQUIRED'}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl inline-flex items-center gap-2 shadow-md shadow-blue-600/20 cursor-pointer transition-all"
                 >
                   <Cpu className="w-4 h-4" />

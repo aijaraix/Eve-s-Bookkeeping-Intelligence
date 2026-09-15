@@ -8,6 +8,7 @@ import { GoogleGenAI } from "@google/genai";
 import { modelDiscoveryService } from "./server/modelDiscoveryService.js";
 import { resolveAccountingStorageFile, readOwnerEngagements } from "./server/cpaOrganization/ownerEngagementReadModel.js";
 import { operatorAccess } from "./server/operatorAccess.js";
+import { resolveExplicitIntakeTarget } from "./server/intakeTargetPolicy.js";
 import { rejectLegacyIssuance, projectFirmBranding } from "./server/legacyIssuanceGate.js";
 
 import { FileRouter } from "./src/lib/parser/router";
@@ -618,10 +619,12 @@ function saveStorage() {
 
 // Automatically bind background queue completion to db storage
 backgroundIngestionQueue.setOnJobCompleted((job) => {
-  if (job.result && job.result.facts && job.result.facts.length > 0) {
+  // A completed document may legitimately contain no eligible financial facts.
+  // Its processing receipt and source evidence still need durable persistence.
+  if (job.result && Array.isArray(job.result.facts)) {
     const ws = db.workspaces.find(w => w.id === job.workspaceId);
     const resolvedWorkspaceCurrency = String(job.functionalCurrency || ws?.currency || '').trim().toUpperCase();
-    if (ws && resolvedWorkspaceCurrency) {
+    if (ws && resolvedWorkspaceCurrency && job.result.facts.length > 0) {
       ws.currency = resolvedWorkspaceCurrency;
     }
     const wsCurrency = resolvedWorkspaceCurrency || ws?.currency || '';
@@ -698,9 +701,9 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
       db.sourceBlocks.push(...(job as any).sourceBlocks.map((sb: any) => ({ ...sb, document_id: job.documentId })));
     }
 
-    reprocessWorkspaceExtraction(job.workspaceId);
+    if (job.result.facts.length > 0) reprocessWorkspaceExtraction(job.workspaceId);
     saveStorage();
-    console.log(`[Server] Applied ${job.result.facts.length} facts & reprocessed audit findings for background job ${job.id} to workspace ${job.workspaceId}`);
+    console.log(`[Server] Persisted ${job.result.facts.length} facts and document evidence for background job ${job.id} to workspace ${job.workspaceId}`);
   }
 });
 
@@ -2662,7 +2665,12 @@ app.post("/api/documents/upload", (req, res) => {
       let fileList = files || [];
       const spokenInstruction = req.body?.description || "";
       const driveUrl = req.body?.driveUrl || "";
-      const targetWorkspaceId = req.body?.workspaceId || "";
+      let targetWorkspaceId: string | null;
+      try {
+        targetWorkspaceId = resolveExplicitIntakeTarget(req.body?.uploadIntent, req.body?.workspaceId, db.workspaces);
+      } catch (error: any) {
+        return res.status(400).json({ error: error.message });
+      }
       const confirmAttachToExisting = req.body?.confirmAttachToExisting === "true";
 
       if (shouldRejectDriveUrlOnlyUpload(fileList.length, driveUrl)) {
@@ -2768,7 +2776,7 @@ app.post("/api/documents/upload", (req, res) => {
       });
 
       if (uploadIntent === 'ATTACH_TO_EXISTING_PROJECT') {
-        ws = ws || existingMatch || null;
+        ws = ws || null; // Exact target was validated before parsing. Never infer a customer by name.
       } else if (uploadIntent === 'CREATE_NEW_INTAKE') {
         ws = null; // Defer workspace creation until intake promotion!
       } else if (!uploadIntent && !targetWorkspaceId && existingMatch) {
@@ -2947,7 +2955,8 @@ app.post("/api/documents/upload", (req, res) => {
       // Trigger Hermes Asynchronous Background Processing Queue for chunked multi-agent ingestion!
       const effectiveEngineMode = process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE';
       const intakeSession = intakeService.createIntakeSession({
-        targetProjectId: ws ? ws.id : (targetWorkspaceId || (existingMatch && confirmAttachToExisting ? existingMatch.id : null)),
+        requestedWorkspaceName: uploadIntent === 'CREATE_NEW_INTAKE' && typeof req.body?.requestedWorkspaceName === 'string' ? req.body.requestedWorkspaceName.trim().slice(0, 200) : undefined,
+        targetProjectId: uploadIntent === 'CREATE_NEW_INTAKE' ? null : ws?.id || null,
         userId: req.body?.userId || "usr-default",
         userEmail,
         engineMode: effectiveEngineMode,

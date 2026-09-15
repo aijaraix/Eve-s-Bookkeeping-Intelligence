@@ -244,8 +244,9 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [isSwarmRunning, setIsSwarmRunning] = useState(false);
   const [queueJobs, setQueueJobs] = useState<QueueJobStatus[]>([]);
   const [activeJob, setActiveJob] = useState<QueueJobStatus | null>(null);
-  const [intakeStatus] = useState<any>(null);
-  const [activeIntake] = useState<any>(null);
+  const [intakeStatus, setIntakeStatus] = useState<any>(null);
+  const [activeIntake, setActiveIntake] = useState<any>(null);
+  const [activeIntakeId, setActiveIntakeId] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Multi-Entity & FX
@@ -268,12 +269,16 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [engagementDetail, setEngagementDetail] = useState<any>(null);
   const [loadedScope, setLoadedScope] = useState('');
   const sessionScope = JSON.stringify([userSession?.id, userSession?.email, userSession?.organization, userSession?.isAuthenticated]);
+  const currentSessionRef = useRef(sessionScope);
+  currentSessionRef.current = sessionScope;
+  const intakeGeneration = useRef(0);
   const dataScope = sessionScope + ':' + selectedCompanyId;
   const scopeIsCurrent = loadedScope === dataScope;
   const [dataState, setDataState] = useState('loading');
   const [dataError, setDataError] = useState<string | null>(null);
   const [lastSuccessfulRead, setLastSuccessfulRead] = useState<string | null>(null);
   const requestGeneration = useRef(0);
+  const engagementListGeneration = useRef(0);
   const selectedRecord = companies.find(c => c.id === selectedCompanyId);
   const selectedWorkspaceId = selectedRecord?.workspaceId || '';
   const selectedEngagementId = selectedRecord?.engagementId || '';
@@ -281,7 +286,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
     setEngagementDetail(null); setLoadedScope('');
     setFacts([]); setDocuments([]); setSummary(null); setFindings([]); setAuditLogs([]);
     setReports([]); setQueueJobs([]); setActiveJob(null); setEntities([]); setRelationships([]);
-    setSwarmStatus(null); setSwarmAgents(initialSwarmAgents); setIsAnalyzing(false); setFxRates([]);
+    setSwarmStatus(null); setSwarmAgents(initialSwarmAgents); setFxRates([]);
   }, []);
   const selectedCompany: CompanyEntity =
     companies.find((c) => c.id === selectedCompanyId) ||
@@ -339,9 +344,10 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
     clearScopeData(); setCompanies([]); setProjects([]); setFirmBranding(defaultBranding);
     setDataState('loading'); setDataError(null); setLastSuccessfulRead(null);
     async function boot() {
+      const generation = ++engagementListGeneration.current;
       try {
         const result = await apiGet<any>('/api/cpa/engagements/universal');
-        if (!active) return;
+        if (!active || generation !== engagementListGeneration.current) return;
         if (!Array.isArray(result.engagements)) throw new Error('Malformed engagement list response.');
         const mapped: CompanyEntity[] = result.engagements.map((eng: any) => {
           if (!eng.engagementId) throw new Error('Engagement identity missing from response.');
@@ -360,7 +366,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
         setDataState(mapped.length ? 'loading' : 'authenticated-empty');
         setLastSuccessfulRead(new Date().toISOString());
       } catch (error: any) {
-        if (!active) return;
+        if (!active || generation !== engagementListGeneration.current) return;
         setSelectedCompanyId('');
         setDataState(error.status === 401 ? 'unauthorized' : error.status === 403 ? 'forbidden' : 'disconnected-or-invalid');
         setDataError(error.message || 'Client list read failed.');
@@ -424,30 +430,111 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const submitDocuments = async (files: File[], options?: any) => {
+    const generation = ++intakeGeneration.current;
+    const isCurrent = () => currentSessionRef.current === sessionScope && intakeGeneration.current === generation;
     setIsAnalyzing(true);
+    setIntakeStatus('UPLOADING'); setActiveIntake(null); setActiveIntakeId('');
     try {
       const res = await uploadDocuments({
-        workspaceId: options?.targetWorkspaceId || selectedWorkspaceId,
+        workspaceId: options?.uploadIntent === 'CREATE_NEW_INTAKE' ? undefined : options?.targetWorkspaceId || selectedWorkspaceId,
         files,
+        requestedWorkspaceName: options?.requestedWorkspaceName,
         uploadIntent: options?.uploadIntent || 'ATTACH_TO_EXISTING_PROJECT',
         userEmail: userSession?.email
       });
-      await loadWorkspaceData(selectedWorkspaceId);
+      if (!isCurrent()) throw new Error('Session changed while uploading. The saved intake was not repeated.');
+      if (!res.success || !res.intakeSessionId) throw new Error('Upload returned no persisted intake receipt.');
+      setActiveIntakeId(res.intakeSessionId);
+      setIntakeStatus('QUEUED');
       return res;
-    } finally {
+    } catch (error) {
+      if (!isCurrent()) throw error;
+      setIntakeStatus('FAILED');
       setIsAnalyzing(false);
+      throw error;
     }
   };
+
+  const refreshPersistedEngagements = useCallback(async (workspaceId: string, stillCurrent: () => boolean = () => true) => {
+    const scope = currentSessionRef.current;
+    const generation = ++engagementListGeneration.current;
+    const result = await apiGet<any>('/api/cpa/engagements/universal');
+    if (currentSessionRef.current !== scope || generation !== engagementListGeneration.current || !stillCurrent()) return false;
+    if (!Array.isArray(result.engagements)) throw new Error('Persisted engagement list is unavailable.');
+    const mapped = result.engagements.map((eng: any) => ({
+      ...eng, id: eng.engagementId, engagementId: eng.engagementId,
+      name: eng.clientName, reportingStandard: eng.framework,
+      currency: eng.functionalCurrency, fiscalYear: eng.period,
+      auditStatus: 'Professional review required'
+    }));
+    const record = mapped.find((eng: any) => eng.workspaceId === workspaceId);
+    if (!record?.engagementId) throw new Error('The new workspace has no persisted engagement mapping.');
+    setCompanies(mapped); setSelectedCompanyId(record.engagementId);
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (!activeIntakeId) return;
+    const scope = sessionScope;
+    let cancelled = false;
+    const stillCurrent = () => !cancelled && currentSessionRef.current === scope;
+    let timer: ReturnType<typeof setTimeout>;
+    async function pollIntake() {
+      try {
+        const result = await apiGet<any>(`/api/intake/${encodeURIComponent(activeIntakeId)}`);
+        if (!stillCurrent()) return;
+        const intake = result.intakeSession;
+        if (!intake || intake.id !== activeIntakeId) throw new Error('Intake receipt identity mismatch.');
+        setActiveIntake(intake);
+        const status = intake.completionState === 'PROMOTED' && intake.status === 'COMPLETED' ? 'PROMOTED' : intake.status;
+        setIntakeStatus(status);
+        if (status === 'PROMOTED' && intake.promotedProjectId) {
+          const hydrated = await refreshPersistedEngagements(intake.promotedProjectId, stillCurrent);
+          if (!stillCurrent()) return;
+          if (!hydrated) throw new Error('Engagement refresh was superseded; retrying saved intake observation.');
+          setIsAnalyzing(false); setActiveIntakeId('');
+          return;
+        }
+        if (['FAILED', 'CANCELLED', 'BLOCKED', 'REVIEW_REQUIRED', 'COMPLETED'].includes(status)) {
+          setIntakeStatus(status === 'COMPLETED' ? 'REVIEW_REQUIRED' : status);
+          setIsAnalyzing(false); setActiveIntakeId('');
+          setDataError(intake.error || intake.currentStageName || 'Processing requires review.');
+          return;
+        }
+      } catch (error: any) {
+        if (!stillCurrent()) return;
+        setDataError(error.message || 'Unable to retrieve intake progress.');
+        if (error.status === 401 || error.status === 403) {
+          setActiveIntake(null); setActiveIntakeId(''); setActiveJob(null);
+          setIntakeStatus('ACCESS_REQUIRED'); setIsAnalyzing(false);
+          return;
+        }
+        // Preserve the receipt and retry observation; never re-upload on a read failure.
+      }
+      if (stillCurrent()) timer = setTimeout(pollIntake, 2000);
+    }
+    void pollIntake();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [activeIntakeId, refreshPersistedEngagements, sessionScope]);
+
+  useEffect(() => {
+    ++intakeGeneration.current;
+    // Legacy userSession is not the HttpOnly operator identity. Never restore a
+    // browser receipt under that shared key across owner logins. Server intake
+    // persistence remains authoritative; this observer is scoped to this page.
+    setActiveIntakeId(''); setActiveIntake(null);
+    setIntakeStatus(null); setIsAnalyzing(false);
+  }, [sessionScope]);
 
   const createEngagementWorkspace = async (name: string, currency = 'USD', country = 'US') => {
     const res = await fetch('/api/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, currency, country, email: userSession?.email })
+      body: JSON.stringify({ name, currency, country, userEmail: userSession?.email })
     });
     const ws = await res.json();
-    setCompanies((prev) => [workspaceToCompany(ws), ...prev]);
-    setSelectedCompanyId(ws.id);
+    if (!res.ok || !ws.id) throw new Error(ws.error || 'Unable to create engagement workspace.');
+    await refreshPersistedEngagements(ws.id);
     return ws;
   };
 
