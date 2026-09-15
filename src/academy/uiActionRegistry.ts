@@ -40,7 +40,7 @@ function definition(id: string, label: string, view: string, workflow: string, t
 
 export const uiActionRegistry: Record<string, UiActionDefinition> = Object.fromEntries([
   ...Object.entries(navigation).map(([view, label]) => definition(`nav.${view}`, label, view, 'navigation', `Active view becomes ${view}`, 'Visible view heading, scope and screenshot')),
-  ...['header', 'home', 'documents'].map(entry => definition(`intake.open.${entry}`, 'Upload', entry, 'canonical-intake', 'Upload dialog opens', 'Visible upload dialog; same canonical intake form')),
+  ...['header', 'home', 'documents', 'clients', 'clients-empty'].map(entry => definition(`intake.open.${entry}`, 'Upload', entry, 'canonical-intake', 'Upload dialog opens', 'Visible upload dialog; same canonical intake form')),
   ...[
     ['nav.mobile.open', 'Open navigation', '*', 'navigation', 'Navigation is visible', 'Visible menu'],
     ['nav.mobile.close', 'Close navigation', '*', 'navigation', 'Navigation closes', 'Current screen remains usable'],
@@ -54,6 +54,8 @@ export const uiActionRegistry: Record<string, UiActionDefinition> = Object.fromE
     ['intake.name', 'Engagement name', 'upload', 'canonical-intake', 'Requested name changes', 'Name retained on newly promoted workspace'],
     ['intake.files', 'Choose files', 'upload', 'canonical-intake', 'Actual files appear in dialog', 'Filename, bytes and SHA-256 continuity'],
     ['intake.submit', 'Start AI Analysis & Ingestion', 'upload', 'canonical-intake', 'Upload enters saved processing', 'Authentic POST acknowledgement and durable intake/job IDs'],
+    ['intake.minimize', 'Run in Background', 'upload', 'canonical-intake', 'Dialog minimizes', 'Saved processing continues'],
+    ['intake.done', 'Done', 'upload', 'canonical-intake', 'Completed dialog closes', 'Promoted workspace remains selected'],
     ['intake.close', 'Close upload', 'upload', 'canonical-intake', 'Dialog closes', 'Saved processing remains independent of dialog'],
     ['evidence.inspect', 'Inspect source provenance', '*', 'evidence-review', 'Provenance drawer opens', 'Source document, quote and existing lineage'],
     ['evidence.close', 'Close provenance', '*', 'evidence-review', 'Drawer closes', 'Financial view remains visible'],

@@ -1,3 +1,4 @@
+import { actionAttributes } from '../../academy/uiActionRegistry';
 import React, { ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 import { LucideIcon, FileText, UploadCloud, ShieldAlert, CheckCircle2 } from 'lucide-react';
@@ -7,6 +8,7 @@ export interface EveEmptyStateProps {
   title: string;
   description: string;
   actionLabel?: string;
+  actionId?: string;
   onAction?: () => void;
   secondaryAction?: ReactNode;
   variant?: 'neutral' | 'clean_audit' | 'waiting_intake' | 'error';
@@ -18,6 +20,7 @@ export const EveEmptyState: React.FC<EveEmptyStateProps> = ({
   title,
   description,
   actionLabel,
+  actionId,
   onAction,
   secondaryAction,
   variant = 'neutral',
@@ -62,6 +65,7 @@ export const EveEmptyState: React.FC<EveEmptyStateProps> = ({
         <div className="flex items-center gap-3">
           {actionLabel && onAction && (
             <button
+              {...(actionId ? actionAttributes(actionId) : {})}
               type="button"
               onClick={onAction}
               className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer"
