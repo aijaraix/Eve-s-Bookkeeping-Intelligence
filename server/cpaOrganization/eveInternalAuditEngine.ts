@@ -1377,41 +1377,43 @@ export class EveInternalAuditEngine {
         return { valid: false, reason: guardCheck.reason || 'Approval object failed trusted authority verification.' };
       }
       // Bound to report ID
-      if (app.reportId && report?.reportId && app.reportId !== report.reportId) {
+      if (!app.reportId || !report?.reportId || app.reportId !== report.reportId) {
         return { valid: false, reason: `Approval reportId '${app.reportId}' does not match deliverable reportId '${report.reportId}'.` };
       }
       // Bound to report version
       const appVersion = app.reportVersion || app.version;
       const repVersion = report?.version || report?.reportVersion;
-      if (appVersion && repVersion && appVersion !== repVersion) {
+      if (!appVersion || !repVersion || appVersion !== repVersion) {
         return { valid: false, reason: `Approval version '${appVersion}' does not match deliverable version '${repVersion}'.` };
       }
       // Bound to artifact SHA256
       const repHash = report?.formats?.pdf?.sha256 || report?.reportSha256 || report?.sha256;
       const appHash = app.reportHash || app.reportSha256 || app.expectedReportHash;
-      if (repHash && appHash && repHash !== appHash) {
+      if (!repHash || !appHash || repHash !== appHash) {
         return { valid: false, reason: `Approval hash '${appHash}' does not match deliverable SHA256 '${repHash}'.` };
       }
       if (reportStatus === 'FINAL_CERTIFIED' && repHash && !appHash) {
         return { valid: false, reason: 'Approval lacks cryptographic artifact hash binding for certified deliverable.' };
       }
-      if (app.engagementId && report?.engagementId && app.engagementId !== report.engagementId) {
+      if (!app.engagementId || !report?.engagementId || app.engagementId !== report.engagementId) {
         return { valid: false, reason: `Approval engagementId '${app.engagementId}' does not match report engagementId '${report.engagementId}'.` };
       }
       return { valid: true };
     };
 
-    let approvalCandidate = approval;
-    if (!approvalCandidate && report?.reportId) {
-      approvalCandidate = professionalSignoffGuard.getApprovalForReport(
-        report.reportId,
-        report?.formats?.pdf?.sha256 || report?.reportSha256 || report?.sha256
-      );
-    }
-
-    const approvalResult = approvalCandidate ? validateHumanApproval(approvalCandidate) : { valid: false, reason: 'Missing approval object.' };
+    // Only the current persisted approval event is authority. An attached object
+    // is an identifier to resolve, never a substitute for the event ledger.
+    const reportHash = report?.formats?.pdf?.sha256 || report?.reportSha256 || report?.sha256;
+    const approvalCandidate = report?.reportId && reportHash
+      ? professionalSignoffGuard.getApprovalForReport(report.reportId, reportHash)
+      : undefined;
+    const approvalResult = approval && approval.approvalId !== approvalCandidate?.approvalId
+      ? { valid: false, reason: 'Attached approval is not the active recorded report approval.' }
+      : approvalCandidate?.approvalScope !== 'STATUTORY_DELIVERABLE_RELEASE'
+        ? { valid: false, reason: 'Missing active recorded statutory release approval.' }
+        : validateHumanApproval(approvalCandidate);
     const hasValidHumanApproval = approvalResult.valid;
-    const quinnEligible = report?.quinnReview?.deliveryEligible !== false && report?.quinnReviewNote?.deliveryEligible !== false;
+    const quinnEligible = (report?.quinnReview?.deliveryEligible === true || report?.quinnReviewNote?.deliveryEligible === true) && report?.quinnReview?.deliveryEligible !== false && report?.quinnReviewNote?.deliveryEligible !== false;
     const isDraftState = ['READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW_WITH_SYSTEM_FINDINGS', 'DRAFT', 'AI_PREPARED', 'UNKNOWN'].includes(reportStatus);
     const isCertifiedState = ['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus);
 
@@ -1501,7 +1503,7 @@ export class EveInternalAuditEngine {
     const p1 = findings.filter(f => f.severity === 'P1_PILOT_BLOCKER').length;
     const compliant = p0 === 0 && p1 === 0;
 
-    const deliveryEligible = compliant && quinnEligible && hasValidHumanApproval && !isDraftState;
+    const deliveryEligible = compliant && quinnEligible && hasValidHumanApproval && isCertifiedState;
     const deliveryGateStatus = deliveryEligible ? 'ELIGIBLE_FOR_DELIVERY' : 'DELIVERY_BLOCKED_PENDING_REVIEW';
 
     return {

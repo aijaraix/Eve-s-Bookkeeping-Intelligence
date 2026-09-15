@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { readOwnerEngagements } from '../cpaOrganization/ownerEngagementReadModel.js';
+const prior = process.cwd();
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-owner-read-'));
+const oldStorage = process.env.STORAGE_FILE;
+const oldQueue = process.env.QUEUE_FILE;
+const oldReports = process.env.HERMES_REPORTS_DIR;
+process.chdir(tmp);
+delete process.env.STORAGE_FILE; delete process.env.QUEUE_FILE; delete process.env.HERMES_REPORTS_DIR;
+const write = (file: string, data: any) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(data)); };
+try {
+  assert.throws(() => readOwnerEngagements(), /ACCOUNTING_READ_UNAVAILABLE/);
+  assert.equal(fs.existsSync('storage'), false, 'GET must not initialize missing storage');
+  const db = { workspaces: [{id:'ws-a',name:'Company A'}, {id:'ws-b',name:'Company B'}], documents: [{id:'doc-a',workspaceId:'ws-a',filename:'actual.pdf'}, {id:'doc-b',workspaceId:'ws-b'}], facts: [{id:'f-a',workspaceId:'ws-a',documentId:'doc-a',reportingPeriod:'2024',status:'APPROVED',verificationStatus:'VERIFIED',evidenceStatus:'CONFIRMED',sourceText:'Actual quote'}, {id:'f-b',workspaceId:'ws-b',documentId:'doc-b'}] };
+  db.facts.push({...db.facts[0]});
+  write('storage/ai_cpa_storage.json',db);
+  write('storage/queue_jobs.json',[{id:'job-a',workspaceId:'ws-a',documentId:'doc-a',status:'COMPLETED'}]);
+  write('storage/cpa_memory/verified_customer_continuations/a.json',{workspaceId:'ws-a',engagementId:'eng-a',documentId:'doc-a',jobId:'job-a',status:'READY_FOR_AUTHORIZED_HUMAN_REVIEW',fiscalYear:'2024'});
+  write('storage/reports/audit_package_a.json',{reportId:'report-a',engagementId:'eng-a',version:'v6',period:'FY 2024',generatedAt:'2026-01-02',status:'FINAL_CERTIFIED',facts:[]});
+  write('storage/reports/audit_package_b.json',{reportId:'report-b',engagementId:'eng-b',workspaceId:'ws-b',version:'v1',period:'2025'});
+  write('storage/reports/audit_package_historical.json',{reportId:'history',engagementId:'eng-practice-history',clientName:'Academy historical',version:'v1',status:'FINAL_CERTIFIED'});
+  const before = fs.readFileSync('storage/ai_cpa_storage.json','utf8');
+  const all = readOwnerEngagements(); const a = all.find(e=>e.workspaceId==='ws-a');
+  assert.equal(all.find(e => e.engagementId === 'eng-practice-history').classification,'ACADEMY');
+  assert.equal(all.find(e => e.engagementId === 'eng-practice-history').isCustomer,false);
+  assert.equal(a.engagementId,'eng-a'); assert.equal(a.period,'FY 2024');
+  assert.deepEqual(a.documents.map((d:any)=>d.documentId),['doc-a']);
+  assert.deepEqual(a.reports.map((r:any)=>r.reportId),['report-a']);
+  assert.equal(a.reports[0].status,'DRAFT'); assert.equal(a.reports[0].deliveryEligible,false);
+  assert.equal(a.canonicalFactsCount,1); assert.equal(a.measurements.rawExtractedRows,2);
+  assert.equal(a.facts,a.financialFacts); assert.equal(a.documents[0].sha256,null);
+  assert.equal(a.documents[0].pagesCount,null); assert.equal(a.assignedPartner,null); assert.equal(a.minervaOverallScore,undefined);
+  assert.notEqual(a.currentStage,'ENGAGEMENT_COMPLETE');
+  assert.equal(fs.readFileSync('storage/ai_cpa_storage.json','utf8'),before);
+  write('storage/queue_jobs.json',[{id:'job-a',workspaceId:'ws-b',documentId:'doc-a'}]);
+  assert.throws(()=>readOwnerEngagements(),/ACCOUNTING_RELATIONSHIP_INVALID/);
+  fs.writeFileSync('storage/ai_cpa_storage.json','{');
+  assert.throws(()=>readOwnerEngagements(),/ACCOUNTING_READ_UNAVAILABLE/);
+  console.log('ownerEngagementReadModel: PASS missing/corrupt state, scoped relationships, true draft/period, deduplicated facts, no fabricated evidence, no GET writes');
+} finally {
+  process.chdir(prior); fs.rmSync(tmp,{recursive:true,force:true});
+  for (const [key,value] of Object.entries({STORAGE_FILE:oldStorage,QUEUE_FILE:oldQueue,HERMES_REPORTS_DIR:oldReports})) { if(value===undefined) delete process.env[key]; else process.env[key]=value; }
+}

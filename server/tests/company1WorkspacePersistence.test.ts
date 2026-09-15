@@ -1,9 +1,14 @@
 import fs from "fs";
+import path from "path";
+import { resolveAccountingStorageFile } from '../cpaOrganization/ownerEngagementReadModel.js';
 
 function assert(condition: boolean, message: string): void { if (!condition) throw new Error(message); }
 
 const src = fs.readFileSync("server.ts", "utf8");
-assert(src.includes('path.join(process.cwd(), "storage", "ai_cpa_storage.json")'), "workspace storage must default under PVC-backed storage root");
+delete process.env.STORAGE_FILE;
+delete process.env.AI_CPA_STORAGE_FILE;
+assert(resolveAccountingStorageFile() === path.join(process.cwd(), 'storage', 'ai_cpa_storage.json'), "workspace storage must default under PVC-backed storage root");
+assert(src.includes('return resolveAccountingStorageFile();'), "server and owner read model must use the same storage resolver");
 assert(src.includes('fs.renameSync(tempFile, storageFile)'), "workspace persistence must use atomic rename");
 assert(src.includes('fs.fsyncSync(fileFd)'), "workspace persistence must fsync file before rename");
 const loadStart = src.indexOf('function loadStorage()');

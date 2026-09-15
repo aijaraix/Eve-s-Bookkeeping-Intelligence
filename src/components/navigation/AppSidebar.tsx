@@ -173,7 +173,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 CPA Studio
               </span>
             </div>
-            <div className="text-[10px] text-slate-400 font-medium">Autonomous Audit Attestation</div>
+            <div className="text-[10px] text-slate-400 font-medium">AI-prepared bookkeeping</div>
           </div>
         </div>
       </div>
@@ -274,7 +274,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       <div className="p-3 border-t border-slate-200 bg-white text-[11px] text-slate-500 flex items-center justify-between">
         <span className="flex items-center gap-1.5">
           <Shield className="w-3.5 h-3.5 text-emerald-600" />
-          <span>SOC-2 & PCAOB</span>
+          <span>Professional review required</span>
         </span>
         <span className="font-mono text-slate-400">v9.19</span>
       </div>

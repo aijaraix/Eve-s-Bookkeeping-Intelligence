@@ -1461,6 +1461,7 @@ export function createCPAOrganizationRouter(): Router {
       const search = req.query.search ? String(req.query.search).toLowerCase() : '';
 
       let filtered = all;
+      if (req.query.engagementId) filtered = filtered.filter(r => r.engagementId === String(req.query.engagementId));
       if (reportType !== 'ALL') {
         filtered = filtered.filter(r => r.deliverableType === reportType);
       }

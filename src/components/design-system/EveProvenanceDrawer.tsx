@@ -20,7 +20,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
 
   if (!isOpen || !metadata) return null;
 
-  const mockHash = metadata.sha256Hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const recordedHash = metadata.sha256Hash || 'Hash not recorded';
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard?.writeText(text);
@@ -100,20 +100,20 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
             <div>
               <span className="text-slate-400 block mb-0.5">Verification Status</span>
               <EveStatusBadge
-                status={metadata.provenanceStatus || 'verified'}
+                status={metadata.provenanceStatus || 'review_required'}
                 size="sm"
               />
             </div>
             <div>
               <span className="text-slate-400 block mb-0.5">Reporting Currency</span>
               <span className="font-mono font-semibold text-slate-800">
-                {metadata.currency || 'USD'}
+                {metadata.currency || 'Not recorded'}
               </span>
             </div>
             <div>
               <span className="text-slate-400 block mb-0.5">Scale</span>
               <span className="font-mono text-slate-700">
-                {metadata.scale || 'Millions'}
+                {metadata.scale || 'Not recorded'}
               </span>
             </div>
           </div>
@@ -130,16 +130,16 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="flex items-center gap-2 font-medium text-slate-900">
                       <FileText className="w-4 h-4 text-indigo-500" />
-                      {metadata.sourceDocName || 'Audited Source Document'}
+                      {metadata.sourceDocName || 'Source document not recorded'}
                     </span>
                     <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600 text-[11px]">
-                      Page {metadata.sourcePage || 1}
+                      Source locator: {metadata.sourcePage || 'not recorded'} (physical PDF page not independently verified)
                     </span>
                   </div>
 
                   <div className="p-3 bg-amber-50/50 border border-amber-200/60 rounded-lg text-xs font-serif leading-relaxed text-slate-800">
                     <p className="italic">
-                      "{metadata.sourceRawValue ? `...stated at ${metadata.sourceRawValue} in authoritative audited financial statements...` : 'Canonical disclosure verified from authoritative filing.'}"
+                      Recorded value: {metadata.sourceRawValue !== undefined ? String(metadata.sourceRawValue) : 'Not recorded'}. A source quotation is not included in this reference.
                     </p>
                   </div>
                 </div>
@@ -159,11 +159,11 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                   </div>
                   <div className="p-3 flex items-center justify-between">
                     <span className="text-slate-500">Scale Multiplier</span>
-                    <span className="font-mono text-slate-700">1,000,000 (Millions)</span>
+                    <span className="font-mono text-slate-700">{metadata.scale || 'Not recorded'}</span>
                   </div>
                   <div className="p-3 flex items-center justify-between">
                     <span className="text-slate-500">Verification Gate</span>
-                    <span className="text-emerald-700 font-medium">Veritas Deterministic Rule 01 (Passed)</span>
+                    <span className="text-emerald-700 font-medium">Not established by this reference</span>
                   </div>
                 </div>
               </div>
@@ -182,7 +182,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => copyToClipboard(mockHash)}
+                      onClick={() => copyToClipboard(recordedHash)}
                       className="text-slate-400 hover:text-white p-1 rounded cursor-pointer"
                       title="Copy SHA-256 Digest"
                     >
@@ -190,7 +190,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                     </button>
                   </div>
                   <div className="break-all text-emerald-400 select-all">
-                    {mockHash}
+                    {recordedHash}
                   </div>
                 </div>
               </div>
@@ -202,19 +202,19 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 font-mono text-[11px] space-y-2 text-slate-700">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Fact Lineage ID:</span>
-                    <span className="font-bold">{metadata.factLineageId || 'fl-fact-canonical-001'}</span>
+                    <span className="font-bold">{metadata.factLineageId || 'Not recorded'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Render ID:</span>
-                    <span>{metadata.renderId || 'rnd-ui-kpi-metric'}</span>
+                    <span>{metadata.renderId || 'Not recorded'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Assigned Agent:</span>
-                    <span className="text-indigo-600 font-bold">VERITAS (Cryptographic Lineage)</span>
+                    <span className="text-indigo-600 font-bold">Not recorded</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Model Route:</span>
-                    <span>Deterministic / Zero-LLM Bypass</span>
+                    <span>Not recorded</span>
                   </div>
                 </div>
               </div>
@@ -225,7 +225,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
         {/* Footer */}
         <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs">
           <span className="text-slate-500 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Eve Lineage Engine Certified
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Source evidence reference; review required
           </span>
           <button
             type="button"

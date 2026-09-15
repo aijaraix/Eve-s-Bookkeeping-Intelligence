@@ -144,6 +144,12 @@ export class DeliverableArtifactService {
           const csvSha = fs.existsSync(csvPath) ? crypto.createHash('sha256').update(fs.readFileSync(csvPath)).digest('hex') : '';
           const jsonSha = crypto.createHash('sha256').update(raw).digest('hex');
 
+          const recordedApproval = pdfSha ? professionalSignoffGuard.getApprovalForReport(reportId, pdfSha) : undefined;
+          const releaseAuthorized = recordedApproval?.reportVersion === version &&
+            recordedApproval.engagementId === engagementId &&
+            recordedApproval.approvalScope === 'STATUTORY_DELIVERABLE_RELEASE' &&
+            professionalSignoffGuard.isValidApprovalObject(recordedApproval).valid;
+          const safeDraftStatuses = ['DRAFT', 'AI_PREPARED', 'INTERNALLY_REVIEWED', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'SUPERSEDED', 'STALE_INVALIDATED'];
           const record: DeliverableArtifactRecord = {
             reportId,
             engagementId,
@@ -237,7 +243,7 @@ export class DeliverableArtifactService {
             numericFactsCount: data.facts?.length || 0,
             euclidVariance: data.euclidBalance?.variance || 0,
             quinnReviewStatus: data.quinnReviewStatus || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
-            status: data.approvalObject?.status === 'APPROVED' ? 'FINAL_CERTIFIED' : (data.status || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'),
+            status: releaseAuthorized ? 'FINAL_CERTIFIED' : (safeDraftStatuses.includes(data.status) ? data.status : 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'),
             isStale: data.isStale || false,
             approvalObject: data.approvalObject,
             dependentFactIds: data.dependentFactIds || [],
@@ -352,12 +358,8 @@ export class DeliverableArtifactService {
 
     // Determine initial lifecycle status following Requirement 7 & 4
     let reportStatus: DeliverableArtifactRecord['status'] = 'READY_FOR_AUTHORIZED_HUMAN_REVIEW';
-    if (params.approvalObject && params.approvalObject.status === 'APPROVED') {
-      const val = professionalSignoffGuard.validateApprovalObject(params.approvalObject);
-      if (val.valid) {
-        reportStatus = 'FINAL_CERTIFIED';
-      }
-    } else if (params.status) {
+    // Compilation prepares a new artifact, never a professional approval event.
+    if (params.status && ['DRAFT', 'AI_PREPARED', 'INTERNALLY_REVIEWED', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW'].includes(params.status)) {
       reportStatus = params.status;
     }
 

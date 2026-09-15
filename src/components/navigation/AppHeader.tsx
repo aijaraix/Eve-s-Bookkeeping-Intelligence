@@ -130,11 +130,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {/* User Profile Badge */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200 text-xs text-slate-700">
           <div className="w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-[11px]">
-            SS
+            OP
           </div>
           <div className="hidden lg:block text-left">
-            <div className="font-semibold text-slate-900 leading-tight">Steve Stein, CPA</div>
-            <div className="text-[10px] text-slate-400">Lead Audit Partner</div>
+            <div className="font-semibold text-slate-900 leading-tight">Authorized Operator</div>
+            <div className="text-[10px] text-slate-400">Professional sign-off separate</div>
           </div>
         </div>
       </div>

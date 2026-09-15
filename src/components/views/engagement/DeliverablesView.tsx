@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { EveEngagementHeader } from '../../design-system/EveEngagementHeader';
 import { EvePageHeader } from '../../design-system/EvePageHeader';
 import { EveCard, EveCardHeader, EveCardTitle, EveCardContent } from '../../design-system/EveCard';
@@ -18,6 +18,8 @@ import {
   CheckCircle2,
   Lock
 } from 'lucide-react';
+import { usePractice } from '../../../context/PracticeContext';
+import { apiGet } from '../../../api/practiceClient';
 import { ReportWizardModal } from '../../ReportWizardModal';
 import { SyntheticClientPortalModal } from '../../SyntheticClientPortalModal';
 
@@ -58,7 +60,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
   period,
   currency = 'USD',
   framework = 'US-GAAP',
-  readinessState = 'READY',
+  readinessState = 'REVIEW_REQUIRED',
   openFindingsCount = 0,
   onNavigate
 }) => {
@@ -69,26 +71,37 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchReports = async () => {
+  const { selectedEngagementId, userSession } = usePractice();
+  const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
+  const fetchReports = useCallback(async () => {
+    const current = ++generation.current;
+    setReports([]); setError(null);
+    if (!selectedEngagementId) { setLoading(false); return; }
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await fetch(`/api/cpa/reports/library?reportType=${typeFilter}${searchQuery ? `&search=${encodeURIComponent(searchQuery)}` : ''}`);
-      if (res.ok) {
-        const data = await res.json();
-        setReports(data.reports || []);
+      const query = new URLSearchParams({ engagementId: selectedEngagementId, reportType: typeFilter });
+      if (searchQuery) query.set('search', searchQuery);
+      const data = await apiGet<any>(`/api/cpa/reports/library?${query}`);
+      if (current !== generation.current) return;
+      if (!Array.isArray(data.reports) || data.reports.some((r: any) => r.engagementId !== selectedEngagementId)) {
+        throw new Error('Malformed or out-of-scope report library response.');
       }
-    } catch (err) {
-      console.warn('Failed to load global report library:', err);
+      setReports(data.reports.map((r: any) => ({ ...r, formatsAvailable: r.formatsAvailable || Object.fromEntries(['pdf', 'xlsx', 'csv', 'json'].map(format => [format, Boolean(r.formats?.[format])])) })));
+    } catch (err: any) {
+      if (current === generation.current) setError(err.message || 'Report library unavailable.');
     } finally {
-      setLoading(false);
+      if (current === generation.current) setLoading(false);
     }
-  };
+  }, [selectedEngagementId, typeFilter, searchQuery, userSession?.id, userSession?.email, userSession?.organization]);
 
   useEffect(() => {
-    fetchReports();
-  }, [typeFilter, searchQuery]);
+    void fetchReports();
+    return () => { ++generation.current; };
+  }, [fetchReports]);
 
   const downloadReportFile = (reportId: string, format: 'pdf' | 'xlsx' | 'csv' | 'json', version?: string) => {
+    if (!version) { setError('The selected report has no recorded version; download blocked.'); return; }
     const vParam = version ? `&version=${encodeURIComponent(version)}` : '';
     if (format === 'pdf') {
       window.open(`/api/cpa/report/download-pdf?reportId=${encodeURIComponent(reportId)}${vParam}`, '_blank');
@@ -115,6 +128,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
       />
 
       <div className="p-6 max-w-7xl mx-auto space-y-6">
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <EvePageHeader
             category="Engagement Deliverables & Library"
@@ -147,15 +161,15 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 font-semibold flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>100% PERSISTENCE REHYDRATED</span>
+                <span>SAVED REPORT REFERENCES</span>
               </span>
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 font-semibold">
-                SHA-256 PROVENANCE GUARANTEE
+                RECORDED ARTIFACT HASHES
               </span>
             </div>
-            <h3 className="text-lg font-semibold text-white">Full-Spectrum Certified Deliverable Packages</h3>
+            <h3 className="text-lg font-semibold text-white">AI-Prepared Draft Deliverable Packages</h3>
             <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              Every deliverable package contains mathematically verified financial statements, Euclid balance identity proofs, citation coordinates, and dual binary outputs (PDF/Print, Excel, CSV Lead Schedules, and JSON).
+              Available drafts retain their recorded evidence, findings and artifact hashes. A file hash verifies byte identity; it does not certify accounting correctness, complete source coverage or professional approval.
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -234,7 +248,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
         {/* Reports Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {reports.map((rep) => (
-            <EveCard key={rep.reportId} className="flex flex-col justify-between">
+            <EveCard key={`${rep.reportId}:${rep.version}`} className="flex flex-col justify-between">
               <div>
                 <EveCardHeader>
                   <div className="flex items-center gap-2">
@@ -247,7 +261,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <EveStatusBadge status="clean" label={rep.status} size="sm" />
+                    <EveStatusBadge status="review_required" label={rep.status} size="sm" />
                     <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-semibold">
                       {rep.version}
                     </span>
@@ -258,16 +272,16 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                   <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-lg text-center font-mono text-xs border border-slate-200/70">
                     <div>
                       <span className="text-[10px] font-sans text-slate-500 block">Facts</span>
-                      <span className="font-bold text-slate-800">{rep.numericFactsCount} Facts</span>
+                      <span className="font-bold text-slate-800">{rep.numericFactsCount ?? 'Not measured'} Facts</span>
                     </div>
                     <div>
                       <span className="text-[10px] font-sans text-slate-500 block">Euclid Variance</span>
-                      <span className="font-bold text-emerald-700">0.000</span>
+                      <span className="font-bold text-emerald-700">{rep.euclidVariance ?? 'Not measured'}</span>
                     </div>
                     <div>
                       <span className="text-[10px] font-sans text-slate-500 block">Generated</span>
                       <span className="text-[11px] text-slate-700 font-medium">
-                        {new Date(rep.generatedAt).toLocaleDateString()}
+                        {rep.generatedAt ? new Date(rep.generatedAt).toLocaleDateString() : 'Not recorded'}
                       </span>
                     </div>
                   </div>
@@ -293,7 +307,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                         type="button"
                         onClick={() => downloadReportFile(rep.reportId, 'pdf', rep.version)}
                         className="px-2.5 py-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-md cursor-pointer transition flex items-center gap-1"
-                        title="Download Certified PDF Report"
+                        title="Download selected PDF version"
                       >
                         <Download className="w-3 h-3" />
                         <span>PDF</span>

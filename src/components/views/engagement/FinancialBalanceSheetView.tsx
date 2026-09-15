@@ -26,7 +26,7 @@ export const FinancialBalanceSheetView: React.FC<FinancialBalanceSheetViewProps>
   period,
   currency = 'USD',
   framework = 'US-GAAP',
-  readinessState = 'READY',
+  readinessState = 'REVIEW_REQUIRED',
   openFindingsCount = 0,
   lines,
   identityCheck,
@@ -50,7 +50,7 @@ export const FinancialBalanceSheetView: React.FC<FinancialBalanceSheetViewProps>
         <EvePageHeader
           category="Financial Statements"
           title="Consolidated Balance Sheet"
-          description="Audited assets, liabilities, and stockholders equity with Euclid double-entry identity reconciliation."
+          description="Extracted assets, liabilities, and equity; identity checks require all operands."
         />
 
         {/* Identity Gate Banner */}
@@ -58,11 +58,11 @@ export const FinancialBalanceSheetView: React.FC<FinancialBalanceSheetViewProps>
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
             <div>
-              <span className="font-bold block">Euclid Accounting Identity Reconciled</span>
-              <span className="text-emerald-700">Total Assets ($512,163M) = Total Liabilities ($243,686M) + Equity ($268,477M)</span>
+              <span className="font-bold block">Accounting identity check</span>
+              <span className="text-emerald-700">Assets: {identityCheck.totalAssets ?? 'Not available'} · Liabilities: {identityCheck.totalLiabilities ?? 'Not available'} · Equity: {identityCheck.totalEquity ?? 'Not available'}</span>
             </div>
           </div>
-          <EveStatusBadge status="clean" label="Zero Variance" size="sm" />
+          <EveStatusBadge status="review_required" label={identityCheck.gateState} size="sm" />
         </div>
 
         <EveFinancialTable
@@ -72,7 +72,7 @@ export const FinancialBalanceSheetView: React.FC<FinancialBalanceSheetViewProps>
           periods={[period]}
           lines={lines}
           currency={currency}
-          scale="In Millions"
+          scale="Source units"
           onInspectFact={onInspectFact}
         />
       </div>

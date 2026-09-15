@@ -45,11 +45,11 @@ import { AdvancedDiagnosticsView } from './components/views/admin/AdvancedDiagno
 import { UploadModal } from './components/UploadModal';
 
 function EveCpaStudioMain() {
-  const { workspaces, facts, documents, agents, selectedCompanyId, setSelectedCompanyId } = usePractice();
+  const { workspaces, facts, documents, agents, selectedCompanyId, setSelectedCompanyId, selectedWorkspaceId, dataState, dataError, lastSuccessfulRead, selectedPeriod, setSelectedPeriod, engagementDetail } = usePractice();
 
   // Navigation State
   const [activeView, setActiveView] = useState('practice-home');
-  const [selectedClientId, setSelectedClientId] = useState('');
+  const selectedClientId = selectedCompanyId;
   const [presentationCurrency, setPresentationCurrency] = useState('USD');
 
   // Modals & Drawers State
@@ -57,6 +57,8 @@ function EveCpaStudioMain() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [selectedFactMetadata, setSelectedFactMetadata] = useState<SourceToPixelMetadata | null>(null);
+
+  useEffect(() => { setSelectedFactMetadata(null); }, [selectedCompanyId, selectedPeriod]);
 
   // Derive Presentation Models via Authoritative Adapters
   const clientSummaries: PracticeClientSummary[] = adaptWorkspacesToClients(workspaces);
@@ -68,36 +70,19 @@ function EveCpaStudioMain() {
     0
   );
 
-  // Sync selected client with context or default to first authoritative client
-  useEffect(() => {
-    if (selectedCompanyId && selectedCompanyId !== selectedClientId) {
-      setSelectedClientId(selectedCompanyId);
-    } else if (!selectedClientId && clientSummaries.length > 0) {
-      setSelectedClientId(clientSummaries[0].id);
-    }
-  }, [selectedCompanyId, clientSummaries, selectedClientId]);
+  const handleSelectClient = setSelectedCompanyId;
 
-  const handleSelectClient = (id: string) => {
-    setSelectedClientId(id);
-    setSelectedCompanyId(id);
-  };
+  const activeClient = clientSummaries.find((c) => c.id === selectedClientId) || null;
+  const activeEngagement = engagementSummaries.find((e) => e.clientId === selectedClientId) || null;
 
-  const activeClient = clientSummaries.find((c) => c.id === selectedClientId) || clientSummaries[0] || null;
-  const activeEngagement = engagementSummaries.find((e) => e.clientId === selectedClientId) || engagementSummaries[0] || null;
-
-  const incomeStatementLines: StatementLinePresentation[] = adaptFactsToIncomeStatement(facts);
-  const { lines: balanceSheetLines, identityCheck } = adaptFactsToBalanceSheet(facts);
-  const financialRatios: RatioDerivationPresentation[] = deriveFinancialRatios(facts);
-  const namedAgents: NamedCpaAgentPresentation[] = adaptBackendAgents(
-    agents.length > 0
-      ? agents
-      : [
-          { name: 'HERMES', role: 'Swarm Coordinator', modelTier: 'Deterministic', status: 'ACTIVE' },
-          { name: 'ATHENA', role: 'Fact Extraction Specialist', modelTier: 'Gemini 2.5 Flash', status: 'ACTIVE' },
-          { name: 'LEDGER', role: 'Trial Balance Engine', modelTier: 'Deterministic', status: 'ACTIVE' },
-          { name: 'EUCLID', role: 'Mathematical Reconciler', modelTier: 'Deterministic', status: 'ACTIVE' }
-        ]
-  );
+  const displayCurrency = activeClient?.reportingCurrency || presentationCurrency;
+  const eligibleFacts = facts.filter((f: any) => String(f.status).toUpperCase() === 'APPROVED' &&
+    String(f.verificationStatus || f.verification_status).toUpperCase() === 'VERIFIED' &&
+    String(f.evidenceStatus || f.evidence_status).toUpperCase() === 'CONFIRMED');
+  const incomeStatementLines: StatementLinePresentation[] = adaptFactsToIncomeStatement(eligibleFacts, selectedPeriod, displayCurrency);
+  const { lines: balanceSheetLines, identityCheck } = adaptFactsToBalanceSheet(eligibleFacts, selectedPeriod, displayCurrency);
+  const financialRatios: RatioDerivationPresentation[] = deriveFinancialRatios(eligibleFacts, selectedPeriod, displayCurrency);
+  const namedAgents = adaptBackendAgents(agents);
 
   // Command Palette Items built dynamically from authoritative state
   const commandItems: CommandItem[] = [
@@ -133,7 +118,7 @@ function EveCpaStudioMain() {
           activeClientName={activeClient?.name || 'No Engagement Selected'}
           activePeriod={activeClient?.latestPeriod || '—'}
           activeCurrency={activeClient?.reportingCurrency || presentationCurrency}
-          onSelectCurrency={setPresentationCurrency}
+          onSelectCurrency={() => { /* Source currency requires a recorded FX conversion before changing. */ }}
           onOpenUpload={() => setIsUploadOpen(true)}
           onToggleCopilot={() => setIsCopilotOpen(!isCopilotOpen)}
           onOpenCommand={() => setIsCommandOpen(true)}
@@ -142,6 +127,28 @@ function EveCpaStudioMain() {
 
         {/* View Router */}
         <main className="flex-1 overflow-y-auto bg-slate-100">
+          <div role={dataError ? 'alert' : 'status'} className="px-6 py-2 text-xs border-b bg-white">
+            API: same-origin authenticated session · {dataState} · Workspace: {selectedWorkspaceId || 'none'}
+            {lastSuccessfulRead && <span> · Last read: {lastSuccessfulRead}</span>}
+            {dataError && <p className="text-red-700">{dataError}</p>}
+          </div>
+          {engagementDetail && <section className="px-6 py-3 text-xs bg-white border-b space-y-2" aria-label="Recorded evidence and review state">
+            <div className="flex flex-wrap gap-4">
+              <span>Raw extracted rows: {engagementDetail.measurements?.rawExtractedRows ?? 'Not measured'}</span>
+              <span>Eligible rows: {engagementDetail.measurements?.eligibleRows ?? 'Not measured'}</span>
+              <span>Unique eligible IDs: {engagementDetail.measurements?.uniqueEligibleFactIds ?? 'Not measured'}</span>
+              <span>Evidence occurrences: {engagementDetail.measurements?.evidenceOccurrences ?? 'Not measured'}</span>
+              <span>Source documents: {engagementDetail.measurements?.sourceDocumentCount ?? 'Not measured'}</span>
+            </div>
+            <p>AI-prepared draft · Professional approval is required for issuance. Financial tables show eligible evidence for the selected period.</p>
+            {engagementDetail.periods?.length > 0 && <label>Reporting period <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className="border rounded ml-2 p-1">
+              {[...new Set([selectedPeriod, ...engagementDetail.periods].filter(Boolean))].map((p: string) => <option key={p}>{p}</option>)}
+            </select></label>}
+            {engagementDetail.continuation && <details><summary className="cursor-pointer">Recorded processing and review evidence</summary>
+              <p>Status: {engagementDetail.continuation.status} · Job: {engagementDetail.continuation.jobId} · Attempt: {engagementDetail.continuation.jobAttempt ?? 'Not recorded'}</p>
+              <pre className="whitespace-pre-wrap break-words max-h-72 overflow-auto mt-2">{JSON.stringify({ specialistSummary: engagementDetail.continuation.specialistSummary, systemFindings: engagementDetail.continuation.systemFindings, reviewFindings: engagementDetail.continuation.reviewFindings, internalTruthAudit: engagementDetail.continuation.internalTruthAudit, minervaLiveValidation: engagementDetail.continuation.minervaLiveValidation }, null, 2)}</pre>
+            </details>}
+          </section>}
           {/* SECTION 1: PRACTICE */}
           {activeView === 'practice-home' && (
             <PracticeHomeView
@@ -191,7 +198,7 @@ function EveCpaStudioMain() {
             <EngagementOverviewView
               clientName={activeClient?.name || 'No Engagement Selected'}
               engagementName={activeEngagement?.name || 'Attestation & Review'}
-              period={activeClient?.latestPeriod || '—'}
+              period={selectedPeriod || activeClient?.latestPeriod || '—'}
               currency={activeClient?.reportingCurrency || presentationCurrency}
               framework={activeEngagement?.framework || 'US-GAAP'}
               readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
@@ -210,7 +217,7 @@ function EveCpaStudioMain() {
             <FinancialIncomeStatementView
               clientName={activeClient?.name || 'No Engagement Selected'}
               engagementName={activeEngagement?.name || 'Attestation & Review'}
-              period={activeClient?.latestPeriod || '—'}
+              period={selectedPeriod || activeClient?.latestPeriod || '—'}
               currency={activeClient?.reportingCurrency || presentationCurrency}
               framework={activeEngagement?.framework || 'US-GAAP'}
               readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
@@ -225,7 +232,7 @@ function EveCpaStudioMain() {
             <FinancialBalanceSheetView
               clientName={activeClient?.name || 'No Engagement Selected'}
               engagementName={activeEngagement?.name || 'Attestation & Review'}
-              period={activeClient?.latestPeriod || '—'}
+              period={selectedPeriod || activeClient?.latestPeriod || '—'}
               currency={activeClient?.reportingCurrency || presentationCurrency}
               framework={activeEngagement?.framework || 'US-GAAP'}
               readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
@@ -241,7 +248,7 @@ function EveCpaStudioMain() {
             <AnalysisRatiosView
               clientName={activeClient?.name || 'No Engagement Selected'}
               engagementName={activeEngagement?.name || 'Attestation & Review'}
-              period={activeClient?.latestPeriod || '—'}
+              period={selectedPeriod || activeClient?.latestPeriod || '—'}
               currency={activeClient?.reportingCurrency || presentationCurrency}
               framework={activeEngagement?.framework || 'US-GAAP'}
               readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
@@ -256,7 +263,7 @@ function EveCpaStudioMain() {
             <DeliverablesView
               clientName={activeClient?.name || 'No Engagement Selected'}
               engagementName={activeEngagement?.name || 'Attestation & Review'}
-              period={activeClient?.latestPeriod || '—'}
+              period={selectedPeriod || activeClient?.latestPeriod || '—'}
               currency={activeClient?.reportingCurrency || presentationCurrency}
               framework={activeEngagement?.framework || 'US-GAAP'}
               readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}
@@ -270,7 +277,7 @@ function EveCpaStudioMain() {
             <EveCopilotView
               clientName={activeClient?.name || 'No Engagement Selected'}
               engagementName={activeEngagement?.name || 'Attestation & Review'}
-              period={activeClient?.latestPeriod || '—'}
+              period={selectedPeriod || activeClient?.latestPeriod || '—'}
               currency={activeClient?.reportingCurrency || presentationCurrency}
               framework={activeEngagement?.framework || 'US-GAAP'}
               readinessState={activeEngagement?.readinessState || 'DATA_VERIFICATION_REQUIRED'}

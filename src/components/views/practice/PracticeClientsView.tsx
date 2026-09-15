@@ -38,7 +38,7 @@ export const PracticeClientsView: React.FC<PracticeClientsViewProps> = ({
       <EvePageHeader
         category="Practice Management"
         title="Client Portfolio & Organizations"
-        description="Certified corporate clients and sealed curriculum benchmark fixtures with strict multi-tenant isolation."
+        description="Saved client workspaces and separately classified Academy records."
         actions={
           <button
             type="button"
@@ -158,7 +158,7 @@ export const PracticeClientsView: React.FC<PracticeClientsViewProps> = ({
 
                         <td className="py-3 px-4">
                           <EveStatusBadge
-                            status={client.openReviewItemsCount > 0 ? 'review_required' : 'clean'}
+                            status="review_required"
                             size="sm"
                           />
                         </td>
