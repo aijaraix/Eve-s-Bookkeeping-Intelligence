@@ -21,6 +21,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { execSync } from 'child_process';
 import puppeteer from 'puppeteer-core';
+import { AcademyDashboardTruthAuditor } from './academyDashboardTruthAuditor';
 
 export type BrowserJourneyProofLevel =
   | 'LOCAL_BROWSER_VERIFIED'
@@ -46,6 +47,7 @@ export interface BrowserStepProof {
 }
 
 export interface RealBrowserJourneyResult {
+  academyEvidence?: any;
   journeyId: string;
   browserSessionId: string;
   browserVersion: string;
@@ -164,11 +166,20 @@ export class RealBrowserCustomerSimulatorEngine {
   /**
    * Resolves Chrome / Chromium executable dynamically from production environment paths
    */
+  private bundledChromeCandidates(): string[] {
+    const root = '/opt/hermes/.playwright';
+    if (!fs.existsSync(root)) return [];
+    return fs.readdirSync(root).filter(name => /^chromium_headless_shell-\d+$/.test(name))
+      .sort((a, b) => Number(b.split('-').pop()) - Number(a.split('-').pop()))
+      .map(name => path.join(root, name, 'chrome-headless-shell-linux64', 'chrome-headless-shell'));
+  }
+
   public resolveChromeExecutablePath(): string {
     const candidates = [
       process.env.PUPPETEER_EXECUTABLE_PATH,
       process.env.CHROME_BIN,
       process.env.CHROME_PATH,
+      ...this.bundledChromeCandidates(),
       '/usr/bin/google-chrome-stable',
       '/usr/bin/google-chrome',
       '/usr/bin/chromium',
@@ -177,9 +188,7 @@ export class RealBrowserCustomerSimulatorEngine {
     ].filter(Boolean) as string[];
 
     for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
+      try { fs.accessSync(candidate, fs.constants.X_OK); return candidate; } catch {}
     }
 
     try {
@@ -229,11 +238,34 @@ export class RealBrowserCustomerSimulatorEngine {
     reportingStandard?: 'US_GAAP' | 'IFRS' | 'UK_FRS' | 'STATUTORY';
     reportingCurrency?: string;
     targetWorkspaceId?: string;
+    viewport?: { width: number; height: number; isMobile?: boolean };
+    /** Read from protected runtime configuration; never retained in journey evidence. */
+    operatorPin?: string;
+    academy?: { evidenceDir: string; processingTimeoutMs?: number; resumeIntakeId?: string; expectedMetrics?: Record<string, Record<string, number>> };
   }): Promise<RealBrowserJourneyResult> {
+    if (params.academy && params.routingMode === 'EXISTING_ENGAGEMENT') throw new Error('ACADEMY_REQUIRES_NEW_ISOLATED_INTAKE');
+    if (params.routingMode === 'EXISTING_ENGAGEMENT' && !params.targetWorkspaceId) {
+      throw new Error('EXPLICIT_WORKSPACE_REQUIRED: Existing intake must select an exact workspace.');
+    }
     const startedAt = new Date().toISOString();
     const startTime = Date.now();
     const journeyId = `cj-browser-${params.ticker.toLowerCase()}-${Date.now()}`;
-    const steps: BrowserStepProof[] = [];
+    const priorCheckpoint = params.academy?.resumeIntakeId ? JSON.parse(fs.readFileSync(path.join(params.academy.evidenceDir, 'checkpoint.json'), 'utf8')) : null;
+    const steps: BrowserStepProof[] = priorCheckpoint?.steps || [];
+    let academyEvidence: any;
+    const checkpoint = (state: any) => {
+      if (!params.academy) return;
+      fs.mkdirSync(params.academy.evidenceDir, { recursive: true });
+      const file = path.join(params.academy.evidenceDir, 'checkpoint.json');
+      const temporary = file + '.tmp';
+      fs.writeFileSync(temporary, JSON.stringify({ ...priorCheckpoint, journeyId, steps, ...state }, null, 2), { mode: 0o600 });
+      const fd = fs.openSync(temporary, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      fs.renameSync(temporary, file);
+      const directory = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    };
+    if (params.academy && !params.academy.resumeIntakeId && fs.existsSync(path.join(params.academy.evidenceDir, 'checkpoint.json'))) {
+      throw new Error('EXISTING_CASE_CHECKPOINT: Resume its saved intake; automatic duplicate upload is prohibited.');
+    }
 
     // 1. Verify physical source file
     const fullSourcePath = path.isAbsolute(params.physicalSourcePath)
@@ -248,8 +280,10 @@ export class RealBrowserCustomerSimulatorEngine {
     const sourceSha256 = crypto.createHash('sha256').update(sourceBytes).digest('hex');
 
     // 2. Stage physical file in customer-side directory
-    const stagedFilename = `${params.ticker.toUpperCase()}_Audited_10K_Authoritative.htm`;
-    const stagingPath = path.join(this.customerStagingDir, stagedFilename);
+    const stagedFilename = path.basename(fullSourcePath);
+    const stagingDir = path.join(this.customerStagingDir, sourceSha256);
+    fs.mkdirSync(stagingDir, { recursive: true });
+    const stagingPath = path.join(stagingDir, stagedFilename);
     fs.writeFileSync(stagingPath, sourceBytes);
     const stagingSha256 = crypto.createHash('sha256').update(fs.readFileSync(stagingPath)).digest('hex');
 
@@ -275,6 +309,7 @@ export class RealBrowserCustomerSimulatorEngine {
       const tLaunch = Date.now();
       browser = await puppeteer.launch({
         executablePath: chromeExecutablePath,
+        headless: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -288,7 +323,7 @@ export class RealBrowserCustomerSimulatorEngine {
       recordStep(1, 'Spawn Browser Process', chromeExecutablePath, `Spawned ${browserVersion} (PID active)`, tLaunch);
 
       const page = await browser.newPage();
-      await page.setViewport({ width: 1280, height: 800 });
+      await page.setViewport(params.viewport || { width: 1280, height: 800 });
 
       // Step 2: Navigate to Eve Application
       const tNav = Date.now();
@@ -303,14 +338,37 @@ export class RealBrowserCustomerSimulatorEngine {
       const title = await page.title();
       recordStep(2, 'Navigate to Eve CPA Studio', baseUrl, `Loaded. Title: "${title || 'Eve CPA Studio'}" [${environmentClassification} / ${proofLevel}]`, tNav);
 
+      // Supported operator authentication is a real form submission, never cookie injection.
+      if (await page.$('form[action="/operator-login"] input#pin')) {
+        const pin = params.operatorPin || process.env.EVE_OPERATOR_PIN;
+        if (!pin) throw new Error('OPERATOR_PIN_REQUIRED: Configure the existing operator credential in the protected runtime.');
+        await page.type('form[action="/operator-login"] input#pin', pin);
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }),
+          page.click('form[action="/operator-login"] button[type="submit"]')
+        ]);
+        if (await page.$('form[action="/operator-login"]')) throw new Error('OPERATOR_AUTHENTICATION_REJECTED');
+        recordStep(2, 'Authenticate through operator form', '/operator-login', 'Product form accepted operator session', tNav);
+      }
+
+      if (params.academy) {
+        const grader = new AcademyDashboardTruthAuditor(page, baseUrl);
+        const health = await grader.readJson('/api/health');
+        const queue = await grader.readJson('/api/queue/jobs');
+        if (health.status !== 'ok' || !Array.isArray(queue.jobs)) throw new Error('ACADEMY_HEALTH_GATE_FAILED');
+        if (queue.jobs.some((j: any) => j.classification !== 'ACADEMY' && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(j.status))) {
+          throw new Error('CUSTOMER_PRIORITY_PREEMPTED');
+        }
+      }
+
       // Step 3: Click Real Product Header Button to Open Modal
       const tHeader = Date.now();
-      const headerBtn = await page.waitForSelector('#header-upload-intake-btn', { visible: true, timeout: 10000 });
+      const headerBtn = await page.waitForSelector('[data-eve-action-id="intake.open.header"]', { visible: true, timeout: 10000 });
       if (!headerBtn) {
-        throw new Error(`[RealBrowserCustomerSimulator] Required product control '#header-upload-intake-btn' not found in DOM.`);
+        throw new Error(`[RealBrowserCustomerSimulator] Required product control '[data-eve-action-id="intake.open.header"]' not found in DOM.`);
       }
       await headerBtn.click();
-      recordStep(3, 'Click Header Upload Intake Button', '#header-upload-intake-btn', 'Clicked #header-upload-intake-btn in real UI', tHeader);
+      recordStep(3, 'Click Header Upload Intake Button', '[data-eve-action-id="intake.open.header"]', 'Clicked [data-eve-action-id="intake.open.header"] in real UI', tHeader);
 
       // Step 4: Wait for Real Product Modal Container
       const tModal = Date.now();
@@ -320,6 +378,20 @@ export class RealBrowserCustomerSimulatorEngine {
       }
       recordStep(4, 'Wait for Upload Modal Container', '#upload-modal-container', 'Modal container displayed and active in DOM', tModal);
 
+      let intakeSessionId = '', intakeSha256 = '', serverReceivedSha256 = '';
+      let hashContinuityVerified = false;
+      if (params.academy?.resumeIntakeId) {
+        const id = params.academy.resumeIntakeId;
+        await page.waitForSelector(`[data-eve-action-id="intake.saved.select"] option[value="${id}"]`, { timeout: 15000 });
+        await page.select('[data-eve-action-id="intake.saved.select"]', id);
+        await page.click('[data-eve-action-id="intake.saved.resume"]');
+        const grader = new AcademyDashboardTruthAuditor(page, baseUrl);
+        const saved = (await grader.readJson(`/api/intake/${encodeURIComponent(id)}`)).intakeSession;
+        if (saved?.classification !== 'ACADEMY' || saved?.uploadedFiles?.length !== 1 || saved.uploadedFiles[0].sha256 !== sourceSha256) throw new Error('SAVED_INTAKE_SCOPE_MISMATCH');
+        intakeSessionId = id; intakeSha256 = saved.uploadedFiles[0].sha256; serverReceivedSha256 = intakeSha256;
+        hashContinuityVerified = sourceSha256 === stagingSha256 && stagingSha256 === intakeSha256;
+        recordStep(5, 'Resume saved intake through UI', '[data-eve-action-id="intake.saved.resume"]', 'Observed original intake without resubmission', Date.now());
+      } else {
       // Step 5: Physically interact with Engagement Routing UI
       const tRouting = Date.now();
       const useExisting = params.routingMode === 'EXISTING_ENGAGEMENT';
@@ -337,7 +409,7 @@ export class RealBrowserCustomerSimulatorEngine {
         );
       } else {
         await page.click('#routing-mode-new-engagement');
-        const engagementName = params.engagementName || `FY2025 Audit - ${params.clientName}`;
+        const engagementName = params.engagementName || `Bookkeeping - ${params.clientName}`;
         const clientName = `${params.clientName} (${params.ticker})`;
         const standard = params.reportingStandard || 'US_GAAP';
         const currency = params.reportingCurrency || 'USD';
@@ -352,6 +424,7 @@ export class RealBrowserCustomerSimulatorEngine {
 
         await page.select('#reporting-standard-select', standard);
         await page.select('#engagement-currency-select', currency);
+        if (params.academy) await page.click('[data-eve-action-id="intake.academy"]');
 
         recordStep(
           5,
@@ -410,8 +483,9 @@ export class RealBrowserCustomerSimulatorEngine {
 
         const onResponse = async (response: any) => {
           const url = response.url();
-          if (url.includes('/api/documents/upload') && response.request().method() === 'POST') {
+          if (new URL(url).origin === new URL(baseUrl).origin && new URL(url).pathname === '/api/documents/upload' && response.request().method() === 'POST') {
             try {
+              if (!response.ok()) throw new Error(`Upload HTTP ${response.status()}`);
               const json = await response.json();
               observedResponseBody = json;
               clearTimeout(timeout);
@@ -427,7 +501,7 @@ export class RealBrowserCustomerSimulatorEngine {
 
         page.on('request', (req: any) => {
           const url = req.url();
-          if (url.includes('/api/documents/upload') && req.method() === 'POST') {
+          if (new URL(url).origin === new URL(baseUrl).origin && new URL(url).pathname === '/api/documents/upload' && req.method() === 'POST') {
             observedRequest = {
               url,
               method: req.method()
@@ -439,6 +513,7 @@ export class RealBrowserCustomerSimulatorEngine {
       });
 
       // Physically click #start-analysis-button
+      checkpoint({ state: 'SUBMISSION_UNCERTAIN', sourceSha256, stagedFilename });
       await startBtn.click();
       recordStep(8, 'Click Start Analysis Button', '#start-analysis-button', 'Clicked #start-analysis-button in DOM to initiate real frontend submission', tStart);
 
@@ -447,8 +522,9 @@ export class RealBrowserCustomerSimulatorEngine {
       const uploadResult = await networkPromise;
 
       // Authoritative validation of server response — fail closed, no manufactured fallbacks
-      const { intakeSessionId, intakeSha256 } = this.validateUploadAcknowledgement(uploadResult);
-      const serverReceivedSha256 = intakeSha256;
+      ({ intakeSessionId, intakeSha256 } = this.validateUploadAcknowledgement(uploadResult));
+      serverReceivedSha256 = intakeSha256;
+      checkpoint({ state: 'INTAKE_ACKNOWLEDGED', intakeSessionId, sourceSha256, serverReceivedSha256 });
 
       recordStep(
         9,
@@ -460,12 +536,122 @@ export class RealBrowserCustomerSimulatorEngine {
 
       // Verify cryptographic hash continuity across 3 independently measured boundaries:
       // SOURCE_BYTES_SHA -> STAGED_FILE_SHA -> SERVER_RECEIVED_BYTES_SHA
-      const hashContinuityVerified = 
+      hashContinuityVerified =
         (sourceSha256 === stagingSha256) &&
         (stagingSha256 === serverReceivedSha256);
 
       if (!hashContinuityVerified) {
         throw new Error(`[RealBrowserCustomerSimulator] Cryptographic hash continuity check failed: source=${sourceSha256}, staging=${stagingSha256}, serverReceived=${serverReceivedSha256}`);
+      }
+
+      }
+
+      if (params.academy) {
+        const evidenceDir = params.academy.evidenceDir;
+        const auditor = new AcademyDashboardTruthAuditor(page, baseUrl);
+        const receipt = (await auditor.readJson(`/api/intake/${encodeURIComponent(intakeSessionId)}`)).intakeSession;
+        if (receipt?.classification !== 'ACADEMY' || (receipt?.targetProjectId && !receipt?.promotedProjectId)) throw new Error('ACADEMY_RECEIPT_ISOLATION_FAILED');
+        await page.screenshot({ path: path.join(evidenceDir, 'processing.png'), fullPage: true });
+        const checkCustomerPriority = async () => {
+          const queue = await auditor.readJson('/api/queue/jobs');
+          if (!Array.isArray(queue.jobs) || queue.jobs.some((j: any) => j.classification !== 'ACADEMY' && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(j.status))) {
+            checkpoint({ state: 'PAUSED_CUSTOMER_PRIORITY', intakeSessionId });
+            throw new Error('CUSTOMER_PRIORITY_PREEMPTED');
+          }
+        };
+        const waitWithPriority = async (selector: string, timeout: number) => {
+          const deadline = Date.now() + timeout;
+          while (true) {
+            await checkCustomerPriority();
+            if (await page.$(selector)) return;
+            if (Date.now() >= deadline) throw new Error('UI_STATE_TIMEOUT:' + selector);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        };
+        await waitWithPriority('#upload-modal-container[data-eve-intake-phase="COMPLETE"]', params.academy.processingTimeoutMs || 1200000);
+        await page.click('[data-eve-action-id="intake.close"]');
+        const workspaceId = await page.$eval('[data-eve-workspace-id]', (el: any) => el.dataset.eveWorkspaceId);
+        const completed = (await auditor.readJson(`/api/intake/${encodeURIComponent(intakeSessionId)}`)).intakeSession;
+        if (!workspaceId || completed.promotedProjectId !== workspaceId || completed.classification !== 'ACADEMY') throw new Error('ACADEMY_PROMOTION_SCOPE_FAILED');
+        const inventory = await auditor.readJson('/api/cpa/engagements/universal');
+        const engagements = inventory.engagements || inventory;
+        const record = engagements.find((e: any) => e.workspaceId === workspaceId);
+        if (!record || record.classification !== 'ACADEMY') throw new Error('ACADEMY_WORKSPACE_CLASSIFICATION_FAILED');
+        const detail = async () => (await auditor.readJson(`/api/cpa/engagements/${encodeURIComponent(record.engagementId)}`)).engagement;
+        const navigate = async (view: string) => {
+          const queue = await auditor.readJson('/api/queue/jobs');
+          if (!Array.isArray(queue.jobs) || queue.jobs.some((j: any) => j.classification !== 'ACADEMY' && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(j.status))) {
+            checkpoint({ state: 'PAUSED_CUSTOMER_PRIORITY', intakeSessionId, workspaceId });
+            throw new Error('CUSTOMER_PRIORITY_PREEMPTED');
+          }
+          if ((page.viewport()?.width || 1280) < 768) await page.click('[data-eve-action-id="nav.mobile.open"]');
+          const selector = `[data-eve-action-id="nav.${view}"]`;
+          await page.locator(selector).click();
+          await page.waitForSelector(`[data-eve-view="${view}"]`);
+          recordStep(steps.length + 1, `Navigate ${view}`, selector, 'Visible product navigation used', Date.now());
+        };
+        const grades: any[] = [];
+        for (const view of ['financials-income', 'financials-balance']) {
+          await navigate(view);
+          const screenshot = path.join(evidenceDir, `${view}.png`);
+          await page.screenshot({ path: screenshot, fullPage: true });
+          const grade = await auditor.gradeFinancialScreen(await detail(), screenshot, params.academy.expectedMetrics?.[view] || {});
+          grades.push(grade);
+          if (!grade.pass) { checkpoint({ state: 'TRUTH_FAILED', intakeSessionId, workspaceId, grades }); throw new Error('RENDERED_VALUE_TRUTH_FAILED'); }
+        }
+        const factControl = await page.$('[data-eve-financial-value="true"][data-canonical-fact-id]');
+        if (!factControl) throw new Error('PROVENANCE_CONTROL_MISSING');
+        await factControl.click();
+        await page.waitForSelector('[data-eve-action-id="evidence.close"]', { visible: true });
+        await page.screenshot({ path: path.join(evidenceDir, 'provenance.png'), fullPage: true });
+        await page.click('[data-eve-action-id="evidence.close"]');
+        for (const view of ['engagement-evidence', 'engagement-findings', 'engagement-deliverables']) {
+          await navigate(view);
+          await page.screenshot({ path: path.join(evidenceDir, `${view}.png`), fullPage: true });
+        }
+        const specialistDeadline = Date.now() + 900000;
+        do {
+          if (await page.$('[data-eve-action-id="draft.download.pdf"]')) break;
+          await waitWithPriority('[data-eve-action-id="draft.prepare"]:not([disabled]), [data-eve-action-id="draft.download.pdf"]', 600000);
+        if (!(await page.$('[data-eve-action-id="draft.download.pdf"]'))) {
+          await checkCustomerPriority();
+          await page.click('[data-eve-action-id="draft.prepare"]');
+          recordStep(steps.length + 1, 'Prepare AI draft', '[data-eve-action-id="draft.prepare"]', 'Actual UI draft request', Date.now());
+          checkpoint({ state: 'DRAFT_REQUESTED', intakeSessionId, workspaceId });
+        }
+          try { await page.waitForSelector('[data-eve-draft-requested="true"]', { timeout: 10000 }); break; }
+          catch { if (Date.now() > specialistDeadline) throw new Error('SPECIALIST_PROCESSING_TIMEOUT'); }
+        } while (true);
+        const deadline = Date.now() + 600000;
+        while (!(await page.$('[data-eve-action-id="draft.download.pdf"]'))) {
+          await checkCustomerPriority();
+          if (Date.now() > deadline) throw new Error('DRAFT_GENERATION_TIMEOUT');
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await page.click('[data-eve-action-id="draft.refresh"]');
+        }
+        const downloadDir = path.join(evidenceDir, 'downloads', crypto.randomUUID());
+        fs.mkdirSync(downloadDir, { recursive: true });
+        const session = await page.createCDPSession();
+        await session.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir, eventsEnabled: true });
+        await checkCustomerPriority();
+        await page.click('[data-eve-action-id="draft.download.pdf"]');
+        let downloaded = '';
+        const downloadDeadline = Date.now() + 60000;
+        while (!downloaded) {
+          downloaded = fs.readdirSync(downloadDir).find(name => name.endsWith('.pdf')) || '';
+          if (Date.now() > downloadDeadline) throw new Error('UI_DOWNLOAD_TIMEOUT');
+          if (!downloaded) await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        const selectedDownload = await page.$eval('[data-eve-action-id="draft.download.pdf"]', (el: any) => el.dataset.eveActionTarget);
+        const finalDetail = await detail();
+        const report = finalDetail.reports.find((r: any) => `${r.reportId}:${r.version}` === selectedDownload);
+        const bytes = fs.readFileSync(path.join(downloadDir, downloaded));
+        if (!report?.formats?.pdf?.sha256 || report.formats.pdf.sha256 !== crypto.createHash('sha256').update(bytes).digest('hex')) throw new Error('DOWNLOAD_EVIDENCE_HASH_MISMATCH');
+        if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error('DOWNLOADED_ARTIFACT_INVALID');
+        academyEvidence = { workspaceId, intakeSessionId, grades, download: { filename: downloaded,
+          sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }, viewport: page.viewport(),
+          continuation: (await detail()).continuation, status: 'UI_JOURNEY_EXECUTED_PENDING_ACCEPTANCE' };
+        checkpoint({ state: 'UI_JOURNEY_EXECUTED_PENDING_ACCEPTANCE', ...academyEvidence });
       }
 
       await browser.close();
@@ -475,6 +661,7 @@ export class RealBrowserCustomerSimulatorEngine {
       const durationMs = Date.now() - startTime;
 
       return {
+        academyEvidence,
         journeyId,
         browserSessionId,
         browserVersion,

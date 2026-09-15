@@ -1,3 +1,4 @@
+import { actionAttributes } from '../../../academy/uiActionRegistry';
 import React from 'react';
 import { usePractice } from '../../../context/PracticeContext';
 import { adaptFactsToBalanceSheet, formatFinancialValue } from '../../../adapters/presentationAdapters';
@@ -93,7 +94,7 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
             </button>
             <button
               type="button"
-              onClick={onOpenUpload}
+              {...actionAttributes('intake.open.home')} onClick={onOpenUpload}
               className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer transition-colors"
             >
               <UploadCloud className="w-4 h-4" />

@@ -267,6 +267,7 @@ export interface StatementLineItem {
 // ==========================================
 
 export interface DocumentRecord {
+  classification?: 'ACADEMY' | 'CUSTOMER';
   id: string;
   workspaceId: string;
   filename: string;
@@ -341,6 +342,7 @@ export interface ProcessingUnitRecord {
 }
 
 export interface IntakeSessionRecord {
+  requestedWorkspaceName?: string;
   id: string;
   workspaceId?: string;
   targetProjectId?: string;

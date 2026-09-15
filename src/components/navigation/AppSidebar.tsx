@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { actionAttributes } from '../../academy/uiActionRegistry';
 import { cn } from '../../lib/utils';
 import {
   LayoutDashboard,
@@ -120,6 +121,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     return (
       <button
         key={item.id}
+        {...actionAttributes(`nav.${item.id}`)}
         type="button"
         onClick={() => navigate(item.id)}
         className={cn(
@@ -161,7 +163,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
         type="button"
         onClick={() => setMobileOpen(true)}
         className="md:hidden fixed bottom-4 left-4 z-40 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-white shadow-xl"
-        aria-label="Open Eve navigation"
+        aria-label="Open Eve navigation" {...actionAttributes('nav.mobile.open')}
       >
         <Menu className="h-5 w-5" />
       </button>
@@ -202,7 +204,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             type="button"
             className="md:hidden inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
             onClick={() => setMobileOpen(false)}
-            aria-label="Close Eve navigation"
+            aria-label="Close Eve navigation" {...actionAttributes('nav.mobile.close')}
           >
             <X className="h-4 w-4" />
           </button>

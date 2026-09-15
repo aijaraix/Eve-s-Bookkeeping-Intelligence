@@ -729,8 +729,7 @@ export function createCPAOrganizationRouter(): Router {
 
   // 11. Customer Preemption Demonstration
   router.post('/preemption/test', (req: Request, res: Response) => {
-    const result = hermesHeartbeat.runPreemptionDemonstration();
-    res.json(result);
+    res.status(410).json({ error: 'Synthetic preemption demonstrations are retired. Inspect recorded queue and UI scheduler evidence.' });
   });
 
   // 12. Phase H.9.13 — 24-Hour Evolution Report
@@ -750,7 +749,8 @@ export function createCPAOrganizationRouter(): Router {
         return res.status(403).json({ success: false, error: 'FORBIDDEN: Academy cycle execution requires internal operator authority.' });
       }
       const { caseId } = req.body || {};
-      const result = await hermesPrimeAcademyEngine.executeAcademyCycle(caseId);
+      return res.status(410).json({ success: false, error: 'Legacy backend Academy execution is retired. Use the UI Academy operator.' });
+      const result = null;
       res.json({ success: true, result });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message || 'Academy cycle failed' });
@@ -1317,7 +1317,8 @@ export function createCPAOrganizationRouter(): Router {
   router.post('/academy/full-practice', async (req: Request, res: Response) => {
     try {
       const { caseId } = req.body || {};
-      const result = await hermesPrimeAcademyEngine.executeFullPracticeAcademyEngagement({ caseId });
+      return res.status(410).json({ success: false, error: 'Legacy backend Academy execution is retired. Use the UI Academy operator.' });
+      const result = null;
       res.json({ success: true, result });
     } catch (err: any) {
       console.error('[FULL_PRACTICE_ERROR]', err);
@@ -1328,7 +1329,8 @@ export function createCPAOrganizationRouter(): Router {
   router.post('/academy/fast-regression', async (req: Request, res: Response) => {
     try {
       const { caseId } = req.body || {};
-      const result = await hermesPrimeAcademyEngine.executeAcademyCycle(caseId);
+      return res.status(410).json({ success: false, error: 'Legacy backend Academy execution is retired. Use the UI Academy operator.' });
+      const result = null;
       res.json({ success: true, result });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

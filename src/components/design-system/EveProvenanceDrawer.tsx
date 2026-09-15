@@ -1,3 +1,4 @@
+import { actionAttributes } from '../../academy/uiActionRegistry';
 import React, { useState } from 'react';
 import { cn } from '../../lib/utils';
 import { SourceToPixelMetadata } from '../../types/presentationModels';
@@ -52,7 +53,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            {...actionAttributes('evidence.close')} onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -63,7 +64,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
         <div className="flex border-b border-slate-200 bg-white px-5">
           <button
             type="button"
-            onClick={() => setActiveTab('normal')}
+            {...actionAttributes('evidence.summary')} onClick={() => setActiveTab('normal')}
             className={cn(
               'py-3 text-xs font-semibold border-b-2 tracking-wide cursor-pointer transition-colors mr-6',
               activeTab === 'normal'
@@ -75,7 +76,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('advanced')}
+            {...actionAttributes('evidence.technical')} onClick={() => setActiveTab('advanced')}
             className={cn(
               'py-3 text-xs font-semibold border-b-2 tracking-wide cursor-pointer transition-colors',
               activeTab === 'advanced'
@@ -139,7 +140,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
 
                   <div className="p-3 bg-amber-50/50 border border-amber-200/60 rounded-lg text-xs font-serif leading-relaxed text-slate-800">
                     <p className="italic">
-                      Recorded value: {metadata.sourceRawValue !== undefined ? String(metadata.sourceRawValue) : 'Not recorded'}. A source quotation is not included in this reference.
+                      {metadata.sourceText || 'No source quotation is recorded for this reference.'}
                     </p>
                   </div>
                 </div>

@@ -13,6 +13,7 @@ export type VerifiedContinuationStatus =
   | 'READY_FROM_VERIFIED_EXTRACTION'
   | 'SPECIALIST_SWARM_RUNNING'
   | 'SPECIALIST_SWARM_COMPLETE'
+  | 'AWAITING_UI_DRAFT_REQUEST'
   | 'DELIVERABLE_GENERATED_READY_FOR_HUMAN_REVIEW'
   | 'INTERNAL_TRUTH_AUDIT_COMPLETE'
   | 'MINERVA_TECHNICAL_VALIDATION_COMPLETE'
@@ -232,6 +233,37 @@ export class VerifiedCustomerContinuationService {
     return path.join(this.storageDir, `${crypto.createHash('sha256').update(jobId).digest('hex')}.json`);
   }
 
+  private draftRequestIdentity(job: any) {
+    return { jobId: job.id, workspaceId: job.workspaceId, documentId: job.documentId,
+      attempt: Number(job.attemptCount || 0), sourceSha256: job.documentHash, professionalApproval: false };
+  }
+
+  private hasCurrentDraftRequest(job: any): boolean {
+    try {
+      const request = JSON.parse(fs.readFileSync(this.statePath(job.id) + '.draft-request', 'utf8'));
+      return Object.entries(this.draftRequestIdentity(job)).every(([key, value]) => request[key] === value);
+    } catch { return false; }
+  }
+
+  public requestAcademyDraft(job: any, db: any): void {
+    const workspace = db.workspaces.find((w: any) => w.id === job.workspaceId);
+    if (job.classification !== 'ACADEMY' || workspace?.classification !== 'ACADEMY' || job.status !== 'COMPLETED') {
+      throw new Error('Only completed isolated Academy work is eligible for this draft request.');
+    }
+    const state = this.getState(job.id);
+    if (!state?.specialistSummary || state.jobAttempt !== Number(job.attemptCount || 0) ||
+      state.sourceSha256 !== job.documentHash || state.workspaceId !== job.workspaceId || state.documentId !== job.documentId) {
+      throw new Error('Specialist processing for the current source and attempt is not complete.');
+    }
+    if (this.hasCurrentDraftRequest(job)) return;
+    const target = this.statePath(job.id) + '.draft-request';
+    const temporary = target + '.tmp';
+    fs.writeFileSync(temporary, JSON.stringify({ ...this.draftRequestIdentity(job), requestedAt: new Date().toISOString() }), { mode: 0o600 });
+    const fd = fs.openSync(temporary, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(temporary, target);
+    const dir = fs.openSync(this.storageDir, 'r'); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+  }
+
   public getState(jobId: string): VerifiedContinuationState | null {
     try {
       const p = this.statePath(jobId);
@@ -302,8 +334,17 @@ export class VerifiedCustomerContinuationService {
 
   public async continueCompletedHybridJob(job: any, db: any): Promise<VerifiedContinuationState | null> {
     if (!job || job.engineMode !== 'HYBRID_GEMINI_NATIVE' || job.status !== 'COMPLETED' || !job.id || !job.workspaceId) return null;
+    const workspace = db.workspaces.find((w: any) => w.id === job.workspaceId);
+    const document = db.documents.find((d: any) => d.id === job.documentId);
+    if ([job, workspace, document].some(record => record?.classification === 'ACADEMY') &&
+        ![job, workspace, document].every(record => record?.classification === 'ACADEMY')) {
+      throw new Error('ACADEMY_CLASSIFICATION_MISMATCH');
+    }
     const prior = this.getState(job.id);
     if (this.isTerminalForSameAttempt(prior, job)) return prior;
+    if (job.classification === 'ACADEMY' && prior?.status === 'AWAITING_UI_DRAFT_REQUEST' &&
+      prior.jobAttempt === Number(job.attemptCount || 0) && prior.sourceSha256 === job.documentHash &&
+      prior.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && !this.hasCurrentDraftRequest(job)) return prior;
     if (this.activeJobs.has(job.id)) return prior;
 
     this.activeJobs.add(job.id);
@@ -428,6 +469,9 @@ export class VerifiedCustomerContinuationService {
         deliveryEligible: false
       };
 
+      if (job.classification === 'ACADEMY' && !this.hasCurrentDraftRequest(job)) {
+        return this.persist({ ...state, status: 'AWAITING_UI_DRAFT_REQUEST' });
+      }
       let artifact: DeliverableArtifactRecord;
       if (prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.deliverable?.reportId && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
         artifact = prior.deliverable as DeliverableArtifactRecord;

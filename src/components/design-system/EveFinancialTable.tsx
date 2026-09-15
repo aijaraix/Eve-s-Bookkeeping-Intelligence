@@ -163,6 +163,11 @@ export const EveFinancialTable: React.FC<EveFinancialTableProps> = ({
                             isClickable && 'cursor-pointer group-hover/val:text-indigo-600'
                           )}
                           // Source-to-Pixel Lineage Dataset Attributes (Phase 35)
+                          data-eve-financial-value={isHeader ? undefined : "true"}
+                          data-derivation-id={line.derivedCalculationId}
+                          data-operand-fact-ids={line.operandFactIds?.join(",")}
+                          data-eve-visible-label={line.label}
+                          data-canonical-fact-id={line.factLineageId || undefined}
                           data-fact-lineage-id={line.factLineageId || undefined}
                           data-render-id={line.renderId || undefined}
                           data-canonical-metric={line.canonicalMetric || undefined}
