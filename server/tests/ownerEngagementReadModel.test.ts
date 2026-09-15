@@ -20,6 +20,7 @@ try {
   write('storage/queue_jobs.json',[{id:'job-a',workspaceId:'ws-a',documentId:'doc-a',status:'COMPLETED'}]);
   write('storage/cpa_memory/verified_customer_continuations/a.json',{workspaceId:'ws-a',engagementId:'eng-a',documentId:'doc-a',jobId:'job-a',status:'READY_FOR_AUTHORIZED_HUMAN_REVIEW',fiscalYear:'2024'});
   write('storage/reports/audit_package_a.json',{reportId:'report-a',engagementId:'eng-a',version:'v6',period:'FY 2024',generatedAt:'2026-01-02',status:'FINAL_CERTIFIED',facts:[]});
+  write('storage/reports/audit_package_a_old.json',{reportId:'report-a',engagementId:'eng-a',version:'v1',period:'FY 2024',generatedAt:'2026-01-01',status:'FINAL_CERTIFIED',facts:[]});
   write('storage/reports/audit_package_b.json',{reportId:'report-b',engagementId:'eng-b',workspaceId:'ws-b',version:'v1',period:'2025'});
   write('storage/reports/audit_package_historical.json',{reportId:'history',engagementId:'eng-practice-history',clientName:'Academy historical',version:'v1',status:'FINAL_CERTIFIED'});
   const before = fs.readFileSync('storage/ai_cpa_storage.json','utf8');
@@ -28,7 +29,11 @@ try {
   assert.equal(all.find(e => e.engagementId === 'eng-practice-history').isCustomer,false);
   assert.equal(a.engagementId,'eng-a'); assert.equal(a.period,'FY 2024');
   assert.deepEqual(a.documents.map((d:any)=>d.documentId),['doc-a']);
-  assert.deepEqual(a.reports.map((r:any)=>r.reportId),['report-a']);
+  assert.deepEqual(a.reports.map((r:any)=>r.reportId),['report-a','report-a']);
+  assert.equal(a.reports[0].version,'v6'); assert.equal(a.reports[0].isHistorical,false);
+  assert.equal(a.reports[1].displayStatus,'HISTORICAL_SUPERSEDED');
+  assert.equal(a.reports[1].warning,'Legacy wording; not an audit or assurance opinion');
+  assert.equal(a.reports[1].sourceStatus,'FINAL_CERTIFIED');
   assert.equal(a.reports[0].status,'DRAFT'); assert.equal(a.reports[0].deliveryEligible,false);
   assert.equal(a.canonicalFactsCount,1); assert.equal(a.measurements.rawExtractedRows,2);
   assert.equal(a.facts,a.financialFacts); assert.equal(a.documents[0].sha256,null);

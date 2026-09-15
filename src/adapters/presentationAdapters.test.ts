@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { adaptWorkspacesToClients, adaptWorkspacesToEngagements, adaptFactsToIncomeStatement, adaptFactsToBalanceSheet, deriveFinancialRatios } from './presentationAdapters';
+import { adaptWorkspacesToClients, adaptWorkspacesToEngagements, adaptFactsToIncomeStatement, adaptFactsToBalanceSheet, deriveFinancialRatios, adaptBackendAgents } from './presentationAdapters';
 
 const scopes = [
   { id: 'eng-a', engagementId: 'eng-a', workspaceId: 'ws-a', name: 'Fictional A', isCustomer: true, period: 'FY 2024', documentsCount: 2, canonicalFactsCount: 3 },
@@ -30,3 +30,16 @@ assert.equal(adaptFactsToBalanceSheet(facts, 'FY 2024').identityCheck.totalLiabi
 assert.equal(adaptFactsToIncomeStatement(facts, '2022').length, 0);
 assert.equal(deriveFinancialRatios(facts, '2022').length, 0);
 console.log('PASS: presentation identity, scope counts, period isolation, missing operands and review truth');
+
+const [unmeasuredAgent, zeroAgent] = adaptBackendAgents([
+  { id: 'fictional-unmeasured', name: 'Fictional Unmeasured' },
+  { id: 'fictional-zero', name: 'Fictional Zero', tasksCompleted: 0, successRate: 0, reviewRatePct: 0, academyCompetencyScore: 0, learningIncidentsCount: 0, lastActivityAt: '2024-01-01T00:00:00Z' },
+]);
+for (const key of ['recentTasksCount', 'successRatePct', 'reviewRatePct', 'academyCompetencyScore', 'learningIncidentsCount'] as const) {
+  assert.equal(unmeasuredAgent[key], null);
+  assert.equal(zeroAgent[key], 0);
+}
+assert.equal(unmeasuredAgent.lastActivityAt, null);
+assert.equal(unmeasuredAgent.status, 'NOT_MEASURED');
+assert.equal(zeroAgent.lastActivityAt, '2024-01-01T00:00:00Z');
+console.log('PASS: missing agent telemetry remains null; recorded zero values and timestamp preserved');

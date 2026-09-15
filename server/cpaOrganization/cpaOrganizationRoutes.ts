@@ -1456,6 +1456,11 @@ export function createCPAOrganizationRouter(): Router {
   router.get('/reports/library', (req: Request, res: Response) => {
     try {
       const all = deliverableArtifactService.getAllArtifacts();
+      const latestVersions = new Map<string, string>();
+      for (const report of all) {
+        const key = JSON.stringify([report.engagementId, report.reportId]);
+        if (!latestVersions.has(key)) latestVersions.set(key, report.version);
+      }
       const classification = req.query.classification ? String(req.query.classification) : 'ALL';
       const reportType = req.query.reportType ? String(req.query.reportType) : 'ALL';
       const search = req.query.search ? String(req.query.search).toLowerCase() : '';
@@ -1474,7 +1479,13 @@ export function createCPAOrganizationRouter(): Router {
       }
 
       res.json({
-        reports: filtered.map(r => ({
+        reports: filtered.map(r => {
+          const isHistorical = latestVersions.get(JSON.stringify([r.engagementId, r.reportId])) !== r.version;
+          let sourceStatus: string | null = null;
+          if (r.formats?.json?.filepath && fs.existsSync(r.formats.json.filepath)) {
+            sourceStatus = JSON.parse(fs.readFileSync(r.formats.json.filepath, 'utf8')).status || null;
+          }
+          return ({
           reportId: r.reportId,
           title: r.title,
           deliverableType: r.deliverableType,
@@ -1482,6 +1493,10 @@ export function createCPAOrganizationRouter(): Router {
           engagementId: r.engagementId,
           version: r.version,
           status: r.status,
+          sourceStatus,
+          isHistorical,
+          displayStatus: isHistorical ? 'HISTORICAL_SUPERSEDED' : r.status,
+          warning: isHistorical ? 'Legacy wording; not an audit or assurance opinion' : null,
           generatedAt: r.generatedAt,
           numericFactsCount: r.numericFactsCount,
           euclidVariance: r.euclidVariance,
@@ -1492,7 +1507,7 @@ export function createCPAOrganizationRouter(): Router {
             json: Boolean(r.formats?.json)
           },
           sha256: r.formats?.pdf?.sha256 || r.formats?.xlsx?.sha256
-        })),
+        }); }),
         total: filtered.length
       });
     } catch (err: any) {

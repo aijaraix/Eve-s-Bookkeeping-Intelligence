@@ -14,52 +14,21 @@ export const EveIntelligenceCenterView: React.FC<EveIntelligenceCenterViewProps>
   agents = [],
   onNavigate
 }) => {
-  const [selectedAgent, setSelectedAgent] = useState<NamedCpaAgentPresentation | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const selectedAgent = agents.find(agent => agent.id === selectedAgentId) || null;
+  const measuredPercent = (value: number | null) => value == null ? 'Not measured' : `${value}%`;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <EvePageHeader
         category="Eve Intelligence"
         title="Eve Intelligence Center & Swarm Architecture"
-        description="Live status, charters, and real-time execution logs for the 13 Named CPA Agents."
+        description="Recorded agent status and measurements. Missing execution evidence remains unmeasured."
       />
 
-      {/* Live Hermes Academy Compact Pulse Card */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/40 text-white shadow-xl flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0">
-            <GraduationCap className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold uppercase tracking-wider text-indigo-300">Hermes Academy</span>
-              <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                LIVE
-              </span>
-            </div>
-            <h4 className="text-sm font-bold text-white mt-0.5">
-              AeroTech Dynamics GmbH (Academy Benchmark Case)
-            </h4>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-slate-300 mt-1">
-              <span>Stage: <strong className="text-white">Evidence Review / Deliverable Cleared</strong></span>
-              <span>•</span>
-              <span>Working Agents: <strong className="text-cyan-300">7 Active</strong></span>
-              <span>•</span>
-              <span>Outstanding PBC: <strong className="text-emerald-400">0 (1 Cleared)</strong></span>
-              <span>•</span>
-              <span>Next: <strong className="text-indigo-300">START_NEW_CASE</strong></span>
-            </div>
-          </div>
-        </div>
-
-        <button
-          onClick={() => onNavigate('eve-academy')}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-mono font-bold rounded-xl shadow-lg transition-colors flex items-center gap-2 cursor-pointer shrink-0"
-        >
-          <span>Open Live Observatory</span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
+      <div className="p-4 rounded-2xl bg-slate-900 text-white border border-indigo-500/40">
+        <h4 className="text-sm font-bold">Academy evaluation: Not measured</h4>
+        <p className="text-xs text-slate-300 mt-1">No recorded Academy activity is supplied by this agent view. Opening this page does not start a case.</p>
       </div>
 
       {/* Agents Grid */}
@@ -70,7 +39,7 @@ export const EveIntelligenceCenterView: React.FC<EveIntelligenceCenterViewProps>
             className={`hover:border-indigo-300 transition-all cursor-pointer ${
               selectedAgent?.id === agent.id ? 'border-indigo-600 ring-2 ring-indigo-500/20' : ''
             }`}
-            onClick={() => setSelectedAgent(agent)}
+            onClick={() => setSelectedAgentId(agent.id)}
           >
             <EveCardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between">
@@ -83,7 +52,7 @@ export const EveIntelligenceCenterView: React.FC<EveIntelligenceCenterViewProps>
                     <p className="text-[10px] text-slate-400 font-mono uppercase">{agent.role}</p>
                   </div>
                 </div>
-                <EveStatusBadge status={agent.status === 'ACTIVE' ? 'running' : 'clean'} size="sm" />
+                <EveStatusBadge status={agent.status === 'ACTIVE' ? 'running' : 'pending'} size="sm" />
               </div>
 
               <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
@@ -92,7 +61,7 @@ export const EveIntelligenceCenterView: React.FC<EveIntelligenceCenterViewProps>
 
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-500">
                 <span>Model: <strong className="text-slate-800">{agent.modelTier}</strong></span>
-                <span className="text-emerald-600 font-bold">{agent.successRatePct}% Success</span>
+                <span className="text-emerald-600 font-bold">{measuredPercent(agent.successRatePct)} success</span>
               </div>
             </EveCardContent>
           </EveCard>
@@ -112,10 +81,11 @@ export const EveIntelligenceCenterView: React.FC<EveIntelligenceCenterViewProps>
                 <p className="text-xs text-slate-500 font-mono">{selectedAgent.role}</p>
               </div>
             </div>
-            <EveStatusBadge status={selectedAgent.status === 'ACTIVE' ? 'running' : 'clean'} />
+            <EveStatusBadge status={selectedAgent.status === 'ACTIVE' ? 'running' : 'pending'} />
           </EveCardHeader>
 
           <EveCardContent className="p-5 space-y-4 text-xs">
+            <p>Last activity: {selectedAgent.lastActivityAt || 'No recorded activity'}</p>
             <div>
               <span className="font-bold text-slate-700 block mb-1">Charter & Responsibilities</span>
               <p className="text-slate-600 leading-relaxed">{selectedAgent.charter}</p>
@@ -128,15 +98,15 @@ export const EveIntelligenceCenterView: React.FC<EveIntelligenceCenterViewProps>
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">Tasks Executed</span>
-                <span className="font-bold text-slate-900">{selectedAgent.recentTasksCount}</span>
+                <span className="font-bold text-slate-900">{selectedAgent.recentTasksCount ?? 'Not measured'}</span>
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">Success Rate</span>
-                <span className="font-bold text-emerald-600">{selectedAgent.successRatePct}%</span>
+                <span className="font-bold text-emerald-600">{measuredPercent(selectedAgent.successRatePct)}</span>
               </div>
               <div>
                 <span className="text-slate-400 block text-[11px]">Academy Competency</span>
-                <span className="font-bold text-slate-900">{selectedAgent.academyCompetencyScore}%</span>
+                <span className="font-bold text-slate-900">{measuredPercent(selectedAgent.academyCompetencyScore)}</span>
               </div>
             </div>
           </EveCardContent>

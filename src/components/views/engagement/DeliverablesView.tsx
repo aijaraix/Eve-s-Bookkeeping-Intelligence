@@ -41,6 +41,10 @@ export interface ReportItem {
     json: boolean;
   };
   sha256?: string;
+  isHistorical?: boolean;
+  displayStatus?: string;
+  warning?: string;
+  sourceStatus?: string;
 }
 
 export interface DeliverablesViewProps {
@@ -87,7 +91,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
       if (!Array.isArray(data.reports) || data.reports.some((r: any) => r.engagementId !== selectedEngagementId)) {
         throw new Error('Malformed or out-of-scope report library response.');
       }
-      setReports(data.reports.map((r: any) => ({ ...r, formatsAvailable: r.formatsAvailable || Object.fromEntries(['pdf', 'xlsx', 'csv', 'json'].map(format => [format, Boolean(r.formats?.[format])])) })));
+      setReports([...data.reports].sort((a: any, b: any) => Number(Boolean(a.isHistorical)) - Number(Boolean(b.isHistorical)) || String(b.generatedAt || '').localeCompare(String(a.generatedAt || ''))).map((r: any) => ({ ...r, formatsAvailable: r.formatsAvailable || Object.fromEntries(['pdf', 'xlsx', 'csv', 'json'].map(format => [format, Boolean(r.formats?.[format])])) })));
     } catch (err: any) {
       if (current === generation.current) setError(err.message || 'Report library unavailable.');
     } finally {
@@ -248,7 +252,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
         {/* Reports Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {reports.map((rep) => (
-            <EveCard key={`${rep.reportId}:${rep.version}`} className="flex flex-col justify-between">
+            <EveCard key={`${rep.reportId}:${rep.version}`} className={rep.isHistorical ? "flex flex-col justify-between border-amber-300" : "flex flex-col justify-between border-indigo-400 ring-1 ring-indigo-200"}>
               <div>
                 <EveCardHeader>
                   <div className="flex items-center gap-2">
@@ -261,7 +265,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <EveStatusBadge status="review_required" label={rep.status} size="sm" />
+                    <EveStatusBadge status="review_required" label={rep.isHistorical ? 'Historical / Superseded' : 'Latest draft'} size="sm" />
                     <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-semibold">
                       {rep.version}
                     </span>
@@ -297,9 +301,10 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
               </div>
 
               <div className="p-5 pt-0 border-t border-slate-100 mt-2">
+                {rep.isHistorical && <p role="note" className="mt-3 mb-2 p-3 bg-amber-50 border border-amber-300 rounded text-xs font-semibold text-amber-900">{rep.warning || 'Legacy wording; not an audit or assurance opinion'}. Downloading preserves the original historical wording and bytes.</p>}
                 <div className="flex items-center justify-between gap-2 pt-3">
                   <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                    Download Formats:
+                    {rep.isHistorical ? 'Historical version downloads:' : 'Latest draft downloads:'}
                   </span>
                   <div className="flex items-center gap-2">
                     {rep.formatsAvailable.pdf && (

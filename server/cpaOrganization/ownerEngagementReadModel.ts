@@ -77,6 +77,17 @@ function project(ws: any, engagementId: string, docs: any[], facts: any[], state
     }
     return { engagementId, workspaceId: ws.id, reportId: p.reportId, version: p.version, title: p.title || 'AI-prepared review package', generatedAt: p.generatedAt || null, status: p.status === 'SUPERSEDED' || p.status === 'STALE_INVALIDATED' ? p.status : 'DRAFT', recordedStatus: p.status || null, professionalApproval: 'NOT_ASSERTED_BY_READ_MODEL', deliveryEligible: false, period: p.period || p.reportingPeriod || null, deliverableType: p.deliverableType || 'AI_PREPARED_REVIEW_PACKAGE', formats, sha256: formats.json?.sha256, specialistReview: p.specialistReview, disclosureEvidenceLedger: p.disclosureEvidenceLedger };
   }).sort((a, b) => String(b.generatedAt || '').localeCompare(String(a.generatedAt || '')));
+  const newestByReport = new Set<string>();
+  for (const report of reports) {
+    const historical = newestByReport.has(report.reportId);
+    newestByReport.add(report.reportId);
+    Object.assign(report, {
+      isHistorical: historical,
+      displayStatus: historical ? 'HISTORICAL_SUPERSEDED' : report.status,
+      warning: historical ? 'Legacy wording; not an audit or assurance opinion' : null,
+      sourceStatus: report.recordedStatus,
+    });
+  }
   const cls = classification(engagementId, ws.name || '', ws.classification);
   const eligible = facts.filter(f => upper(f.status) === 'APPROVED' && upper(f.verificationStatus || f.verification_status) === 'VERIFIED' && upper(f.evidenceStatus || f.evidence_status) === 'CONFIRMED' && (f.documentId || f.document_id) && String(f.sourceText || f.source_text || '').trim());
   const periods = unique(facts.map(f => f.reportingPeriod || f.period));
