@@ -25,6 +25,7 @@ export class AnyDocParser {
     let text = "";
     let detectedFormat = inspection?.detectedType || "txt";
     const extractedTables: any[] = [];
+    let pdfPages: Array<{ page_number: number; text: string; tables: any[] }> | undefined;
 
     if (buffer.length > 0) {
       // File extension is an authoritative format signal for SEC .htm/.html
@@ -80,14 +81,17 @@ export class AnyDocParser {
           .trim();
       } else if (isPdf) {
         detectedFormat = "pdf";
+        const { PDFParse } = await import("pdf-parse");
+        const parser = new PDFParse({ data: buffer });
         try {
-          const pdfModule: any = await import("pdf-parse");
-          const pdfParse = pdfModule.default || pdfModule;
-          const pdfData = await pdfParse(buffer);
-          text = pdfData.text || "";
-        } catch {
-          text = buffer.toString("utf-8");
+          const result = await parser.getText();
+          pdfPages = result.pages.map(page => ({ page_number: page.num, text: page.text, tables: [] }));
+          if (!pdfPages.length) throw new Error('PDF_PAGE_INVENTORY_MISSING');
+          text = pdfPages.map(page => page.text).join('\n');
+        } finally {
+          await parser.destroy();
         }
+        // Parser failures propagate. Binary PDF bytes are never native-text evidence.
       } else if (isWord) {
         detectedFormat = "docx";
         try {
@@ -104,7 +108,7 @@ export class AnyDocParser {
 
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     const docId = `doc-${Date.now()}`;
-    const pages = [{ page_number: 1, text, tables: extractedTables }];
+    const pages = pdfPages || [{ page_number: 1, text, tables: extractedTables }];
 
     const sourceBlocks = detectedFormat === "html"
       ? lines.map((line, idx) => ({
@@ -117,18 +121,16 @@ export class AnyDocParser {
           evidence_scope: "DOCUMENT",
           source_format: "html"
         }))
-      : (text.trim().length > 0
-        ? [{
-            source_block_id: `SB-${docId}-P1`,
-            document_id: docId,
-            page_number: 1,
-            section: "Main Content",
-            raw_text: text,
-            text_content: text,
-            evidence_scope: "PAGE",
-            source_format: detectedFormat
-          }]
-        : []);
+      : pages.filter(page => page.text.trim().length > 0).map(page => ({
+          source_block_id: `SB-${docId}-P${page.page_number}`,
+          document_id: docId,
+          page_number: page.page_number,
+          section: "Main Content",
+          raw_text: page.text,
+          text_content: page.text,
+          evidence_scope: "PAGE",
+          source_format: detectedFormat
+        }));
 
     return {
       document_id: docId,
@@ -147,15 +149,15 @@ export class AnyDocParser {
       metadata: {
         entityName: safeFilename ? safeFilename.replace(/\.[^/.]+$/, "") : "Unknown Entity",
         language: "en",
-        page_count: 1,
-        pages: 1,
+        page_count: pages.length,
+        pages: pages.length,
         detectedType: detectedFormat
       },
       raw_text: text,
       markdown: text,
       pages,
-      page_count: 1,
-      pageManifests: [{ page_number: 1, native_text_available: text.length > 0 }],
+      page_count: pages.length,
+      pageManifests: pages.map(page => ({ page_number: page.page_number, native_text_available: page.text.trim().length > 0 })),
       sourceBlocks,
       tables: extractedTables,
       sections: lines.length > 0 ? [{ title: "Main Content", text, page: 1 }] : []

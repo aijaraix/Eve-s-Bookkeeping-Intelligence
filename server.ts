@@ -2974,7 +2974,7 @@ app.post("/api/documents/upload", (req, res) => {
         uploadedFiles: preParsedDocs.map((p, idx) => ({
           filename: p.file.originalname,
           originalName: p.file.originalname,
-          sha256: p.inspection?.hash || "",
+          sha256: newDocs[idx]?.sha256 || p.inspection?.hash || crypto.createHash('sha256').update(p.file.buffer).digest('hex'),
           size: p.file.size || 0,
           mimeType: p.file.mimetype || "application/pdf",
           documentId: newDocs[idx]?.id || `doc-${Date.now()}-${idx}`,

@@ -387,8 +387,18 @@ export class RealBrowserCustomerSimulatorEngine {
         await page.click('[data-eve-action-id="intake.saved.resume"]');
         const grader = new AcademyDashboardTruthAuditor(page, baseUrl);
         const saved = (await grader.readJson(`/api/intake/${encodeURIComponent(id)}`)).intakeSession;
-        if (saved?.classification !== 'ACADEMY' || saved?.uploadedFiles?.length !== 1 || saved.uploadedFiles[0].sha256 !== sourceSha256) throw new Error('SAVED_INTAKE_SCOPE_MISMATCH');
-        intakeSessionId = id; intakeSha256 = saved.uploadedFiles[0].sha256; serverReceivedSha256 = intakeSha256;
+        if (saved?.classification !== 'ACADEMY' || saved?.uploadedFiles?.length !== 1) throw new Error('SAVED_INTAKE_SCOPE_MISMATCH');
+        let savedHash = saved.uploadedFiles[0].sha256;
+        if (!savedHash && saved.promotedProjectId && priorCheckpoint?.sourceSha256 === sourceSha256 && priorCheckpoint?.serverReceivedSha256 === sourceSha256) {
+          const inventory = await grader.readJson('/api/cpa/engagements/universal');
+          const record = (inventory.engagements || inventory).find((e: any) => e.workspaceId === saved.promotedProjectId && e.classification === 'ACADEMY');
+          if (!record) throw new Error('SAVED_INTAKE_WORKSPACE_MISSING');
+          const detail = (await grader.readJson(`/api/cpa/engagements/${encodeURIComponent(record.engagementId)}`)).engagement;
+          if (detail?.workspaceId !== saved.promotedProjectId) throw new Error('SAVED_INTAKE_WORKSPACE_MISMATCH');
+          savedHash = detail.documents?.find((d: any) => d.id === saved.uploadedFiles[0].documentId)?.sha256;
+        }
+        if (savedHash !== sourceSha256) throw new Error('SAVED_INTAKE_HASH_MISMATCH');
+        intakeSessionId = id; intakeSha256 = savedHash; serverReceivedSha256 = intakeSha256;
         hashContinuityVerified = sourceSha256 === stagingSha256 && stagingSha256 === intakeSha256;
         recordStep(5, 'Resume saved intake through UI', '[data-eve-action-id="intake.saved.resume"]', 'Observed original intake without resubmission', Date.now());
       } else {
@@ -687,6 +697,19 @@ export class RealBrowserCustomerSimulatorEngine {
         durationMs
       };
     } catch (error: any) {
+      if (params.academy) {
+        const dir = params.academy.evidenceDir;
+        fs.mkdirSync(dir, { recursive: true });
+        if (browser) {
+          try {
+            const pages = await browser.pages();
+            const active = pages[pages.length - 1];
+            if (active && !(await active.$('form[action="/operator-login"]'))) await active.screenshot({ path: path.join(dir, `failure-${journeyId}.png`), fullPage: true });
+          } catch {}
+        }
+        fs.writeFileSync(path.join(dir, `failure-${journeyId}.json`), JSON.stringify({ journeyId, startedAt, failedAt: new Date().toISOString(),
+          sourceSha256, steps, error: error.message, status: 'FAILED', score: 0 }, null, 2), { mode: 0o600 });
+      }
       if (browser) {
         try { await browser.close(); } catch (_) {}
       }

@@ -48,6 +48,7 @@ async function tick() {
     const checkpointFile = path.join(evidenceDir, 'checkpoint.json');
     const checkpoint = fs.existsSync(checkpointFile) ? JSON.parse(fs.readFileSync(checkpointFile, 'utf8')) : null;
     if (checkpoint && !checkpoint.intakeSessionId) { persist({ state: 'SUBMISSION_UNCERTAIN_REQUIRES_RECONCILIATION', caseId: config.caseId }); return; }
+    if (checkpoint?.state === 'TRUTH_FAILED') { persist({ state: 'FAILED_TRUTH_REQUIRES_CORRECTION', caseId: config.caseId }); return; }
     if (checkpoint?.state === 'UI_JOURNEY_EXECUTED_PENDING_ACCEPTANCE') { persist({ state: 'AWAITING_ACCEPTANCE_REVIEW', caseId: config.caseId }); return; }
     const pinFile = process.env.EVE_OPERATOR_PIN_FILE || path.join(root, 'runtime', 'operator.pin');
     const operatorPin = fs.readFileSync(pinFile, 'utf8').trim();
