@@ -39,7 +39,10 @@ try{
  const reset=store.reset(client.user.id,owner.user.id);assert.equal(store.session(client.token),null);const restricted=store.login('client@example.test',reset,'reset')!;
  assert.equal((await request('/portal',restricted.token)).headers.get('location'),'/account/password');assert.equal((await request('/api/portal/engagements',restricted.token)).status,403);assert.equal((await request('/account/password',restricted.token)).status,200);
  assert.equal(store.login('client@example.test',reset,'reset'),null);
- const login=await request('/login');const pre=login.headers.get('set-cookie')!.split(';')[0];const html=await login.text();const csrf=html.match(/name="csrf" value="([^"]+)"/)![1];assert.match(pre,/__Host-eve_login_csrf/);
+ // Native same-origin form POSTs need a non-opaque Origin. no-referrer
+ // makes Chromium send Origin: null, rejecting valid forms before authentication.
+ const login=await request('/login');assert.equal(login.headers.get('referrer-policy'),'same-origin');const pre=login.headers.get('set-cookie')!.split(';')[0];const html=await login.text();const csrf=html.match(/name="csrf" value="([^"]+)"/)![1];assert.match(pre,/__Host-eve_login_csrf/);
+ for(const origin of ['null','https://evil.test']){const rejected=await request('/auth/login',undefined,{method:'POST',headers:{origin,cookie:pre,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({email:'owner@example.test',password:'a long permanent test password',csrf}).toString()});assert.equal(rejected.status,403);}
  const real=await request('/auth/login',undefined,{method:'POST',headers:{origin:`https://127.0.0.1:${port}`,cookie:pre,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({email:'owner@example.test',password:'a long permanent test password',csrf}).toString()});assert.equal(real.status,303);assert.match(real.headers.get('set-cookie')!,/Secure; HttpOnly; SameSite=Strict/);
  const loginCookie=real.headers.get('set-cookie')!.split(';')[0].split('=')[1];assert(store.session(loginCookie));
  const result=await request('/auth/revoke-all',owner.token,{method:'POST',headers:{origin:`https://127.0.0.1:${port}`,'x-eve-csrf':owner.session.csrf}});assert.equal(result.status,303);assert.equal(store.session(loginCookie),null);assert.equal(store.session(owner.token),null);
