@@ -725,8 +725,8 @@ async function sweepVerifiedCustomerContinuations(): Promise<void> {
   try {
     const jobs = backgroundIngestionQueue.getAllJobs().sort((a, b) => Number(a.classification === 'ACADEMY') - Number(b.classification === 'ACADEMY'));
     for (const job of jobs) {
-      if (job.classification === 'ACADEMY' && jobs.some(j => j.classification !== 'ACADEMY' &&
-        (['QUEUED', 'PROCESSING', 'WAITING_FOR_LLM', 'RATE_LIMITED', 'RECOVERING'].includes(j.status) ||
+      if (job.classification === 'ACADEMY' && backgroundIngestionQueue.getAllJobs().some(j => j.classification !== 'ACADEMY' &&
+        (['QUEUED', 'PROCESSING', 'WAITING_FOR_LLM', 'WAITING_FOR_AI_CAPACITY', 'RATE_LIMITED', 'RECOVERING'].includes(j.status) ||
         (j.status === 'COMPLETED' && !verifiedCustomerContinuationService.getState(j.id)?.completedAt)))) continue;
       if (job?.engineMode !== 'HYBRID_GEMINI_NATIVE' || job?.status !== 'COMPLETED') continue;
       const state = await verifiedCustomerContinuationService.continueCompletedHybridJob(job, db);

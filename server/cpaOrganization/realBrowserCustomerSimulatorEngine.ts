@@ -261,6 +261,7 @@ export class RealBrowserCustomerSimulatorEngine {
       fs.writeFileSync(temporary, JSON.stringify({ ...priorCheckpoint, journeyId, steps, ...state }, null, 2), { mode: 0o600 });
       const fd = fs.openSync(temporary, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(temporary, file);
+      const directory = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
     };
     if (params.academy && !params.academy.resumeIntakeId && fs.existsSync(path.join(params.academy.evidenceDir, 'checkpoint.json'))) {
       throw new Error('EXISTING_CASE_CHECKPOINT: Resume its saved intake; automatic duplicate upload is prohibited.');
@@ -551,9 +552,23 @@ export class RealBrowserCustomerSimulatorEngine {
         const receipt = (await auditor.readJson(`/api/intake/${encodeURIComponent(intakeSessionId)}`)).intakeSession;
         if (receipt?.classification !== 'ACADEMY' || (receipt?.targetProjectId && !receipt?.promotedProjectId)) throw new Error('ACADEMY_RECEIPT_ISOLATION_FAILED');
         await page.screenshot({ path: path.join(evidenceDir, 'processing.png'), fullPage: true });
-        await page.waitForSelector('#upload-modal-container[data-eve-intake-phase="COMPLETE"]', {
-          visible: true, timeout: params.academy.processingTimeoutMs || 1200000
-        });
+        const checkCustomerPriority = async () => {
+          const queue = await auditor.readJson('/api/queue/jobs');
+          if (!Array.isArray(queue.jobs) || queue.jobs.some((j: any) => j.classification !== 'ACADEMY' && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(j.status))) {
+            checkpoint({ state: 'PAUSED_CUSTOMER_PRIORITY', intakeSessionId });
+            throw new Error('CUSTOMER_PRIORITY_PREEMPTED');
+          }
+        };
+        const waitWithPriority = async (selector: string, timeout: number) => {
+          const deadline = Date.now() + timeout;
+          while (true) {
+            await checkCustomerPriority();
+            if (await page.$(selector)) return;
+            if (Date.now() >= deadline) throw new Error('UI_STATE_TIMEOUT:' + selector);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        };
+        await waitWithPriority('#upload-modal-container[data-eve-intake-phase="COMPLETE"]', params.academy.processingTimeoutMs || 1200000);
         await page.click('[data-eve-action-id="intake.close"]');
         const workspaceId = await page.$eval('[data-eve-workspace-id]', (el: any) => el.dataset.eveWorkspaceId);
         const completed = (await auditor.readJson(`/api/intake/${encodeURIComponent(intakeSessionId)}`)).intakeSession;
@@ -597,8 +612,9 @@ export class RealBrowserCustomerSimulatorEngine {
         const specialistDeadline = Date.now() + 900000;
         do {
           if (await page.$('[data-eve-action-id="draft.download.pdf"]')) break;
-          await page.waitForSelector('[data-eve-action-id="draft.prepare"]:not([disabled]), [data-eve-action-id="draft.download.pdf"]', { visible: true, timeout: 600000 });
+          await waitWithPriority('[data-eve-action-id="draft.prepare"]:not([disabled]), [data-eve-action-id="draft.download.pdf"]', 600000);
         if (!(await page.$('[data-eve-action-id="draft.download.pdf"]'))) {
+          await checkCustomerPriority();
           await page.click('[data-eve-action-id="draft.prepare"]');
           recordStep(steps.length + 1, 'Prepare AI draft', '[data-eve-action-id="draft.prepare"]', 'Actual UI draft request', Date.now());
           checkpoint({ state: 'DRAFT_REQUESTED', intakeSessionId, workspaceId });
@@ -608,6 +624,7 @@ export class RealBrowserCustomerSimulatorEngine {
         } while (true);
         const deadline = Date.now() + 600000;
         while (!(await page.$('[data-eve-action-id="draft.download.pdf"]'))) {
+          await checkCustomerPriority();
           if (Date.now() > deadline) throw new Error('DRAFT_GENERATION_TIMEOUT');
           await new Promise(resolve => setTimeout(resolve, 5000));
           await page.click('[data-eve-action-id="draft.refresh"]');
@@ -616,6 +633,7 @@ export class RealBrowserCustomerSimulatorEngine {
         fs.mkdirSync(downloadDir, { recursive: true });
         const session = await page.createCDPSession();
         await session.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir, eventsEnabled: true });
+        await checkCustomerPriority();
         await page.click('[data-eve-action-id="draft.download.pdf"]');
         let downloaded = '';
         const downloadDeadline = Date.now() + 60000;

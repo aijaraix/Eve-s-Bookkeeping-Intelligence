@@ -14,6 +14,7 @@ function persist(value: any) {
     checkedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
   const fd = fs.openSync(temporary, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(temporary, stateFile);
+  const directory = fs.openSync(root, 'r'); try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
 }
 
 async function tick() {

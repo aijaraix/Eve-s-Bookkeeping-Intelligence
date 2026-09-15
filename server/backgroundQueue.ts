@@ -750,9 +750,6 @@ export class BackgroundIngestionQueue {
   }
 
   public getJob(jobId: string): Omit<QueueJob, 'textData'> | undefined {
-    if (this.isQueueProcessingAuthorized()) {
-      this.checkStalledJobs();
-    }
     const job = this.jobs.get(jobId);
     if (!job) return undefined;
     const { textData, ...rest } = job;

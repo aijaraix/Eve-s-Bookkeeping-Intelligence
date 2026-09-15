@@ -729,8 +729,7 @@ export function createCPAOrganizationRouter(): Router {
 
   // 11. Customer Preemption Demonstration
   router.post('/preemption/test', (req: Request, res: Response) => {
-    const result = hermesHeartbeat.runPreemptionDemonstration();
-    res.json(result);
+    res.status(410).json({ error: 'Synthetic preemption demonstrations are retired. Inspect recorded queue and UI scheduler evidence.' });
   });
 
   // 12. Phase H.9.13 — 24-Hour Evolution Report
