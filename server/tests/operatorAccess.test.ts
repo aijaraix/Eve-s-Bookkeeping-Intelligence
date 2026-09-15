@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { operatorAccess, operatorLogin } from '../operatorAccess.js';
+import { operatorAccess, operatorLogin, deriveDevelopmentPin } from '../operatorAccess.js';
 
 process.env.NODE_ENV = 'production';
 process.env.EVE_OPERATOR_PIN = '48273195';
@@ -69,7 +69,19 @@ assert.equal(probe({ cookie, 'sec-fetch-site': 'cross-site' }).status, 403);
 assert.equal(probe({ cookie, host: 'example.test', origin: 'https://example.test' }).next, true);
 assert.equal(probe({}, '/api/health').next, true);
 
+// Zeabur replacements retain PASSWORD but may not retain a direct pod-only PIN.
+// The development PIN must therefore be deterministically derived without
+// exposing or reusing the protected password as the user-entered credential.
 delete process.env.EVE_OPERATOR_PIN;
+process.env.PASSWORD = 'isolated-protected-service-secret';
+const derivedPin = deriveDevelopmentPin(process.env.PASSWORD);
+assert.match(derivedPin, /^\d{6}$/);
+const fallbackAccepted = login(derivedPin);
+assert.equal(fallbackAccepted.status, 303);
+const fallbackCookie = String(fallbackAccepted.headers['Set-Cookie']).split(';')[0];
+assert.equal(probe({ cookie: fallbackCookie, host: 'example.test', origin: 'https://example.test' }).next, true);
+
+delete process.env.PASSWORD;
 assert.equal(probe({}).status, 503);
 
-console.log('operatorAccess: PIN login, secure session cookie, unauthenticated redirect/API denial, cross-site rejection, health bypass and missing configuration checks passed; no professional principal granted');
+console.log('operatorAccess: explicit/derived PIN login, secure session cookie, unauthenticated redirect/API denial, cross-site rejection, health bypass and missing configuration checks passed; no professional principal granted');
