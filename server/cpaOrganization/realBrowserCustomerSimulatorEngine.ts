@@ -241,7 +241,7 @@ export class RealBrowserCustomerSimulatorEngine {
     viewport?: { width: number; height: number; isMobile?: boolean };
     /** Read from protected runtime configuration; never retained in journey evidence. */
     operatorPin?: string;
-    academy?: { evidenceDir: string; processingTimeoutMs?: number; resumeIntakeId?: string; expectedMetrics?: Record<string, Record<string, number>> };
+    academy?: { evidenceDir: string; processingTimeoutMs?: number; resumeIntakeId?: string; expectedMetrics?: Record<string, Record<string, number>>; retryUnavailableLexicon?: boolean };
   }): Promise<RealBrowserJourneyResult> {
     if (params.academy && params.routingMode === 'EXISTING_ENGAGEMENT') throw new Error('ACADEMY_REQUIRES_NEW_ISOLATED_INTAKE');
     if (params.routingMode === 'EXISTING_ENGAGEMENT' && !params.targetWorkspaceId) {
@@ -621,6 +621,27 @@ export class RealBrowserCustomerSimulatorEngine {
         for (const view of ['engagement-evidence', 'engagement-findings', 'engagement-deliverables']) {
           await navigate(view);
           await page.screenshot({ path: path.join(evidenceDir, `${view}.png`), fullPage: true });
+        }
+        if (params.academy.retryUnavailableLexicon) {
+          await waitWithPriority('[data-eve-action-id="draft.retry.lexicon"]', 30000);
+          await checkCustomerPriority();
+          const acknowledgement = page.waitForResponse((r: any) => new URL(r.url()).origin === new URL(baseUrl).origin &&
+            new URL(r.url()).pathname === '/api/academy/ui/retry-lexicon' && r.request().method() === 'POST', { timeout: 30000 });
+          await page.click('[data-eve-action-id="draft.retry.lexicon"]');
+          const response = await acknowledgement;
+          if (!response.ok()) throw new Error('SPECIALIST_RETRY_UI_REJECTED');
+          recordStep(steps.length + 1, 'Retry unavailable Lexicon and update draft', '[data-eve-action-id="draft.retry.lexicon"]',
+            'Actual product request accepted; prior work retained', Date.now());
+          checkpoint({ state: 'SPECIALIST_RETRY_REQUESTED', intakeSessionId, workspaceId });
+          const retryDeadline = Date.now() + 240000;
+          const updatedPdf = '[data-eve-action-id="draft.download.pdf"][data-eve-action-target$=".r1"]';
+          while (!(await page.$(updatedPdf))) {
+            await checkCustomerPriority();
+            if (Date.now() > retryDeadline) throw new Error('SPECIALIST_RETRY_TIMEOUT');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            if (!(await page.$(updatedPdf))) await page.click('[data-eve-action-id="draft.refresh"]');
+          }
+          if (!(await detail()).continuation?.specialistSummary?.allJobsSucceeded) throw new Error('SPECIALIST_RETRY_INCOMPLETE');
         }
         const specialistDeadline = Date.now() + 900000;
         do {

@@ -190,6 +190,8 @@ export class HermesJobDispatchService {
     reportingCurrency?: string;
     workspaceId?: string;
     documentId?: string;
+    /** Internal continuation only: retain successful receipts during one explicit Lexicon retry. */
+    reuseSuccessfulJobs?: AgentJobExecution[];
   }): Promise<SwarmExecutionSummary> {
     const jobs: AgentJobExecution[] = [];
     const jobMap = new Map<string, AgentJobExecution>();
@@ -233,6 +235,18 @@ export class HermesJobDispatchService {
 
       const inputBytes = Buffer.from(JSON.stringify(jobParams.inputManifest));
       const inputManifestHash = crypto.createHash('sha256').update(inputBytes).digest('hex');
+
+      const reused = params.reuseSuccessfulJobs?.find(job => job.agentId === jobParams.agentId);
+      if (reused && jobParams.agentId !== 'QUINN' && jobParams.agentId !== 'LEXICON') {
+        if (reused.engagementId !== params.engagementId || reused.status !== 'JOB_COMPLETED_SUCCESS' ||
+          reused.inputManifestHash !== inputManifestHash ||
+          crypto.createHash('sha256').update(JSON.stringify(reused.outputManifest)).digest('hex') !== reused.outputHash) {
+          throw new Error('SPECIALIST_REUSE_EVIDENCE_MISMATCH');
+        }
+        jobMap.set(jobParams.agentId, reused);
+        jobs.push(reused);
+        return reused;
+      }
 
       // Execute authentic role-specific logic without computeOutput() callback
       const executionResult = await this.executeSpecialistRole(jobParams.agentId, {
@@ -1354,7 +1368,8 @@ export class HermesJobDispatchService {
             disclosureEvidenceDigestSha256: params.disclosureEvidenceDigestSha256
           },
           inputObjectReferences: context.inputObjectReferences,
-          engagementId: params.engagementId
+          engagementId: params.engagementId,
+          ...(params.reuseSuccessfulJobs ? { localModelTimeoutMs: 75000, maxOutputTokens: 256 } : {})
         });
 
         if (lexiconReceipt.executionStatus !== 'SUCCESS' || !lexiconReceipt.modelExecutionId) {

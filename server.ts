@@ -753,6 +753,18 @@ app.post('/api/academy/ui/draft-request', async (req, res) => {
   } catch (error: any) { return res.status(409).json({ error: error.message }); }
 });
 
+app.post('/api/academy/ui/retry-lexicon', async (req, res) => {
+  const workspace = db.workspaces.find(w => w.id === req.body?.workspaceId);
+  if (workspace?.classification !== 'ACADEMY') return res.status(403).json({ error: 'An isolated Academy engagement is required.' });
+  const jobs = backgroundIngestionQueue.getAllJobs().filter(j => j.workspaceId === workspace.id && j.classification === 'ACADEMY');
+  if (jobs.length !== 1) return res.status(409).json({ error: 'Select an Academy engagement with exactly one recorded intake.' });
+  try {
+    verifiedCustomerContinuationService.requestAcademyLexiconRetry(jobs[0], db);
+    void sweepVerifiedCustomerContinuations();
+    return res.status(202).json({ success: true, jobId: jobs[0].id, professionalApproval: false });
+  } catch (error: any) { return res.status(409).json({ error: error.message }); }
+});
+
 setTimeout(() => { void sweepVerifiedCustomerContinuations(); }, 5000);
 setInterval(() => { void sweepVerifiedCustomerContinuations(); }, 15000);
 

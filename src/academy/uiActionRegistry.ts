@@ -64,6 +64,7 @@ export const uiActionRegistry: Record<string, UiActionDefinition> = Object.fromE
     ['evidence.source.download', 'Download original source', 'engagement-evidence', 'evidence-review', 'Original bytes downloaded', 'Downloaded SHA matches registered source'],
     ['evidence.processing', 'Recorded processing and review evidence', '*', 'evidence-review', 'Processing evidence expands', 'Actual continuation and specialist receipts'],
     ['draft.prepare', 'Prepare AI draft', 'engagement-deliverables', 'draft-review', 'Draft request recorded for completed intake', 'Canonical continuation draft; human approval pending'],
+    ['draft.retry.lexicon', 'Retry unavailable Lexicon step', 'engagement-deliverables', 'draft-review', 'One bounded retry; successful receipts retained; new draft version', 'Original failure and draft preserved; new validated specialist and review receipts'],
     ['draft.refresh', 'Refresh reports', 'engagement-deliverables', 'draft-review', 'Saved report list refreshed', 'Exact report/version identity'],
     ...['pdf', 'xlsx', 'csv', 'json'].map(format => [`draft.download.${format}`, `Download ${format}`, 'engagement-deliverables', 'draft-review', 'Selected draft downloaded', 'Actual file and matching recorded artifact hash'])
   ].map(([id, label, view, workflow, transition, evidence]) => definition(id, label, view, workflow, transition, evidence))

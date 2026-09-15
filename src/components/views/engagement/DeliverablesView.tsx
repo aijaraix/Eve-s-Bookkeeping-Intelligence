@@ -74,6 +74,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
 
   const { selectedEngagementId: mappedEngagementId, selectedWorkspaceId, engagementDetail, userSession } = usePractice();
   const [draftRequested, setDraftRequested] = useState(false);
+  const [retryRequested, setRetryRequested] = useState(false);
   const selectedEngagementId = engagementDetail?.workspaceId === selectedWorkspaceId ? engagementDetail.engagementId : mappedEngagementId;
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
@@ -110,6 +111,15 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
       setDraftRequested(true);
       await fetchReports();
     } catch (err: any) { setError(err.message || 'Draft request failed.'); }
+  };
+
+  const retryLexicon = async () => {
+    setError(null);
+    setRetryRequested(true);
+    try {
+      await apiPost('/api/academy/ui/retry-lexicon', { workspaceId: selectedWorkspaceId });
+      await fetchReports();
+    } catch (err: any) { setError(err.message || 'Specialist retry failed.'); setRetryRequested(false); }
   };
 
   const downloadReportFile = (reportId: string, format: 'pdf' | 'xlsx' | 'csv' | 'json', version?: string) => {
@@ -173,6 +183,13 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            {engagementDetail?.classification === 'ACADEMY' &&
+              engagementDetail?.continuation?.specialistSummary?.jobs?.some((j: any) => j.agentId === 'LEXICON' && j.status === 'MODEL_UNAVAILABLE') && (
+              <button type="button" {...actionAttributes('draft.retry.lexicon')} onClick={retryLexicon} disabled={retryRequested}
+                className="px-3 py-2 bg-amber-100 text-amber-950 text-xs rounded-lg">
+                {retryRequested ? 'Specialist retry requested' : 'Retry unavailable Lexicon and update draft'}
+              </button>
+            )}
             {engagementDetail?.classification === 'ACADEMY' && (
               <button type="button" {...actionAttributes('draft.prepare')} onClick={prepareDraft} disabled={engagementDetail?.continuation?.status !== 'AWAITING_UI_DRAFT_REQUEST'}
                 data-eve-draft-requested={draftRequested ? "true" : "false"} className="px-3 py-2 bg-indigo-600 text-white text-xs rounded-lg">{draftRequested ? "AI draft requested" : "Prepare AI draft"}</button>

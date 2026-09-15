@@ -53,6 +53,7 @@ export interface VerifiedContinuationState {
   systemFindings?: string[];
   reviewFindings?: string[];
   error?: string;
+  specialistRetryId?: string;
 }
 
 function upper(v: any): string {
@@ -264,6 +265,35 @@ export class VerifiedCustomerContinuationService {
     const dir = fs.openSync(this.storageDir, 'r'); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
   }
 
+  public requestAcademyLexiconRetry(job: any, db: any): void {
+    const state = this.getState(job.id);
+    const workspace = db.workspaces.find((w: any) => w.id === job.workspaceId);
+    const failed = state?.specialistSummary?.jobs?.filter((j: any) => j.status !== 'JOB_COMPLETED_SUCCESS') || [];
+    if (job.classification !== 'ACADEMY' || workspace?.classification !== 'ACADEMY' || job.status !== 'COMPLETED' ||
+      !state?.completedAt || state.workspaceId !== job.workspaceId || state.documentId !== job.documentId ||
+      state.sourceSha256 !== job.documentHash || state.jobAttempt !== Number(job.attemptCount || 0) ||
+      failed.length !== 1 || failed[0].agentId !== 'LEXICON' || failed[0].status !== 'MODEL_UNAVAILABLE') {
+      throw new Error('Only the unavailable Lexicon step of a completed isolated Academy case can be retried.');
+    }
+    const target = this.statePath(job.id) + '.lexicon-retry';
+    if (fs.existsSync(target)) throw new Error('This case already has a recorded bounded specialist retry.');
+    const bytes = JSON.stringify({ ...this.draftRequestIdentity(job), id: crypto.randomUUID(),
+      requestedAt: new Date().toISOString(), baseline: state }, null, 2);
+    const fd = fs.openSync(target, 'wx', 0o600);
+    try { fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    const dir = fs.openSync(this.storageDir, 'r'); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+  }
+
+  private pendingLexiconRetry(job: any, prior: VerifiedContinuationState | null): any | null {
+    const target = this.statePath(job.id) + '.lexicon-retry';
+    if (!fs.existsSync(target)) return null;
+    const request = JSON.parse(fs.readFileSync(target, 'utf8'));
+    if (job.classification !== 'ACADEMY' || !Object.entries(this.draftRequestIdentity(job)).every(([k, v]) => request[k] === v)) {
+      throw new Error('SPECIALIST_RETRY_SCOPE_MISMATCH');
+    }
+    return prior?.specialistRetryId === request.id ? null : request;
+  }
+
   public getState(jobId: string): VerifiedContinuationState | null {
     try {
       const p = this.statePath(jobId);
@@ -341,7 +371,10 @@ export class VerifiedCustomerContinuationService {
       throw new Error('ACADEMY_CLASSIFICATION_MISMATCH');
     }
     const prior = this.getState(job.id);
-    if (this.isTerminalForSameAttempt(prior, job)) return prior;
+    const retry = this.pendingLexiconRetry(job, prior);
+    if (!retry && this.isTerminalForSameAttempt(prior, job)) return prior;
+    // An interrupted claimed retry requires reconciliation, never automatic duplicate model calls.
+    if (!retry && prior?.specialistRetryId) return prior;
     if (job.classification === 'ACADEMY' && prior?.status === 'AWAITING_UI_DRAFT_REQUEST' &&
       prior.jobAttempt === Number(job.attemptCount || 0) && prior.sourceSha256 === job.documentHash &&
       prior.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && !this.hasCurrentDraftRequest(job)) return prior;
@@ -363,6 +396,7 @@ export class VerifiedCustomerContinuationService {
       startedAt,
       updatedAt: new Date().toISOString()
     };
+    if (retry) base.specialistRetryId = retry.id;
 
     try {
       const allFacts = Array.isArray(db?.facts) ? db.facts : [];
@@ -429,9 +463,25 @@ export class VerifiedCustomerContinuationService {
       });
 
       let swarm: SwarmExecutionSummary;
-      if (prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.specialistSummary && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
+      if (!retry && prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.specialistSummary && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
         swarm = prior.specialistSummary as SwarmExecutionSummary;
       } else {
+        let reuseSuccessfulJobs: any[] | undefined;
+        if (retry) {
+          if (retry.baseline.factDigestSha256 !== factDigestSha256) throw new Error('SPECIALIST_RETRY_FACTS_CHANGED');
+          const jobRoot = fs.realpathSync(path.join(process.cwd(), 'storage', 'cpa_memory', 'agent_executions'));
+          reuseSuccessfulJobs = retry.baseline.specialistSummary.jobs.map((j: any) => {
+            const file = fs.realpathSync(j.persistedArtifactPath);
+            if (path.dirname(file) !== jobRoot) throw new Error('SPECIALIST_RECEIPT_SCOPE_MISMATCH');
+            const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (record.agentExecutionId !== j.agentExecutionId || record.engagementId !== base.engagementId || record.status !== j.status) {
+              throw new Error('SPECIALIST_RECEIPT_IDENTITY_MISMATCH');
+            }
+            record.proofLevel = 'PERSISTED';
+            record.proofState = 'OUTPUT_PERSISTED';
+            return record;
+          });
+        }
         swarm = await hermesJobDispatchService.executeCpaSpecialistSwarm({
           engagementId: base.engagementId,
           clientName,
@@ -452,6 +502,7 @@ export class VerifiedCustomerContinuationService {
           reportingCurrency,
           workspaceId: job.workspaceId,
           documentId: job.documentId,
+          reuseSuccessfulJobs,
           discoveredAccounts: countDiscoveredAccounts(proofFacts),
           customerPbcUploaded: false,
           customerPbcFilesCount: 0
@@ -473,14 +524,14 @@ export class VerifiedCustomerContinuationService {
         return this.persist({ ...state, status: 'AWAITING_UI_DRAFT_REQUEST' });
       }
       let artifact: DeliverableArtifactRecord;
-      if (prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.deliverable?.reportId && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
+      if (!retry && prior?.logicVersion === VERIFIED_CONTINUATION_LOGIC_VERSION && prior?.deliverable?.reportId && prior.jobAttempt === base.jobAttempt && prior.sourceSha256 === base.sourceSha256) {
         artifact = prior.deliverable as DeliverableArtifactRecord;
       } else {
         artifact = await deliverableArtifactService.compileAndRegisterDeliverable({
           reportId: this.reportId(job.id),
           engagementId: base.engagementId,
           workspaceId: job.workspaceId,
-          version: `v6.a${base.jobAttempt}.${factDigestSha256.slice(0,8)}`,
+          version: `v6.a${base.jobAttempt}.${factDigestSha256.slice(0,8)}${retry ? '.r1' : ''}`,
           title: `${clientName} Financial Review Draft`,
           deliverableType: 'FINANCIAL_REVIEW_DRAFT',
           audience: 'AUTHORIZED_CPA_REVIEW',
