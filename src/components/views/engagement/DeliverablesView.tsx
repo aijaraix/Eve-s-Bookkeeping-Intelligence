@@ -20,8 +20,6 @@ import {
 } from 'lucide-react';
 import { usePractice } from '../../../context/PracticeContext';
 import { apiGet } from '../../../api/practiceClient';
-import { ReportWizardModal } from '../../ReportWizardModal';
-import { SyntheticClientPortalModal } from '../../SyntheticClientPortalModal';
 
 export interface ReportItem {
   reportId: string;
@@ -68,8 +66,6 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
   openFindingsCount = 0,
   onNavigate
 }) => {
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const [isClientPortalOpen, setIsClientPortalOpen] = useState(false);
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -140,22 +136,10 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
             description="Persistent, rehydrated audit deliverables across commercial client workspaces and autonomous practice simulations."
           />
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsClientPortalOpen(true)}
-              className="px-3.5 py-2 text-xs font-semibold text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-200 rounded-lg cursor-pointer transition flex items-center gap-2 shadow-xs"
-            >
-              <Building2 className="w-4 h-4 text-pink-600" />
-              <span>Client Portal & Review</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsWizardOpen(true)}
-              className="px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer transition flex items-center gap-2"
-            >
-              <Sparkles className="w-4 h-4 text-indigo-200" />
-              <span>Launch 8-Stage Report Wizard</span>
-            </button>
+
+            <p className="max-w-xs text-xs text-slate-600">
+              Use the existing draft review package below and Review Notes for recorded findings. Professional release requires authorized human approval.
+            </p>
           </div>
         </div>
 
@@ -359,22 +343,7 @@ export const DeliverablesView: React.FC<DeliverablesViewProps> = ({
         </div>
 
         {/* Modals */}
-        {isWizardOpen && (
-          <ReportWizardModal
-            isOpen={isWizardOpen}
-            onClose={() => {
-              setIsWizardOpen(false);
-              fetchReports();
-            }}
-          />
-        )}
 
-        {isClientPortalOpen && (
-          <SyntheticClientPortalModal
-            isOpen={isClientPortalOpen}
-            onClose={() => setIsClientPortalOpen(false)}
-          />
-        )}
       </div>
     </div>
   );

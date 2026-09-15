@@ -8,6 +8,7 @@ import { GoogleGenAI } from "@google/genai";
 import { modelDiscoveryService } from "./server/modelDiscoveryService.js";
 import { resolveAccountingStorageFile, readOwnerEngagements } from "./server/cpaOrganization/ownerEngagementReadModel.js";
 import { operatorAccess } from "./server/operatorAccess.js";
+import { rejectLegacyIssuance, projectFirmBranding } from "./server/legacyIssuanceGate.js";
 
 import { FileRouter } from "./src/lib/parser/router";
 import { AnyDocParser } from "./src/lib/parser/anydocParser";
@@ -3358,64 +3359,8 @@ app.get("/api/facts/provenance", (req, res) => {
   res.json({ success: true, facts });
 });
 
-// Deliverable Wizard Generation Endpoint
-app.post("/api/deliverables/generate", (req, res) => {
-  try {
-    const { companyName, projectName, projectId, workspaceId, deliverableType, audience, detailLevel, brandColors, signedOffBy } = req.body;
-    const wsId = workspaceId || projectId;
-    if (!wsId) {
-      return res.status(400).json({ success: false, error: "workspaceId is required" });
-    }
-    const signer = signedOffBy || (req.headers["x-user-email"] as string) || "";
-    if (!signer || /sarah johnson/i.test(signer)) {
-      return res.status(401).json({ success: false, error: "A real authenticated user must sign off before export." });
-    }
-    const ws = db.workspaces.find(w => w.id === wsId);
-    const facts = db.facts.filter(f => f.workspaceId === wsId && !isBannedMockFact(f));
-    if (!facts.length) {
-      return res.status(422).json({ success: false, error: "REFUSED: Zero validated facts in db.facts. Empty extraction cannot generate a report." });
-    }
-
-    const entityName = companyName && !/nestlé|nestle/i.test(companyName) ? companyName : (ws?.name || "Reporting Entity");
-    const report = ReportingEngine.generateFinancialReport({
-      workspaceId: wsId,
-      title: `${deliverableType || "Financial Report"} — ${entityName}`,
-      reportingPeriod: facts[0]?.reportingPeriod || facts[0]?.periodEnd || "",
-      entityName,
-      currency: ws?.currency || facts[0]?.currencyOriginal,
-      facts,
-      documents: db.documents.filter(d => d.workspaceId === wsId) as any
-    });
-
-    if (!db.reports) db.reports = [];
-    const branding = req.body.firmBranding || (db as any).firmBranding || {
-      firmName: "Stein & Associates Audit LLP",
-      partnerName: signer,
-      licenseNumber: "CPA License #NY-894120",
-      firmAddress: "One World Trade Center, 48th Floor, New York, NY 10007",
-      opinionType: "UNQUALIFIED_INDEPENDENT_AUDITOR_REPORT"
-    };
-
-    const stored = {
-      id: report.id || `REP-${Date.now()}`,
-      workspaceId: wsId,
-      title: report.title,
-      audience: audience || "Board of Directors",
-      deliverableType: deliverableType || "Financial Report",
-      status: "Final Approved",
-      signedOffBy: signer,
-      firmBranding: branding,
-      createdAt: new Date().toISOString(),
-      report
-    };
-    db.reports.unshift(stored);
-    saveStorage();
-
-    res.json({ success: true, report: stored });
-  } catch (err: any) {
-    res.status(422).json({ success: false, error: err.message || "Failed to generate deliverable report" });
-  }
-});
+// Legacy issuance cannot establish professional approval or create reports.
+app.post("/api/deliverables/generate", rejectLegacyIssuance);
 
 app.get("/api/reports", (req, res) => {
   try {
@@ -3536,33 +3481,13 @@ app.post("/api/workspaces/:workspaceId/relationships", (req, res) => {
   return res.json({ success: true, relationship });
 });
 
-// CPA FIRM BRANDING & LETTERHEAD CONFIGURATION
+// Branding is operator configuration, never professional identity verification.
 app.get("/api/firm/branding", (req, res) => {
-  const defaultBranding = {
-    firmName: "Stein & Associates Audit LLP",
-    partnerName: "Steve Stein, CPA",
-    licenseNumber: "CPA License #NY-894120 / AICPA #0482910",
-    firmAddress: "One World Trade Center, 48th Floor, New York, NY 10007",
-    phone: "+1 (212) 555-0199",
-    email: "audit-practice@steinassociates.com",
-    accentColor: "#1e3a8a",
-    logoUrl: "",
-    opinionType: "UNQUALIFIED_INDEPENDENT_AUDITOR_REPORT",
-    disclaimer: "CONFIDENTIAL AUDIT MEMORANDUM & WORKING PAPERS — PREPARED EXCLUSIVELY FOR CLIENT AUDIT COMMITTEE"
-  };
-  const branding = (db as any).firmBranding || defaultBranding;
-  return res.json({ success: true, branding });
+  return res.json({ success: true, branding: projectFirmBranding((db as any).firmBranding) });
 });
 
 app.post("/api/firm/branding", (req, res) => {
-  const updates = req.body || {};
-  const current = (db as any).firmBranding || {
-    firmName: "Stein & Associates Audit LLP",
-    partnerName: "Steve Stein, CPA",
-    licenseNumber: "CPA License #NY-894120",
-    firmAddress: "One World Trade Center, 48th Floor, New York, NY 10007"
-  };
-  (db as any).firmBranding = { ...current, ...updates };
+  (db as any).firmBranding = projectFirmBranding({ ...(db as any).firmBranding, ...(req.body || {}) });
   saveStorage();
   return res.json({ success: true, branding: (db as any).firmBranding });
 });
