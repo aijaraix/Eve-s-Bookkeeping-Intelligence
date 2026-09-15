@@ -3402,6 +3402,30 @@ app.post("/api/deliverables/generate", (req, res) => {
 app.get("/api/reports", (req, res) => {
   const { workspaceId } = req.query;
   const list = (db.reports || []).filter((r: any) => !workspaceId || r.workspaceId === workspaceId);
+  try {
+    const artifacts = deliverableArtifactService.getAllArtifacts();
+    for (const art of artifacts) {
+      if (!workspaceId || art.engagementId === workspaceId || art.workspaceId === workspaceId || art.reportId.includes(String(workspaceId).replace('ws-', ''))) {
+        const existing = list.find((r: any) => r.id === art.reportId || r.reportId === art.reportId);
+        if (!existing) {
+          list.push({
+            id: art.reportId,
+            reportId: art.reportId,
+            workspaceId: art.workspaceId || art.engagementId,
+            engagementId: art.engagementId,
+            title: art.title,
+            deliverableType: art.deliverableType,
+            version: art.version,
+            status: art.status,
+            generatedAt: art.generatedAt,
+            numericFactsCount: art.numericFactsCount,
+            pdfPath: art.formats?.pdf?.filepath,
+            jsonPath: art.formats?.json?.filepath
+          });
+        }
+      }
+    }
+  } catch (e) {}
   res.json({ success: true, reports: list });
 });
 
@@ -3454,13 +3478,7 @@ app.get("/api/documents/:id/source-blocks", (req, res) => {
 // STAGE 2 API ENDPOINTS: Multi-Entity Corporate Group, FX & Multilingual
 app.get("/api/workspaces/:workspaceId/entities", (req, res) => {
   const { workspaceId } = req.params;
-  let entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
-  if (entities.length === 0) {
-    const ws = db.workspaces.find(w => w.id === workspaceId);
-    if (ws) {
-      entities = corporateGroupService.seedRealisticGroupIfEmpty(workspaceId, ws.name, ws.currency || 'USD');
-    }
-  }
+  const entities = corporateGroupService.getEntitiesForWorkspace(workspaceId);
   return res.json({ success: true, workspaceId, entities });
 });
 

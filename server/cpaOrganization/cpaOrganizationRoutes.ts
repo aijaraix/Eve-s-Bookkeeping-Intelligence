@@ -1117,7 +1117,7 @@ export function createCPAOrganizationRouter(): Router {
     res.json({ success: true, engagementId, artifacts });
   });
 
-  router.get('/report/download-pdf', (req: Request, res: Response) => {
+  router.get(['/report/download-pdf', '/reports/download-pdf'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
       const artifact = reportId
@@ -1137,7 +1137,7 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.get('/report/download-xlsx', (req: Request, res: Response) => {
+  router.get(['/report/download-xlsx', '/reports/download-xlsx'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
       const artifact = reportId
@@ -1157,7 +1157,7 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.get('/report/download-json', (req: Request, res: Response) => {
+  router.get(['/report/download-json', '/reports/download-json'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
       const artifact = reportId
@@ -1177,7 +1177,7 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.get('/report/download-csv', (req: Request, res: Response) => {
+  router.get(['/report/download-csv', '/reports/download-csv'], (req: Request, res: Response) => {
     try {
       const reportId = String(req.query.reportId || '');
       const artifact = reportId
@@ -1416,7 +1416,7 @@ export function createCPAOrganizationRouter(): Router {
   });
 
   // 29. Phase H.9.31 — Universal Engagements Model
-  router.get('/engagements/universal', async (req: Request, res: Response) => {
+  router.get(['/engagements/universal', '/engagements'], async (req: Request, res: Response) => {
     try {
       const classification = (req.query.classification as any) || 'ALL';
       const status = (req.query.status as any) || 'ALL';
@@ -1428,7 +1428,7 @@ export function createCPAOrganizationRouter(): Router {
     }
   });
 
-  router.get('/engagements/universal/:engagementId', async (req: Request, res: Response) => {
+  router.get(['/engagements/universal/:engagementId', '/engagements/:engagementId'], async (req: Request, res: Response) => {
     try {
       const detail = await universalEngagementManager.getEngagementDetail(req.params.engagementId);
       if (!detail) {

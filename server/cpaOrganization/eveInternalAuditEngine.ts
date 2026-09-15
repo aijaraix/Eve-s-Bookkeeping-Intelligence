@@ -1354,8 +1354,23 @@ export class EveInternalAuditEngine {
     const findings: InternalAuditFinding[] = [];
     const reportStatus = report?.status || 'UNKNOWN';
 
-    // 1. Physical Approval Object Inspection (Never trust report.signedOffBy or report flags)
+    // 0. Physical Approval & Quinn Review Note Check
     const approval = context?.approvalObject || report?.approvalObject;
+    const quinnEligible = report?.quinnReview?.deliveryEligible !== false && report?.quinnReviewNote?.deliveryEligible !== false;
+    if (!quinnEligible || ['READY_FOR_AUTHORIZED_HUMAN_REVIEW', 'READY_FOR_AUTHORIZED_HUMAN_REVIEW_WITH_SYSTEM_FINDINGS', 'DRAFT', 'AI_PREPARED'].includes(reportStatus)) {
+      if (!approval) {
+        findings.push({
+          findingId: `FIND-GATE-${Date.now()}`,
+          severity: 'P1_PILOT_BLOCKER',
+          category: 'DELIVERY_GATE',
+          proofLevel: 'PRODUCT_VERIFIED',
+          title: 'Delivery Gate Blocked Pending Authorized CPA Review',
+          description: `Deliverable status (${reportStatus}) and review state require physical human partner approval prior to delivery release.`,
+          evidence: `quinnEligible=${quinnEligible}, reportStatus=${reportStatus}`,
+          remediationStatus: 'UNRESOLVED'
+        });
+      }
+    }
     if (['FINAL_CERTIFIED', 'ELIGIBLE_FOR_DELIVERY', 'DELIVERED'].includes(reportStatus)) {
       if (!approval) {
         findings.push({

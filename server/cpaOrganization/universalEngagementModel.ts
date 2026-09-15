@@ -234,7 +234,14 @@ export class UniversalEngagementManager {
     try {
       const fs = await import('fs');
       const path = await import('path');
-      const storageFile = process.env.STORAGE_FILE || path.join(process.cwd(), 'ai_cpa_storage.json');
+      const targetDir = path.join(process.cwd(), 'storage');
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || path.join(targetDir, 'ai_cpa_storage.json');
+      if (!fs.existsSync(storageFile)) {
+        fs.writeFileSync(storageFile, JSON.stringify({ workspaces: [], documents: [], facts: [], reports: [] }, null, 2), 'utf-8');
+      }
       if (fs.existsSync(storageFile)) {
         const raw = fs.readFileSync(storageFile, 'utf-8');
         const db = JSON.parse(raw);
@@ -479,7 +486,7 @@ export class UniversalEngagementManager {
 
     // Check storage for workspace-specific documents, facts, and reports
     try {
-      const storageFile = process.env.STORAGE_FILE || path.join(process.cwd(), 'ai_cpa_storage.json');
+      const storageFile = process.env.STORAGE_FILE || process.env.AI_CPA_STORAGE_FILE || (fs.existsSync(path.join(process.cwd(), 'storage', 'ai_cpa_storage.json')) ? path.join(process.cwd(), 'storage', 'ai_cpa_storage.json') : path.join(process.cwd(), 'ai_cpa_storage.json'));
       if (fs.existsSync(storageFile)) {
         const raw = fs.readFileSync(storageFile, 'utf-8');
         const db = JSON.parse(raw);
@@ -598,6 +605,7 @@ export class UniversalEngagementManager {
       canonicalFactsCount: facts.length,
       documents,
       facts,
+      financialFacts: facts,
       pbcRequests,
       reviewNotes,
       reports,

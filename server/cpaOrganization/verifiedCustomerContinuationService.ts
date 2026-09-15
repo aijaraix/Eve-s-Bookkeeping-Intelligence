@@ -222,6 +222,35 @@ export class VerifiedCustomerContinuationService {
     }
   }
 
+  public getContinuationByEngagementId(engagementId: string): VerifiedContinuationState | null {
+    try {
+      if (!fs.existsSync(this.storageDir)) return null;
+      const files = fs.readdirSync(this.storageDir).filter(f => f.endsWith('.json'));
+      const candidates: VerifiedContinuationState[] = [];
+      for (const file of files) {
+        try {
+          const raw = fs.readFileSync(path.join(this.storageDir, file), 'utf-8');
+          const state = JSON.parse(raw) as VerifiedContinuationState;
+          if (state && (state.engagementId === engagementId || state.workspaceId === engagementId || state.continuationId === engagementId || state.jobId === engagementId)) {
+            candidates.push(state);
+          }
+        } catch {
+          // Explicitly ignore corrupt or partial records
+        }
+      }
+      if (candidates.length === 0) return null;
+      // Sort deterministically by latest updatedAt or completedAt
+      candidates.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.completedAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.completedAt || 0).getTime();
+        return timeB - timeA;
+      });
+      return candidates[0];
+    } catch {
+      return null;
+    }
+  }
+
   private persist(state: VerifiedContinuationState): VerifiedContinuationState {
     state.updatedAt = new Date().toISOString();
     const target = this.statePath(state.jobId);
@@ -447,10 +476,15 @@ export class VerifiedCustomerContinuationService {
       const disclosureEvidenceGaps = Object.entries(disclosureLedger.topicCounts)
         .filter(([, count]) => Number(count) === 0)
         .map(([topic]) => `DISCLOSURE_EVIDENCE_GAP:${topic}`);
+      const formatUncertainty = (u: any): string => {
+        if (typeof u === 'string') return u;
+        if (typeof u === 'object' && u !== null) return u.description || u.topic || u.text || JSON.stringify(u);
+        return String(u);
+      };
       const systemFindings = [
         ...swarm.jobs
           .filter(j => j.status !== 'JOB_COMPLETED_SUCCESS')
-          .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.join(' | ')}` : ''}`),
+          .map(j => `${j.agentId}:${j.status}${j.uncertainties?.length ? `:${j.uncertainties.map(formatUncertainty).join(' | ')}` : ''}`),
         ...disclosureEvidenceGaps
       ];
       const technicalPass = internalTruthAudit.compliant && minervaLiveValidation.certifiedStatus === 'TECHNICAL_VALIDATION_PASSED';
@@ -463,7 +497,7 @@ export class VerifiedCustomerContinuationService {
         status: finalStatus,
         completedAt: new Date().toISOString(),
         systemFindings,
-        reviewFindings: swarm.jobs.flatMap(j => (j.uncertainties || []).map(u => `${j.agentId}: ${u}`))
+        reviewFindings: swarm.jobs.flatMap(j => (j.uncertainties || []).map(u => `${j.agentId}: ${formatUncertainty(u)}`))
       });
     } catch (err: any) {
       return this.persist({
