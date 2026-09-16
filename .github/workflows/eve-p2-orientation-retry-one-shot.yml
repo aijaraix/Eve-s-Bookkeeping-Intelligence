@@ -1,0 +1,135 @@
+name: Eve P2 OCR Orientation Retry One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-orientation-retry-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded orientation retry patch
+        run: |
+          python3 scripts/eve-p2-orientation-retry-apply.py
+          git diff --check
+          python3 -m py_compile services/local_ocr/app.py services/local_ocr/test_orientation_geometry.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install bounded Python test dependencies
+        run: python3 -m pip install --user --quiet 'fastapi==0.116.1' 'pydantic>=2,<3' 'Pillow==12.3.0' 'PyMuPDF==1.26.4'
+
+      - name: Original-coordinate orientation geometry contract
+        env:
+          PYTHONPATH: services/local_ocr
+        run: python3 services/local_ocr/test_orientation_geometry.py
+
+      - name: Deterministic 90-degree fixture correction identity
+        run: |
+          rm -rf /tmp/eve-orientation-fixtures
+          python3 scripts/academy/generate_ocr_curriculum_fixtures.py /tmp/eve-orientation-fixtures --include-degraded > /tmp/eve-orientation-generation.txt
+          cat /tmp/eve-orientation-generation.txt
+          python3 - <<'PY'
+          from PIL import Image
+          from io import BytesIO
+          from pathlib import Path
+          import hashlib
+          root=Path('/tmp/eve-orientation-fixtures')
+          base=(root/'receipt.png').read_bytes()
+          bad=Image.open(root/'receipt_rotated_90.png').convert('L')
+          corrected=bad.rotate(270, expand=True, fillcolor=255)
+          buf=BytesIO(); corrected.save(buf,'PNG',optimize=True); restored=buf.getvalue()
+          assert hashlib.sha256(base).hexdigest() == 'bdd93a72a51d82cc5df6c6a8989db023e9b45b1f18344e43054647851e173436'
+          assert hashlib.sha256((root/'receipt_rotated_90.png').read_bytes()).hexdigest() == '9f2496573071e396c8452534bf5afe67ddf0d676a0907919820733418609a698'
+          assert restored == base
+          print('OCR_ROTATION_270_RESTORES_ACCEPTED_RECEIPT_BYTES=PASS')
+          PY
+
+      - name: Orientation retry routing and provenance
+        run: npx tsx server/tests/ocrOrientationRetry.test.ts
+
+      - name: Local OCR routing and quality regression
+        run: npx tsx server/tests/localOcrRouting.test.ts
+
+      - name: OCR fail-closed parser ordering regression
+        run: npx tsx server/tests/ocrFailClosedParserContract.test.ts
+
+      - name: OCR parser evidence regression
+        run: npx tsx server/tests/ocrParserEvidence.test.ts
+
+      - name: PDF OCR rasterization regression
+        env:
+          PYTHONPATH: services/local_ocr
+        run: python3 services/local_ocr/test_pdf_rasterization.py
+
+      - name: PDF OCR fallback regression
+        run: npx tsx server/tests/pdfOcrFallback.test.ts
+
+      - name: PDF OCR wiring regression
+        run: npx tsx server/tests/pdfOcrIntegrationWiring.test.ts
+
+      - name: Academy OCR curriculum regression
+        run: npx tsx server/tests/academyOcrCurriculumRunner.test.ts
+
+      - name: Degraded fixture regression
+        run: npx tsx server/tests/degradedOcrFixtureGenerator.test.ts
+
+      - name: Five-dimension Academy grading regression
+        run: npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+
+      - name: Five-dimension Academy curriculum regression
+        run: npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+
+      - name: P1-009 sufficiency regression
+        run: npx tsx server/tests/taskEvidenceSufficiency.test.ts
+
+      - name: P1-010 clarification coordinator regression
+        run: npx tsx server/tests/sufficiencyClarificationCoordinator.test.ts
+
+      - name: P1-010 clarification route/auth regression
+        run: timeout 30s npx tsx server/tests/sufficiencyClarificationRoutes.test.ts
+
+      - name: Universal evidence regression
+        run: npx tsx server/tests/universalSourceEvidenceContract.test.ts
+
+      - name: Spreadsheet lineage regression
+        run: npx tsx server/tests/spreadsheetSourceToPixelLineage.test.ts
+
+      - name: Presentation adapter regression
+        run: npx tsx src/adapters/presentationAdapters.test.ts
+
+      - name: Academy dashboard truth regression
+        run: npx tsx server/tests/academyDashboardTruthAuditor.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested orientation retry and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-orientation-retry-apply.py .github/workflows/eve-p2-orientation-retry-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add provenance-safe OCR orientation retry'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
