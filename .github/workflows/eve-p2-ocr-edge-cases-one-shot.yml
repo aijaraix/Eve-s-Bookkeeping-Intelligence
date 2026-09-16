@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 28
     env:
       OCR_EDGE_ACCEPTANCE_DIR: /tmp/eve-ocr-edge-cases
+      MIXED_PDF_OCR_ACCEPTANCE_DIR: /tmp/eve-mixed-pdf-ocr
     steps:
       - name: Checkout integration branch
         uses: actions/checkout@v4
@@ -38,8 +39,8 @@ jobs:
       - name: Install application dependencies
         run: npm ci
 
-      - name: Install deterministic image dependency
-        run: python3 -m pip install --user --quiet 'Pillow==12.3.0'
+      - name: Install deterministic image and mixed-PDF fixture dependencies
+        run: python3 -m pip install --user --quiet 'Pillow==12.3.0' 'PyMuPDF==1.26.4'
 
       - name: Generate and verify physical degraded OCR fixtures
         run: |
@@ -62,6 +63,9 @@ jobs:
           npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
           npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
           npx tsx server/tests/pdfOcrFallback.test.ts
+          rm -rf "$MIXED_PDF_OCR_ACCEPTANCE_DIR"
+          mkdir -p "$MIXED_PDF_OCR_ACCEPTANCE_DIR"
+          python3 scripts/academy/generate_mixed_pdf_selective_fixture.py
           npx tsx server/tests/mixedPdfSelectiveOcr.test.ts
           npx tsx server/tests/mixedPdfSelectiveOcrFailClosed.test.ts
 
