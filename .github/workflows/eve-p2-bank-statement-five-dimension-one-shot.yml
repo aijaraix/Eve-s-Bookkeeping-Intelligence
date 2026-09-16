@@ -34,6 +34,7 @@ jobs:
       - name: Apply bounded bank statement completeness patch
         run: |
           python3 scripts/eve-p2-bank-statement-apply.py
+          python3 scripts/eve-p2-bank-statement-fix1.py
           git diff --check
 
       - name: Install dependencies
@@ -159,7 +160,7 @@ jobs:
 
       - name: Commit tested bank statement closure and remove one-shot machinery
         run: |
-          rm -f scripts/eve-p2-bank-statement-apply.py .github/workflows/eve-p2-bank-statement-five-dimension-one-shot.yml
+          rm -f scripts/eve-p2-bank-statement-apply.py scripts/eve-p2-bank-statement-fix1.py .github/workflows/eve-p2-bank-statement-five-dimension-one-shot.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
