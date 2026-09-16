@@ -527,13 +527,17 @@ export class AcademyMinervaLab {
         'CURR-ISOLATION-BULK-MIXED-CLIENT',
         'Bulk mixed-client upload isolation',
         'CLIENT_ISOLATION',
-        ['BULK_UPLOAD', 'MULTI_CLIENT'],
-        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'PRODUCT_TRUTH'],
+        ['BULK_UPLOAD', 'MULTI_CLIENT', 'CSV', 'PDF'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
         [
-          'Evidence must remain bound to the correct workspace/engagement/client.',
-          'No fact, provenance reference, clarification or rendered value may cross client boundaries.'
+          'Every document, provenance coordinate, fact, finding, clarification and rendered value must remain bound to the correct client/workspace/engagement tuple.',
+          'Matching filenames, amounts, account labels and reporting periods across customers must never merge or establish shared accounting truth.',
+          'Cross-client document, fact or provenance references must fail closed and block promotion pending client-scope repair.',
+          'PBC references and findings must not borrow evidence from another client even when the accounting value is identical.',
+          'Actual customer UI and PDF/JSON/CSV/XLSX drafts must contain only the intended client source SHA and provenance identities.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED'
+        'CONTRACT_READY',
+        ['server/tests/clientIsolationEngine.test.ts', 'server/tests/clientIsolationProductTruthBrowser.test.ts', 'server/tests/clientIsolationDeliverableTruth.test.ts', 'server/tests/clientIsolationFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_BULK_CLIENT_ISOLATION_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-SEMANTIC-LONG-DOCUMENT',

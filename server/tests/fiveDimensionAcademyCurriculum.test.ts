@@ -8,8 +8,8 @@ const coverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 assert.equal(cases.length, 20);
 assert.equal(new Set(cases.map(c => c.caseId)).size, 20);
 assert.equal(coverage.totalCases, 20);
-assert.equal(coverage.contractReadyCases, 11);
-assert.equal(coverage.physicalFixturePendingCases, 9);
+assert.equal(coverage.contractReadyCases, 12);
+assert.equal(coverage.physicalFixturePendingCases, 8);
 assert.equal(coverage.autonomousEligibleCases, 0, 'new curriculum cases must not silently enter autonomous scheduling');
 
 const requiredIds = [
@@ -82,7 +82,10 @@ assert.equal(find('CURR-EVIDENCE-DUPLICATE-NEAR-DUPLICATE').fixtureStatus, 'CONT
 assert.deepEqual(find('CURR-EVIDENCE-DUPLICATE-NEAR-DUPLICATE').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
 assert.ok(find('CURR-EVIDENCE-DUPLICATE-NEAR-DUPLICATE').expectedSafeguards.join(' ').includes('Cosmetic-only near-duplicates'));
 assert.ok(find('CURR-EVIDENCE-DUPLICATE-NEAR-DUPLICATE').validationRefs.includes('server/tests/duplicateEvidenceFiveDimensionAcceptance.test.ts'));
-assert.ok(find('CURR-ISOLATION-BULK-MIXED-CLIENT').expectedSafeguards.join(' ').includes('No fact, provenance reference, clarification or rendered value may cross client boundaries'));
+assert.equal(find('CURR-ISOLATION-BULK-MIXED-CLIENT').fixtureStatus, 'CONTRACT_READY');
+assert.deepEqual(find('CURR-ISOLATION-BULK-MIXED-CLIENT').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
+assert.ok(find('CURR-ISOLATION-BULK-MIXED-CLIENT').expectedSafeguards.join(' ').includes('clarification and rendered value'));
+assert.ok(find('CURR-ISOLATION-BULK-MIXED-CLIENT').validationRefs.includes('server/tests/clientIsolationFiveDimensionAcceptance.test.ts'));
 assert.ok(find('CURR-PRODUCT-SOURCE-TO-DASHBOARD').expectedSafeguards.join(' ').includes('actual browser-rendered value'));
 assert.ok(find('CURR-DELIVERABLE-FINAL-LINEAGE').expectedSafeguards.join(' ').includes('reverse-trace'));
 
