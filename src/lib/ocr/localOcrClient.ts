@@ -73,6 +73,7 @@ export interface LocalOcrClientOptions {
   primaryAverageConfidenceFloor?: number;
   materialConfidenceFloor?: number;
   fallbackImprovementMargin?: number;
+  forceFallbackEvaluation?: boolean;
   fetchImpl?: typeof fetch;
 }
 
@@ -171,6 +172,7 @@ export class LocalOcrClient {
   private primaryAverageConfidenceFloor: number;
   private materialConfidenceFloor: number;
   private fallbackImprovementMargin: number;
+  private forceFallbackEvaluation: boolean;
   private fetchImpl: typeof fetch;
 
   constructor(options: LocalOcrClientOptions = {}) {
@@ -180,6 +182,7 @@ export class LocalOcrClient {
     this.primaryAverageConfidenceFloor = options.primaryAverageConfidenceFloor ?? envNumber('EVE_OCR_AVG_CONFIDENCE_FLOOR', DEFAULT_AVG_FLOOR);
     this.materialConfidenceFloor = options.materialConfidenceFloor ?? envNumber('EVE_OCR_MATERIAL_CONFIDENCE_FLOOR', DEFAULT_MATERIAL_FLOOR);
     this.fallbackImprovementMargin = options.fallbackImprovementMargin ?? envNumber('EVE_OCR_FALLBACK_IMPROVEMENT_MARGIN', DEFAULT_IMPROVEMENT_MARGIN);
+    this.forceFallbackEvaluation = options.forceFallbackEvaluation === true;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -260,7 +263,8 @@ export class LocalOcrClient {
     }
 
     const reasons = primary && primaryQuality ? this.fallbackReasons(primary, primaryQuality) : ['PRIMARY_UNAVAILABLE'];
-    const shouldInvokeFallback = Boolean(this.fallbackUrl) && (!primary || reasons.length > 0);
+    if (this.forceFallbackEvaluation && primary && this.fallbackUrl) reasons.push('FORCED_DUAL_ENGINE_EVALUATION');
+    const shouldInvokeFallback = Boolean(this.fallbackUrl) && (this.forceFallbackEvaluation || !primary || reasons.length > 0);
     let fallback: LocalOcrEngineResult | undefined;
     let fallbackQuality: OcrQuality | undefined;
 
