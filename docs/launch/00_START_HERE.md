@@ -15,14 +15,15 @@ Future agents must read this directory before proposing broad work. Do not resta
 1. `10_CURRENT_PROGRESS.md` — current execution overlay and latest completed work
 2. `01_CURRENT_STATE_AND_LAUNCH_TARGET.md`
 3. `02_UNIVERSAL_CLIENT_INTAKE_AND_EVIDENCE.md`
-4. `03_ACADEMY_QUALITY_AND_ACCEPTANCE.md`
-5. `04_CUSTOMER_COMMERCE_AND_OPERATIONS.md`
-6. `05_PUBLIC_CUSTOMER_OWNER_EXPERIENCE.md`
-7. `11_BRAND_ASSET_HANDOFF_MANIFEST.md` — locked Canva brand tokens, production asset structure and handoff status
-8. `06_SECURITY_RELIABILITY_AND_OBSERVABILITY.md`
-9. `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`
-10. `08_CODEX_LAST_RESORT_POLICY.md`
-11. `09_LAUNCH_ACCEPTANCE_CHECKLIST.md`
+4. `12_UNIVERSAL_SOURCE_TO_PRESENTATION_LINEAGE.md` — source-agnostic evidence chain from original customer evidence to the real rendered UI/report/deliverable and back
+5. `03_ACADEMY_QUALITY_AND_ACCEPTANCE.md`
+6. `04_CUSTOMER_COMMERCE_AND_OPERATIONS.md`
+7. `05_PUBLIC_CUSTOMER_OWNER_EXPERIENCE.md`
+8. `11_BRAND_ASSET_HANDOFF_MANIFEST.md` — locked Canva brand tokens, production asset structure and handoff status
+9. `06_SECURITY_RELIABILITY_AND_OBSERVABILITY.md`
+10. `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`
+11. `08_CODEX_LAST_RESORT_POLICY.md`
+12. `09_LAUNCH_ACCEPTANCE_CHECKLIST.md`
 
 Also preserve and defer to the deeper operating-system specifications under `docs/eve-operating-system/` where they are more specific, especially Universal Document IR and zero-loss information custody.
 
@@ -34,7 +35,8 @@ Also preserve and defer to the deeper operating-system specifications under `doc
 - Customer work always preempts Academy/background exercises.
 - Academy must use the real product pathway; synthetic fixtures are isolated from customer records.
 - Agents are not storage. Persisted evidence and lineage are authoritative.
-- No dashboard, formula, report or deliverable may use a material value without source lineage.
+- Lineage is source-agnostic. Spreadsheet cells, receipts, scans, PDFs, images, CSV rows, HTML/iXBRL nodes, DOCX content, clarifications and mixed-source evidence must all resolve through one universal evidence contract.
+- No material dashboard value, formula, report statement or generated deliverable claim is lineage-complete until the exact real rendered output can be traced backward to the original customer evidence that supports it.
 - Source completeness and task evidence sufficiency are separate concepts.
 - Known source gaps are never hidden, but only materially relevant gaps block a conclusion.
 - AI-prepared work is not professional CPA approval. Account roles do not confer professional signing authority.
