@@ -33,6 +33,7 @@ jobs:
       - name: Apply bounded mixed-PDF selective OCR patch
         run: |
           python3 scripts/eve-p2-mixed-pdf-selective-ocr-apply.py
+          python3 scripts/eve-p2-mixed-pdf-selective-ocr-fix1.py
           git diff --check
 
       - name: Install application dependencies
@@ -83,7 +84,7 @@ jobs:
 
       - name: Commit tested mixed-PDF OCR closure and remove one-shot machinery
         run: |
-          rm -f scripts/eve-p2-mixed-pdf-selective-ocr-apply.py .github/workflows/eve-p2-mixed-pdf-selective-ocr-one-shot.yml
+          rm -f scripts/eve-p2-mixed-pdf-selective-ocr-apply.py scripts/eve-p2-mixed-pdf-selective-ocr-fix1.py .github/workflows/eve-p2-mixed-pdf-selective-ocr-one-shot.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
