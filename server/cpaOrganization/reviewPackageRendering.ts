@@ -48,10 +48,25 @@ export function csvCell(value: any): string {
   const safe = /^[=+@\-\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? "'" + s : s;
   return '"' + safe.replace(/"/g, '""') + '"';
 }
-export function buildReviewCsv(facts: any[], currency: string): string {
+export function buildReviewCsv(facts: any[], currency: string, apReview?: any): string {
   const rows = [['Source Fact ID','Metric','Label','Value','Currency','Reporting Period','Statement','Document ID','Source Document','Extractor Locator','Verification','Evidence Status','Source Block IDs','Source SHA256','Source Provenance IDs','Source Coordinate','Extraction Method','Extraction Version','Confidence','Source Excerpt'],
     ...facts.map(f=>{const r=reviewRow(f);return [r.id,r.metric,r.label,r.value,currency,r.period,r.statement,r.documentId,r.sourceDoc,r.extractorPage,r.verificationStatus,r.evidenceStatus,r.sourceBlockIds.join(';'),r.sourceSha256,r.sourceProvenanceIds.join(';'),sourceCoordinateText(r),r.sourceExtractionMethod,r.sourceExtractionVersion,r.sourceConfidence,r.sourceText];})];
-  return rows.map(row=>row.map(csvCell).join(',')).join('\r\n');
+  const factCsv = rows.map(row=>row.map(csvCell).join(',')).join('\r\n');
+  if (!apReview) return factCsv;
+  const apRows: any[][] = [
+    [], ['AP INVOICE REVIEW'],
+    ['Vendor', apReview.vendor?.value], ['Invoice Number', apReview.invoiceNumber?.value],
+    ['Invoice Date', apReview.invoiceDate?.value], ['Due Date', apReview.dueDate?.value],
+    ['Bill To', apReview.billTo?.value], ['PO Reference On Invoice', apReview.purchaseOrderReference?.value],
+    ['Currency', apReview.currency?.value], ['Subtotal', apReview.subtotal?.value], ['Sales Tax', apReview.salesTax?.value], ['Total Due', apReview.totalDue?.value],
+    ['Semantic Adjudication', apReview.semanticAdjudication?.status], ['Raw OCR Label Evidence', (apReview.semanticAdjudication?.rawLabelTexts || []).join(' | ')],
+    ['Arithmetic Reconciliation', apReview.reconciliation?.status], ['Payable Candidate Status', apReview.apControl?.payableCandidateStatus],
+    ['Three-way Match', apReview.apControl?.threeWayMatchStatus], ['Independent PO Verified', apReview.apControl?.independentPurchaseOrderVerified],
+    ['Receiving Evidence Verified', apReview.apControl?.receivingEvidenceVerified], ['Approval', apReview.apControl?.approvalStatus],
+    ['Payment Eligibility', apReview.apControl?.paymentEligibility], ['Payment Status', apReview.apControl?.paymentStatus], ['Posting', apReview.apControl?.postingStatus],
+    ['Evidence Refs', (apReview.evidenceRefs || []).join(';')], ['Source SHA256', apReview.sourceSha256],
+  ];
+  return factCsv + '\r\n' + apRows.map(row=>row.map(csvCell).join(',')).join('\r\n');
 }
 const sha = (b: Buffer | Uint8Array) => crypto.createHash('sha256').update(b).digest('hex');
 function save(dir: string, filename: string, bytes: Buffer | Uint8Array) {
@@ -101,6 +116,20 @@ export async function renderReviewPdf(params: any, dir: string) {
   } else {
     heading('Accounting identity scope');
     text('Balance-sheet identity: NOT APPLICABLE TO THIS EVIDENCE PACKAGE. No complete assets/liabilities/equity population was supplied for this draft.');
+  }
+  if (params.apReview) {
+    const a=params.apReview;
+    heading('Accounts payable invoice review');
+    text(`Vendor: ${a.vendor?.value || 'NOT_RECORDED'}\nInvoice: ${a.invoiceNumber?.value || 'NOT_RECORDED'}\nInvoice date: ${a.invoiceDate?.value || 'NOT_RECORDED'}\nDue date: ${a.dueDate?.value || 'NOT_RECORDED'}\nBill to: ${a.billTo?.value || 'NOT_RECORDED'}\nPO reference on invoice: ${a.purchaseOrderReference?.value || 'NOT_RECORDED'}\nCurrency: ${a.currency?.value || 'NOT_RECORDED'}`);
+    text(`Subtotal: ${a.subtotal?.value ?? 'NOT_RECORDED'} | Sales tax: ${a.salesTax?.value ?? 'NOT_RECORDED'} | Total due: ${a.totalDue?.value ?? 'NOT_RECORDED'} | Reconciliation: ${a.reconciliation?.status || 'NOT_MEASURED'}`);
+    text(`Semantic adjudication: ${a.semanticAdjudication?.status || 'NOT_MEASURED'}`);
+    const rawInvoiceLabels = a.semanticAdjudication?.rawLabelTexts || [];
+    if (rawInvoiceLabels.length) for (const label of rawInvoiceLabels) text(`Raw OCR invoice label evidence: ${label}`);
+    else text('Raw OCR invoice label evidence: none');
+    text(`Payable candidate: ${a.apControl?.payableCandidateAmount ?? 'NOT_RECORDED'} ${a.apControl?.payableCandidateCurrency || ''} | Candidate state: ${a.apControl?.payableCandidateStatus || 'NOT_MEASURED'}\nThree-way match: ${a.apControl?.threeWayMatchStatus || 'NOT_MEASURED'} | Independent PO verified: ${a.apControl?.independentPurchaseOrderVerified ? 'YES' : 'NO'} | Receiving evidence verified: ${a.apControl?.receivingEvidenceVerified ? 'YES' : 'NO'}\nApproval: ${a.apControl?.approvalStatus || 'NOT_MEASURED'} | Payment eligibility: ${a.apControl?.paymentEligibility || 'NOT_MEASURED'} | Payment status: ${a.apControl?.paymentStatus || 'NOT_MEASURED'} | Posting: ${a.apControl?.postingStatus || 'NOT_MEASURED'}`);
+    text('The invoice-stated PO reference is not independent purchase-order evidence. No approval, receiving evidence, payment, or ledger posting is inferred from invoice content.');
+    for (const item of a.lineItems?.value || []) text(`${item.description}: ${item.quantity} x ${item.unitPrice} = ${item.lineTotal}`);
+    text(`Source SHA-256: ${a.sourceSha256 || 'NOT_RECORDED'}\nEvidence refs: ${(a.evidenceRefs || []).join(', ') || 'NOT_RECORDED'}`);
   }
   const facts=params.facts||[], jobs=params.specialistReview?.jobs||[];
   heading('Package coverage and unresolved matters');
@@ -158,6 +187,14 @@ export function renderReviewWorkbook(params:any, dir:string){
     ['Source Fact ID','Metric','Reporting Period','Document ID','Source Document','Extractor Locator','Source Block IDs','Source SHA256','Source Provenance IDs','Source Coordinate','Extraction Method','Extraction Version','Confidence','Source Excerpt'],
     ...rows.map((r:any)=>[r.id,r.metric,r.period,r.documentId,r.sourceDoc,r.extractorPage,r.sourceBlockIds.join(';'),r.sourceSha256,r.sourceProvenanceIds.join(';'),sourceCoordinateText(r),r.sourceExtractionMethod,r.sourceExtractionVersion,r.sourceConfidence,r.sourceText])
   ],[48,34,28,38,27,20,50,66,66,100,30,18,14,90]);
+  if(params.apReview){ const a=params.apReview; add('AP Review',[
+    ['Field','Recorded value'], ['Vendor',a.vendor?.value], ['Invoice Number',a.invoiceNumber?.value], ['Invoice Date',a.invoiceDate?.value], ['Due Date',a.dueDate?.value],
+    ['Bill To',a.billTo?.value], ['PO Reference On Invoice',a.purchaseOrderReference?.value], ['Currency',a.currency?.value], ['Subtotal',a.subtotal?.value], ['Sales Tax',a.salesTax?.value], ['Total Due',a.totalDue?.value],
+    ['Semantic Adjudication',a.semanticAdjudication?.status], ['Raw OCR Label Evidence',(a.semanticAdjudication?.rawLabelTexts||[]).join(' | ')], ['Arithmetic Reconciliation',a.reconciliation?.status],
+    ['Payable Candidate Status',a.apControl?.payableCandidateStatus], ['Three-way Match',a.apControl?.threeWayMatchStatus], ['Independent PO Verified',a.apControl?.independentPurchaseOrderVerified],
+    ['Receiving Evidence Verified',a.apControl?.receivingEvidenceVerified], ['Approval',a.apControl?.approvalStatus], ['Payment Eligibility',a.apControl?.paymentEligibility], ['Payment Status',a.apControl?.paymentStatus], ['Posting',a.apControl?.postingStatus],
+    ['Source SHA256',a.sourceSha256], ['Evidence Refs',(a.evidenceRefs||[]).join(';')]
+  ],[34,100]); }
   add('Specialist Review',[
     ['Agent','Execution Status','Output Contract','Model','Review Limitations','Actual Output'],
     ...(params.specialistReview?.jobs||[]).flatMap((j:any)=>{

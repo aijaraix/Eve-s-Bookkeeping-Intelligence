@@ -8,8 +8,8 @@ const coverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 assert.equal(cases.length, 19);
 assert.equal(new Set(cases.map(c => c.caseId)).size, 19);
 assert.equal(coverage.totalCases, 19);
-assert.equal(coverage.contractReadyCases, 6);
-assert.equal(coverage.physicalFixturePendingCases, 13);
+assert.equal(coverage.contractReadyCases, 7);
+assert.equal(coverage.physicalFixturePendingCases, 12);
 assert.equal(coverage.autonomousEligibleCases, 0, 'new curriculum cases must not silently enter autonomous scheduling');
 
 const requiredIds = [
@@ -49,6 +49,9 @@ for (const dimension of ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTIN
 const find = (id: string) => cases.find(c => c.caseId === id)!;
 assert.equal(find('CURR-OCR-RECEIPT-PHOTO').fixtureStatus, 'CONTRACT_READY');
 assert.deepEqual(find('CURR-OCR-RECEIPT-PHOTO').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
+assert.equal(find('CURR-OCR-SCANNED-INVOICE').fixtureStatus, 'CONTRACT_READY');
+assert.deepEqual(find('CURR-OCR-SCANNED-INVOICE').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
+assert.ok(find('CURR-OCR-SCANNED-INVOICE').expectedSafeguards.join(' ').includes('payment remains BLOCKED'));
 assert.equal(find('CURR-SUFF-MISSING-PAGE-NON-MATERIAL').fixtureStatus, 'CONTRACT_READY');
 assert.ok(find('CURR-SUFF-MISSING-PAGE-NON-MATERIAL').expectedSafeguards.join(' ').includes('Persist the source gap'));
 assert.ok(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').expectedSafeguards.join(' ').includes('Block the affected'));

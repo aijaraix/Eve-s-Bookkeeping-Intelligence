@@ -309,17 +309,20 @@ export class AcademyMinervaLab {
       ),
       caseSpec(
         'CURR-OCR-SCANNED-INVOICE',
-        'Scanned invoice with line-item and total reconciliation',
+        'Scanned invoice with line-item, AP control and deliverable reconciliation',
         'IMAGE_OCR',
-        ['IMAGE', 'INVOICE'],
-        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'DELIVERABLE_TRUTH'],
+        ['IMAGE', 'INVOICE', 'ACCOUNTS_PAYABLE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
         [
-          'Extract vendor, invoice number, dates, line items, subtotal, tax and total with exact regions.',
-          'Reconcile line items/subtotal/tax/total and fail closed on a material mismatch.',
-          'Any invoice-derived report/export value must preserve original source lineage.'
+          'Extract vendor, invoice number, invoice/due dates, bill-to, PO reference, currency, line items, subtotal, tax and total with exact evidence references.',
+          'Preserve raw multi-engine OCR disagreement and require explicit field-level adjudication rather than silently preferring a label.',
+          'Reconcile quantity × unit price, line-item sum to subtotal, and subtotal plus tax to total due.',
+          'Treat an invoice-stated PO reference as a reference only; absent independent PO, receiving and approval evidence, three-way match remains NOT_TESTABLE and payment remains BLOCKED.',
+          'Never infer payment, approval, debit-account classification or ledger posting from invoice content alone.',
+          'Actual product AP review and every exported draft must preserve AP state plus original source lineage.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['server/tests/ocrParserEvidence.test.ts']
+        'CONTRACT_READY',
+        ['server/tests/invoiceApInterpretationEngine.test.ts', 'server/tests/invoiceApProductTruthBrowser.test.ts', 'server/tests/invoiceApDeliverableTruth.test.ts', 'server/tests/invoiceApFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_INVOICE_AP_FIVE_DIMENSION_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-OCR-IMAGE-ONLY-PDF',
