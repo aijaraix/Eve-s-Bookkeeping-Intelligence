@@ -222,6 +222,54 @@ Physical CI acceptance:
 
 The first P1-010 run failed only because its test expected an unknown-materiality review for a task that explicitly required a complete transaction population. P1-009 correctly treated that missing page as material. The production rule was preserved; the test was corrected to a true unknown-materiality scenario.
 
+### EVE-P2-001 — Five-dimension Academy evidence grading
+Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / PRODUCTION APP ACTIVATION PENDING
+Draft PR: #31
+Accepted implementation checkpoint: `b7ef550513306ce50d194e045dad64b614abf117`
+Evidence: `docs/launch/evidence/2026-09-16_P2_001_FIVE_DIMENSION_ACADEMY_ACCEPTANCE.md` on the feature branch
+
+Minerva now has a stricter independent grading contract across:
+
+- Source Coverage
+- Semantic Understanding
+- Accounting Accuracy
+- Product Truth
+- Deliverable Truth
+
+Permanent behavior:
+
+- dimension states are `PASS`, `FAIL`, `NOT_TESTED`
+- `NOT_TESTED` never counts as PASS
+- incomplete/partially exercised dimensions remain `NOT_TESTED` and receive no dimension score
+- every PASS assertion requires a nonblank evidence reference
+- any failed dimension prevents all-required-pass
+- the case receives `FIVE_DIMENSION_PASS` only when all five required dimensions independently pass
+- tested-only average excludes untested dimensions
+- historical cases are not retroactively treated as five-dimension complete
+- the old numeric/evidence/PBC/review/report weighted Full Practice score remains available only for backward compatibility and cannot override five-dimension status
+- latest result plus bounded five-dimension history are exposed through the Observatory read model
+- PASS / FAIL / NOT_TESTED are visibly distinct in the Academy curriculum UI
+- blanket global `zeroToleranceCertified` is disabled rather than inferred from one case
+- Minerva wording is explicitly internal technical evaluation, not a CPA opinion, audit opinion, statutory certification or human professional sign-off
+
+Physical CI acceptance:
+
+- initial integration run `35053016519`: PASS
+- final hardening run `35053528405`: PASS
+- five-dimension grading tests: PASS
+- five-dimension presentation tests: PASS
+- P1-009 regression: PASS
+- P1-010 coordinator regression: PASS
+- P1-010 route/auth regression: PASS
+- universal evidence regression: PASS
+- spreadsheet lineage regression: PASS
+- OCR evidence regression: PASS
+- presentation adapter regression: PASS
+- Academy dashboard truth regression: PASS
+- full production build: PASS
+
+P2-001 extends the existing Minerva / Hermes Academy path; no second evaluator service was created.
+
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
 Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
@@ -246,7 +294,7 @@ Final canonical asset selection/export is still being populated by the Canva wor
 
 ## Source-control / runtime safety
 
-Current evidence/OCR/sufficiency/clarification application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work.
+Current evidence/OCR/sufficiency/clarification/Academy application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work; this progress-document update does not activate feature-branch application code.
 
 Pfizer / Company 1 was not rerun or altered.
 
@@ -254,7 +302,7 @@ Hermes was not replaced and no second Academy scheduler was created.
 
 The two OCR services were added side-by-side and do not replace any existing Eve service.
 
-Transient helper-file mistakes (`noop` earlier and an empty `nonexistent` file during P1-010 metadata cleanup) were immediately removed from the feature branch. Neither touched `main` or production runtime.
+Transient helper-file mistakes (`noop` earlier and an empty `nonexistent` file during P1-010 metadata cleanup) were immediately removed from the feature branch. P2-001 one-shot hardening machinery was also removed automatically after its green build. None of these helper files touched production runtime.
 
 ## No-Codex engineering pattern established
 
@@ -270,21 +318,22 @@ For bounded work we can now:
 
 ## Active next tasks
 
-1. `EVE-P2-001` — expand Eve Quality Academy into five-dimension grading: source coverage, semantic understanding, accounting accuracy, product truth, deliverable truth
-2. extend Academy curriculum to receipts, invoices, scans, missing pages, mixed batches, OCR disagreement, task-sufficiency and clarification/PBC cases
-3. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from completion of branch acceptance
-4. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
-5. `EVE-P4-001` — owner live operational read-model integration audit
-6. `EVE-P5-001` — remove development/internal language from customer-facing routes
-7. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
-8. `EVE-P6-003` — website structural implementation using locked brand tokens
+1. expand the accepted five-dimension Academy curriculum with curated/synthetic cases for receipt photos, scanned invoices, image-only PDFs, low-quality/rotated/glare scans and OCR disagreement
+2. add missing-page materiality, mixed-source, P1-009 sufficiency and P1-010 response/re-evaluation curriculum cases, including insufficient and resolving responses
+3. add duplicate/near-duplicate, bulk mixed-client isolation, long-document semantic/context, real source-to-dashboard click-through and final deliverable-lineage cases
+4. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from completion of branch acceptance
+5. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
+6. `EVE-P4-001` — owner live operational read-model integration audit
+7. `EVE-P5-001` — remove development/internal language from customer-facing routes
+8. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
+9. `EVE-P6-003` — website structural implementation using locked brand tokens
 
 ## Immediate blockers not requiring Codex
 
 - final canonical Canva asset population/export for full public-site visual fidelity
 - owner pricing/plan decisions before publishing commercial pricing
 - payment-processor selection/authorization before automated checkout
-- production application evidence/OCR/sufficiency/clarification activation is deliberately held behind PR #31 release control, not blocked by Codex
+- production application evidence/OCR/sufficiency/clarification/P2-001 activation is deliberately held behind PR #31 release control, not blocked by Codex
 - PBC external delivery/notification transport is not yet implemented; current accepted state is durable workflow state + authenticated response/re-evaluation contracts
 
 ## Codex status
