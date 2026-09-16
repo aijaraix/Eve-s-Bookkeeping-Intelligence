@@ -329,14 +329,22 @@ export class TaskEvidenceSufficiencyEngine {
     }
 
     const gapAssessments: GapTaskAssessment[] = gaps.map(gap => {
-      const affectedConclusions = task.conclusions.filter(c => intersects(gap.affectedCapabilities || [], c.requiredCapabilities || []));
+      // Unknown impact scope is fail-safe: until Eve can identify what a known gap affects,
+      // it must be evaluated against every current conclusion rather than silently treated as unrelated.
+      const unknownImpactScope = !Array.isArray(gap.affectedCapabilities) || gap.affectedCapabilities.length === 0;
+      const affectedConclusions = unknownImpactScope
+        ? task.conclusions
+        : task.conclusions.filter(c => intersects(gap.affectedCapabilities, c.requiredCapabilities || []));
       const derived = deriveMateriality(gap, affectedConclusions);
+      const rationale = unknownImpactScope && derived.materiality === 'UNKNOWN'
+        ? ['Gap impact scope is not established; fail-safe evaluation applies it to all current conclusions.', ...derived.rationale]
+        : derived.rationale;
       return {
         gapId: gap.gapId,
         derivedMateriality: derived.materiality,
         affectsCurrentTask: affectedConclusions.length > 0,
         affectedConclusionIds: affectedConclusions.map(c => c.conclusionId),
-        rationale: derived.rationale,
+        rationale,
       };
     });
 
