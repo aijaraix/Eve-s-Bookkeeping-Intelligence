@@ -297,14 +297,15 @@ export class AcademyMinervaLab {
         'Receipt photo with exact OCR region provenance',
         'IMAGE_OCR',
         ['IMAGE', 'RECEIPT'],
-        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
         [
           'Identify merchant, transaction date, amount, tax and currency without inventing absent fields.',
           'Preserve source SHA, image dimensions, OCR engine/version, confidence and exact bounding regions.',
-          'Promoted accounting fact must reverse-trace to the receipt region and any rendered product value.'
+          'Promoted accounting fact must reverse-trace to the receipt region and any rendered product value.',
+          'Receipt-derived draft artifacts must retain the source SHA, provenance ID, source region and source excerpt.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['server/tests/ocrParserEvidence.test.ts', 'docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md']
+        'CONTRACT_READY',
+        ['server/tests/ocrParserEvidence.test.ts', 'server/tests/receiptProductTruthBrowser.test.ts', 'server/tests/receiptDeliverableTruth.test.ts', 'server/tests/receiptFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_RECEIPT_FIVE_DIMENSION_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-OCR-SCANNED-INVOICE',

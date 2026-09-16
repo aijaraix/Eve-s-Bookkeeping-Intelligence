@@ -307,6 +307,15 @@ export class DeliverableArtifactService {
       reportingPeriod?: string;
       sourceText?: string;
       sourceBlockIds?: string[];
+      sourceSha256?: string;
+      sourceArtifactId?: string;
+      sourceProvenanceId?: string;
+      sourceProvenanceIds?: string[];
+      sourceCoordinate?: any;
+      sourceCoordinates?: any[];
+      sourceConfidence?: number;
+      sourceExtractionMethod?: string;
+      sourceExtractionVersion?: string;
     }>;
     canonicalFacts?: any[];
     euclidBalance?: {
@@ -331,21 +340,44 @@ export class DeliverableArtifactService {
 
     // Normalize facts strictly without defaulting missing source data
     const rawFacts = params.facts || params.canonicalFacts || [];
-    const normalizedFacts = rawFacts.map((f: any) => ({
-      id: f.id || undefined,
-      canonicalMetric: f.canonicalMetric || 'Financial Metric',
-      label: f.label || f.canonicalMetric || 'Line Item',
-      value: typeof f.value === 'number' ? f.value : (Number(f.normalizedValue || f.expectedValue) || 0),
-      statement: f.statement || f.statementType || 'BALANCE_SHEET',
-      sourceDoc: f.sourceDoc || f.documentTitle || 'MISSING_EVIDENCE',
-      page: typeof f.page === 'number' ? f.page : (typeof f.sourcePage === 'number' ? f.sourcePage : undefined),
-      verificationStatus: f.verificationStatus || 'NOT_VERIFIED',
-      evidenceStatus: f.evidenceStatus || 'NOT_MEASURED',
-      documentId: f.documentId,
-      reportingPeriod: f.reportingPeriod || f.period || 'NOT_RECORDED',
-      sourceText: f.sourceText || '',
-      sourceBlockIds: Array.isArray(f.sourceBlockIds) ? f.sourceBlockIds : []
-    }));
+    const normalizedFacts = rawFacts.map((f: any) => {
+      const inheritedCoordinates = Array.isArray(f.sourceCoordinates) ? f.sourceCoordinates
+        : Array.isArray(f.provenanceCoordinates) ? f.provenanceCoordinates
+        : Array.isArray(f.provenance?.provenanceCoordinates) ? f.provenance.provenanceCoordinates
+        : [];
+      const sourceCoordinate = f.sourceCoordinate || f.provenance?.sourceCoordinate || inheritedCoordinates[0];
+      const sourceCoordinates = inheritedCoordinates.length ? inheritedCoordinates : (sourceCoordinate ? [sourceCoordinate] : []);
+      const sourceProvenanceIds = [...new Set([
+        ...(Array.isArray(f.sourceProvenanceIds) ? f.sourceProvenanceIds : []),
+        ...(f.sourceProvenanceId ? [f.sourceProvenanceId] : []),
+        ...(Array.isArray(f.provenance?.sourceProvenanceIds) ? f.provenance.sourceProvenanceIds : []),
+        ...(f.provenance?.sourceProvenanceId ? [f.provenance.sourceProvenanceId] : []),
+      ].filter(Boolean).map(String))];
+      return {
+        id: f.id || undefined,
+        canonicalMetric: f.canonicalMetric || 'Financial Metric',
+        label: f.label || f.labelNormalized || f.labelOriginal || f.canonicalMetric || 'Line Item',
+        value: typeof f.value === 'number' ? f.value : (Number(f.normalizedValue ?? f.valueFunctional ?? f.expectedValue) || 0),
+        statement: f.statement || f.statementType || 'BALANCE_SHEET',
+        sourceDoc: f.sourceDoc || f.documentTitle || f.sourceDocument || 'MISSING_EVIDENCE',
+        page: typeof f.page === 'number' ? f.page : (typeof f.sourcePage === 'number' ? f.sourcePage : (typeof f.pageNumber === 'number' ? f.pageNumber : undefined)),
+        verificationStatus: f.verificationStatus || 'NOT_VERIFIED',
+        evidenceStatus: f.evidenceStatus || 'NOT_MEASURED',
+        documentId: f.documentId,
+        reportingPeriod: f.reportingPeriod || f.period || 'NOT_RECORDED',
+        sourceText: f.sourceText || f.rawText || f.provenance?.sourceText || '',
+        sourceBlockIds: Array.isArray(f.sourceBlockIds) ? f.sourceBlockIds : [],
+        sourceSha256: f.sourceSha256 || f.provenance?.sourceSha256 || sourceCoordinate?.sourceSha256,
+        sourceArtifactId: f.sourceArtifactId || f.provenance?.sourceArtifactId || sourceCoordinate?.sourceArtifactId,
+        sourceProvenanceId: f.sourceProvenanceId || f.provenance?.sourceProvenanceId || sourceProvenanceIds[0],
+        sourceProvenanceIds,
+        sourceCoordinate,
+        sourceCoordinates,
+        sourceConfidence: f.sourceConfidence ?? sourceCoordinate?.confidence ?? f.provenance?.ocrConfidence,
+        sourceExtractionMethod: f.sourceExtractionMethod || sourceCoordinate?.extractionMethod || f.provenance?.ocrEngine,
+        sourceExtractionVersion: f.sourceExtractionVersion || sourceCoordinate?.extractionVersion || f.provenance?.ocrEngineVersion,
+      };
+    });
 
     // Normalize euclidBalance from real fact numbers rather than fabricated defaults
     const balance = params.euclidBalance || {};
@@ -354,6 +386,8 @@ export class DeliverableArtifactService {
     const equity = typeof balance.equity === 'number' ? balance.equity : (normalizedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('equity'))?.value || 0);
     const variance = typeof balance.variance === 'number' ? balance.variance : Math.abs(assets - (liabilities + equity));
 
+    const balanceIdentityApplicable = [balance.assets, balance.liabilities, balance.equity].some(v => typeof v === 'number') ||
+      normalizedFacts.some(f => /(?:asset|liabilit|equity)/i.test(String(f.canonicalMetric || '')));
     const euclidBalance = { assets, liabilities, equity, variance };
 
     // Determine initial lifecycle status following Requirement 7 & 4
@@ -384,7 +418,8 @@ export class DeliverableArtifactService {
       facts: normalizedFacts,
       specialistReview: params.specialistReview,
       disclosureEvidenceLedger: params.disclosureEvidenceLedger,
-      euclidBalance
+      euclidBalance,
+      balanceIdentityApplicable
     });
 
     // 2. Generate Binary XLSX
@@ -400,7 +435,8 @@ export class DeliverableArtifactService {
       facts: normalizedFacts,
       specialistReview: params.specialistReview,
       disclosureEvidenceLedger: params.disclosureEvidenceLedger,
-      euclidBalance
+      euclidBalance,
+      balanceIdentityApplicable
     });
 
     // Canonical fact hash binds the draft package to the verified fact set.
@@ -420,7 +456,8 @@ export class DeliverableArtifactService {
       period,
       currency,
       generatedAt: new Date().toISOString(),
-      euclidBalance,
+      euclidBalance: balanceIdentityApplicable ? euclidBalance : null,
+      balanceIdentityApplicable,
       status: reportStatus,
       firmName,
       partnerName,

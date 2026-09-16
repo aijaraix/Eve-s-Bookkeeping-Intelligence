@@ -40,6 +40,8 @@ export interface AcademyOcrCurriculumFixture {
   semanticAssertions: AcademyOcrTextAssertion[];
   accountingAssertions: AcademyOcrTextAssertion[];
   reconciliation?: AcademyOcrReconciliation;
+  productTruthChecks?: FiveDimensionCheck[];
+  deliverableTruthChecks?: FiveDimensionCheck[];
   productTruthNotTestedReason: string;
   deliverableTruthNotTestedReason: string;
 }
@@ -349,7 +351,7 @@ export async function runAcademyOcrCurriculumFixture(
       SEMANTIC_UNDERSTANDING: { checks: semanticChecks },
       ACCOUNTING_ACCURACY: { checks: accountingChecks },
       PRODUCT_TRUTH: {
-        checks: [{
+        checks: fixture.productTruthChecks?.length ? fixture.productTruthChecks : [{
           checkId: 'product-truth-browser-not-exercised',
           label: 'Actual Eve browser rendering and click-through provenance',
           outcome: 'NOT_TESTED',
@@ -357,7 +359,7 @@ export async function runAcademyOcrCurriculumFixture(
         }],
       },
       DELIVERABLE_TRUTH: {
-        checks: [{
+        checks: fixture.deliverableTruthChecks?.length ? fixture.deliverableTruthChecks : [{
           checkId: 'deliverable-truth-export-not-exercised',
           label: 'Final report/export truth and reverse lineage',
           outcome: 'NOT_TESTED',
