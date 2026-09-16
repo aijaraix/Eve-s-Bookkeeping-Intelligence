@@ -48,6 +48,37 @@ Key findings:
 - no dedicated OCR/CV package is present in current Node dependencies
 - local Ollama currently exposes `qwen3.5:4b-q4_K_M`; vision/OCR capability of this exact model is not yet proven
 
+### EVE-P1-003 — Source-to-value provenance gap audit
+Status: DESIGN/GAP AUDIT DONE; implementation active
+Evidence: `docs/launch/evidence/2026-09-15_PROVENANCE_GAP_AUDIT.md`
+
+Key finding:
+
+Eve already has raw evidence, semantic fact, canonical fact, formula operand and render lineage infrastructure. The required work is to unify these through one source-coordinate/provenance adapter that supports PDF/image/spreadsheet/HTML/iXBRL/DOCX/CSV/email evidence without replacing the current lineage system.
+
+### EVE-P6-001 — Canva Brand System production structure
+Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
+Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
+
+Verified in Canva:
+
+- canonical folder `Eve's Bookkeeping — Brand System`
+- production folders for Brand Master, Logos, Icons, Hero Assets, Product UI, Document Examples, CTA Mountains, Social/OG and Codex Handoff
+- logo subfolders for Primary, Reversed, Emblem and App Mark
+- existing Website concept folder retained
+
+Locked implementation tokens:
+
+- Playfair Display + Inter
+- `#0B2D4D`
+- `#2563EB`
+- `#14B8A6`
+- `#64748B`
+- `#E5E7EB`
+- `#FFFFFF`
+
+The production structure is ready. Final permanent Brand Master/Codex handoff selections and exported logos/icons/heroes/product mockups/document examples/mountain CTA/OG files are still being populated. Website structural implementation may proceed using the locked tokens while final assets are completed.
+
 ## Source-control safety note
 
 During creation of the launch package an empty `README.md` was accidentally created by a helper write call and immediately removed. A compare against the pre-plan checkpoint confirmed the net launch-plan change contained only the intended `docs/launch/*` files. No prior repository content was lost.
@@ -66,11 +97,13 @@ This creates a workable no-Codex pattern for bounded changes:
 4. commit through GitHub only after review
 5. avoid mutating running production containers as a substitute for deployment
 
+Node 22 type-stripping was physically verified for isolated scratch TypeScript execution.
+
 If a patch cannot be fully tested with current tooling, record that limitation rather than claiming acceptance.
 
 ## Active next tasks
 
-1. `EVE-P1-003` — source-to-value provenance contract / gap audit
+1. `EVE-P1-003` — universal source-coordinate/provenance contract implementation
 2. `EVE-P1-004` — spreadsheet cell/formula lineage
 3. `EVE-P1-005` — OCR/vision architecture benchmark
 4. `EVE-P1-009` — source completeness vs task evidence sufficiency model
@@ -79,11 +112,12 @@ If a patch cannot be fully tested with current tooling, record that limitation r
 7. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
 8. `EVE-P4-001` — owner live operational read-model integration audit
 9. `EVE-P5-001` — remove development/internal language from customer-facing routes
-10. `EVE-P6-002` — public claims truth lock while Canva assets are finalized
+10. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
+11. `EVE-P6-003` — website structural implementation using locked brand tokens
 
 ## Immediate blockers not requiring Codex yet
 
-- Canva final asset pack for visual website implementation
+- final canonical Canva asset population/export for full visual fidelity
 - owner pricing/plan decisions before publishing commercial pricing
 - payment-processor selection/authorization before automated checkout
 - advanced Hermes/development credential closeout may require provider control-plane access, but must be audited with current tools before Codex escalation
