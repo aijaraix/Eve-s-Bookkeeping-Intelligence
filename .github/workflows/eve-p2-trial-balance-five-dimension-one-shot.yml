@@ -1,0 +1,168 @@
+name: Eve P2 Trial Balance Five Dimension One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-trial-balance-five-dimension-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      TRIAL_BALANCE_ACCEPTANCE_EVIDENCE_DIR: /tmp/eve-trial-balance-five-dimension
+      EVE_TEST_BASE_URL: http://127.0.0.1:4173
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded trial-balance patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/eve-p2-trial-balance-apply.py')
+          t=p.read_text()
+          bad="""# previous replacement intentionally changes opening; restore correct array token
+          replace_once('server/cpaOrganization/reviewPackageRendering.ts', \"  add('Specialist Review',['\\n\", \"  add('Specialist Review',[\\n\")
+          """
+          if bad not in t:
+              raise SystemExit('TRIAL_BALANCE_STAGING_FIX_TARGET_MISSING')
+          p.write_text(t.replace(bad,''))
+          PY
+          python3 scripts/eve-p2-trial-balance-apply.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install receipt-regression fixture dependency
+        run: python3 -m pip install --user --quiet 'Pillow==12.3.0'
+
+      - name: Generate physical XLSX trial-balance fixtures
+        run: npx tsx server/tests/generateTrialBalanceCurriculumFixtures.ts
+
+      - name: Trial-balance source, semantic and accounting truth
+        run: npx tsx server/tests/trialBalanceInterpretationEngine.test.ts
+
+      - name: Trial-balance deliverable reverse-lineage truth
+        run: npx tsx server/tests/trialBalanceDeliverableTruth.test.ts
+
+      - name: Existing spreadsheet source-to-pixel regression
+        run: npx tsx server/tests/spreadsheetSourceToPixelLineage.test.ts
+
+      - name: Bank statement regression
+        run: |
+          export BANK_STATEMENT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-bank-tb-regression
+          npx tsx server/tests/generateBankStatementCurriculumFixtures.ts
+          npx tsx server/tests/bankStatementCompletenessAdapter.test.ts
+          npx tsx server/tests/bankStatementDeliverableTruth.test.ts
+
+      - name: Invoice AP regressions
+        run: |
+          npx tsx server/tests/invoiceApInterpretationEngine.test.ts
+          npx tsx server/tests/documentIntelligenceInvoiceTruth.test.ts
+          npx tsx server/tests/invoiceApDeliverableTruth.test.ts
+
+      - name: Receipt deliverable truth regression
+        run: |
+          rm -rf /tmp/eve-receipt-tb-regression
+          mkdir -p /tmp/eve-receipt-tb-regression
+          python3 scripts/academy/generate_ocr_curriculum_fixtures.py /tmp/eve-receipt-tb-regression >/tmp/eve-receipt-tb-regression/generation.txt
+          python3 - <<'PY'
+          from PIL import Image, ImageDraw, ImageFont
+          from pathlib import Path
+          import hashlib, json
+          root=Path('/tmp/eve-receipt-tb-regression')
+          receipt=root/'receipt.png'
+          sha=hashlib.sha256(receipt.read_bytes()).hexdigest()
+          assert sha=='bdd93a72a51d82cc5df6c6a8989db023e9b45b1f18344e43054647851e173436'
+          image=Image.open(receipt).convert('L'); draw=ImageDraw.Draw(image)
+          font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',40)
+          x0,y0,x1,y1=draw.textbbox((60,552),'TOTAL $53.23',font=font)
+          evidence={'marker':'RECEIPT_FIXTURE_SOURCE_REGION=PASS','sourceSha256':sha,'filename':'receipt.png','imageWidth':900,'imageHeight':1000,'pixelBoundingBox':{'x':x0,'y':y0,'width':x1-x0,'height':y1-y0},'normalizedBoundingBox':{'x':x0/900,'y':y0/1000,'width':(x1-x0)/900,'height':(y1-y0)/1000,'unit':'NORMALIZED'},'rawLiteral':'TOTAL $53.23','transformId':'academy-fixture-glyph-bbox-v1'}
+          (root/'source-region.json').write_text(json.dumps(evidence,indent=2))
+          PY
+          RECEIPT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-receipt-tb-regression npx tsx server/tests/receiptDeliverableTruth.test.ts
+
+      - name: P1 sufficiency and clarification regressions
+        run: |
+          npx tsx server/tests/taskEvidenceSufficiency.test.ts
+          npx tsx server/tests/sufficiencyClarificationCoordinator.test.ts
+          timeout 30s npx tsx server/tests/sufficiencyClarificationRoutes.test.ts
+
+      - name: Five-dimension catalog and grading regressions
+        run: |
+          npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+          npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+
+      - name: OCR and PDF regressions
+        run: |
+          npx tsx server/tests/academyOcrCurriculumRunner.test.ts
+          npx tsx server/tests/ocrParserEvidence.test.ts
+          npx tsx server/tests/ocrOrientationRetry.test.ts
+          npx tsx server/tests/ocrFailClosedQualityGate.test.ts
+          npx tsx server/tests/pdfOcrFallback.test.ts
+
+      - name: Universal evidence and presentation regressions
+        run: |
+          npx tsx server/tests/universalSourceEvidenceContract.test.ts
+          npx tsx src/adapters/presentationAdapters.test.ts
+          npx tsx server/tests/academyDashboardTruthAuditor.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Trial-balance Product Truth in actual built Eve UI
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$CHROME_BIN" ]; then echo 'MISSING_BROWSER_EXECUTABLE'; exit 1; fi
+          export CHROME_BIN
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/eve-tb-preview.log 2>&1 &
+          PREVIEW_PID=$!
+          trap 'kill $PREVIEW_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/ >/dev/null
+          npx tsx server/tests/trialBalanceProductTruthBrowser.test.ts
+          kill $PREVIEW_PID 2>/dev/null || true
+          wait $PREVIEW_PID 2>/dev/null || true
+          trap - EXIT
+
+      - name: Compose evidence-backed trial-balance five-dimension result
+        run: npx tsx server/tests/trialBalanceFiveDimensionAcceptance.test.ts
+
+      - name: Upload bounded trial-balance acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-trial-balance-five-dimension-acceptance
+          path: /tmp/eve-trial-balance-five-dimension
+          retention-days: 7
+
+      - name: Final production build after acceptance gates
+        run: npm run build
+
+      - name: Commit tested trial-balance closure and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-trial-balance-apply.py .github/workflows/eve-p2-trial-balance-five-dimension-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Close spreadsheet trial balance curriculum'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
