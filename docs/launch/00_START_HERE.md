@@ -12,15 +12,16 @@ Future agents must read this directory before proposing broad work. Do not resta
 
 ## Read in this order
 
-1. `01_CURRENT_STATE_AND_LAUNCH_TARGET.md`
-2. `02_UNIVERSAL_CLIENT_INTAKE_AND_EVIDENCE.md`
-3. `03_ACADEMY_QUALITY_AND_ACCEPTANCE.md`
-4. `04_CUSTOMER_COMMERCE_AND_OPERATIONS.md`
-5. `05_PUBLIC_CUSTOMER_OWNER_EXPERIENCE.md`
-6. `06_SECURITY_RELIABILITY_AND_OBSERVABILITY.md`
-7. `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`
-8. `08_CODEX_LAST_RESORT_POLICY.md`
-9. `09_LAUNCH_ACCEPTANCE_CHECKLIST.md`
+1. `10_CURRENT_PROGRESS.md` — current execution overlay and latest completed work
+2. `01_CURRENT_STATE_AND_LAUNCH_TARGET.md`
+3. `02_UNIVERSAL_CLIENT_INTAKE_AND_EVIDENCE.md`
+4. `03_ACADEMY_QUALITY_AND_ACCEPTANCE.md`
+5. `04_CUSTOMER_COMMERCE_AND_OPERATIONS.md`
+6. `05_PUBLIC_CUSTOMER_OWNER_EXPERIENCE.md`
+7. `06_SECURITY_RELIABILITY_AND_OBSERVABILITY.md`
+8. `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`
+9. `08_CODEX_LAST_RESORT_POLICY.md`
+10. `09_LAUNCH_ACCEPTANCE_CHECKLIST.md`
 
 Also preserve and defer to the deeper operating-system specifications under `docs/eve-operating-system/` where they are more specific, especially Universal Document IR and zero-loss information custody.
 
