@@ -118,11 +118,15 @@ export interface ObservatoryStateData {
     currentMaturity: string;
     activeMission: string;
     nodeArchitecture: string;
+    gradingModel?: string;
+    latestFiveDimensionStatus?: string;
+    fullyTestedFiveDimensions?: boolean;
     zeroToleranceCertified: boolean;
-    numericErrorRate: number;
-    provenanceIntegrity: number;
-    crossEngagementLeakage: number;
+    numericErrorRate: number | null;
+    provenanceIntegrity: number | null;
+    crossEngagementLeakage: number | null;
   };
+  latestFiveDimensionEvaluation?: any;
   currentEngagement?: any;
   agents: ObservatoryAgent[];
   activePathways: ObservatoryPathway[];

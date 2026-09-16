@@ -35,6 +35,7 @@ import { backgroundIngestionQueue as backgroundQueue } from '../backgroundQueue.
 import { executeWorkerExtraction, WorkerJob, workerJobs } from '../worker.js';
 import { CanonicalFactResolver } from '../canonicalFactResolver.js';
 import { AccountingValidationEngine } from '../accountingValidationEngine.js';
+import { academyMinervaLab, type FiveDimensionEvaluationReport } from './academyMinervaLab.js';
 
 export interface FullPracticeEngagementResult {
   engagementId: string;
@@ -114,6 +115,7 @@ export interface FullPracticeEngagementResult {
       allLayersReconciled: boolean;
     };
     scoringFormula?: string;
+    fiveDimensionGrading?: FiveDimensionEvaluationReport;
   };
   participatingAgents: string[];
   completedAt: string;
@@ -2366,6 +2368,36 @@ export class HermesPrimeAcademyEngine {
 
     const threeLayerTruthPassed = sourceFileExists && extractedFacts.length > 0 && pdfBytesValid && xlsxValid && balanceSheetIdentityPassed;
 
+    const fiveDimensionGrading = academyMinervaLab.evaluateFiveDimensions({
+      caseId: groundTruth.caseId,
+      executionId: engagementId,
+      dimensions: {
+        SOURCE_COVERAGE: { checks: [
+          { checkId: 'source-workbook-exists', label: 'Primary source workbook physically exists', outcome: sourceFileExists ? 'PASS' : 'FAIL', evidenceRefs: [sourceFilePathXlsx] },
+          { checkId: 'pbc-source-exists', label: 'Supporting PBC source physically exists', outcome: pbcFileExists ? 'PASS' : 'FAIL', evidenceRefs: [pbcFilePath] },
+          { checkId: 'fact-provenance-complete', label: 'All extracted facts retain source document provenance', outcome: factsHaveProvenance ? 'PASS' : 'FAIL', evidenceRefs: extractedFacts.map(f => String(f.documentId || '')).filter(Boolean) }
+        ] },
+        SEMANTIC_UNDERSTANDING: { checks: [
+          { checkId: 'legacy-semantic-rubric', label: 'Independent sealed semantic/context assertions', outcome: 'NOT_TESTED', details: ['Legacy Full Practice cases do not yet carry an independent sealed semantic assertion rubric. New P2 curriculum cases must provide one.'] }
+        ] },
+        ACCOUNTING_ACCURACY: { checks: [
+          ...canonicalResolutions.map(r => ({ checkId: `fact-${r.metric.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, label: `${r.metric} matches sealed expected value`, outcome: r.matched ? 'PASS' as const : 'FAIL' as const, evidenceRefs: [r.metric], details: r.matched ? [] : [`Expected ${r.expectedValue}; resolved ${r.resolvedValue}`] })),
+          { checkId: 'balance-sheet-identity', label: 'Assets = Liabilities + Equity', outcome: balanceSheetIdentityPassed ? 'PASS' : 'FAIL', evidenceRefs: [`FACT-EUCLID-${engagementId}`] },
+          { checkId: 'accounting-validation', label: 'Accounting validation engine reconciled the promoted facts', outcome: validationPassed ? 'PASS' : 'FAIL', evidenceRefs: [engagementId] }
+        ] },
+        PRODUCT_TRUTH: { checks: [
+          { checkId: 'browser-source-to-pixel', label: 'Actual customer-visible browser render matches graded facts and lineage', outcome: 'NOT_TESTED', details: ['Legacy Full Practice backend cases do not execute the real-browser source-to-pixel acceptance required by the launch standard.'] },
+          { checkId: 'task-sufficiency-behavior', label: 'Source completeness / task sufficiency behavior exercised', outcome: 'NOT_TESTED', details: ['Legacy Full Practice cases predate P1-009 task-sufficiency scenarios.'] },
+          { checkId: 'clarification-lifecycle-behavior', label: 'Clarification/PBC response and re-evaluation behavior exercised', outcome: 'NOT_TESTED', details: ['Legacy Full Practice cases predate the P1-010 linked clarification lifecycle.'] }
+        ] },
+        DELIVERABLE_TRUTH: { checks: [
+          { checkId: 'deliverable-registered', label: 'Deliverable package registered', outcome: registeredDeliverable ? 'PASS' : 'FAIL', evidenceRefs: [registeredDeliverable?.reportId || ''] },
+          { checkId: 'pdf-bytes-valid', label: 'PDF bytes/hash validate against artifact manifest', outcome: pdfBytesValid ? 'PASS' : 'FAIL', evidenceRefs: [pdfInfo?.sha256 || ''] },
+          { checkId: 'xlsx-bytes-valid', label: 'XLSX bytes/hash validate against artifact manifest', outcome: xlsxValid ? 'PASS' : 'FAIL', evidenceRefs: [xlsxInfo?.sha256 || ''] }
+        ] }
+      }
+    });
+
     const minervaScore = {
       overallScore,
       numericIntegrity,
@@ -2380,7 +2412,8 @@ export class HermesPrimeAcademyEngine {
         layerC_publishedArtifactValid: pdfBytesValid && xlsxValid,
         allLayersReconciled: threeLayerTruthPassed
       },
-      scoringFormula: 'overallScore = (numericIntegrity * 0.40) + (evidenceIntegrity * 0.20) + (pbcQuality * 0.15) + (reviewEfficacy * 0.10) + (reportIntegrity * 0.15)'
+      scoringFormula: 'Legacy compatibility score only. P2-001 launch grading uses fiveDimensionGrading and does not collapse the five dimensions into one accuracy number.',
+      fiveDimensionGrading
     };
     syntheticEngagementEngine.recordMinervaScore(engagementId, minervaScore);
 
@@ -2394,7 +2427,7 @@ export class HermesPrimeAcademyEngine {
       customerType: 'SYNTHETIC_ACADEMY',
       eventReality: 'REAL_OPERATION',
       executionMode: 'FULL_PRACTICE',
-      summary: `Minerva evaluated physical artifacts for ${groundTruth.issuer}: ${minervaScore.overallScore}/100 overall (Numeric: ${minervaScore.numericIntegrity}%, Evidence: ${minervaScore.evidenceIntegrity}%, Report: ${minervaScore.reportIntegrity}%).`,
+      summary: `Minerva evaluated physical artifacts for ${groundTruth.issuer}. Legacy score ${minervaScore.overallScore}/100; five-dimension status: ${fiveDimensionGrading.overallStatus}.`,
       structuredMetadata: { ...minervaScore },
       status: 'SUCCESS',
       severity: 'SUCCESS'

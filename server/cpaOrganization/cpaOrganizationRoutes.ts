@@ -1280,6 +1280,7 @@ export function createCPAOrganizationRouter(): Router {
       });
 
       const recentEvents = observatoryEventLedger.getEvents({ limit: 50 });
+      const latestFiveDimensionEvaluation = academyMinervaLab.getLatestFiveDimensionEvaluation();
 
       const stateObj = {
         heartbeat: heartbeatState,
@@ -1287,13 +1288,17 @@ export function createCPAOrganizationRouter(): Router {
         productionState: {
           ACADEMY_LIVE_STARTED_AT: '2026-09-05T23:35:00Z',
           currentMaturity: 'INTERNAL_PRODUCTION / CONTINUOUS_AUTONOMOUS_LEARNING_ACTIVE',
-          activeMission: 'Phase H.9.21 Autonomous Verification & Continuous Academy',
+          activeMission: 'Five-dimension, case-scoped evidence grading with sealed Minerva evaluation',
           nodeArchitecture: '4 vCPU, 16 GB RAM (CPU-only, no GPU)',
-          zeroToleranceCertified: true,
-          numericErrorRate: 0.000,
-          provenanceIntegrity: 1.000,
-          crossEngagementLeakage: 0.000
+          gradingModel: 'CASE_SCOPED_FIVE_DIMENSION',
+          latestFiveDimensionStatus: latestFiveDimensionEvaluation?.overallStatus || 'NOT_YET_EVALUATED',
+          fullyTestedFiveDimensions: latestFiveDimensionEvaluation?.fullyTested || false,
+          zeroToleranceCertified: latestFiveDimensionEvaluation?.overallStatus === 'FIVE_DIMENSION_PASS',
+          numericErrorRate: null,
+          provenanceIntegrity: null,
+          crossEngagementLeakage: null
         },
+        latestFiveDimensionEvaluation,
         currentEngagement,
         agents: annotatedAgents,
         activePathways,

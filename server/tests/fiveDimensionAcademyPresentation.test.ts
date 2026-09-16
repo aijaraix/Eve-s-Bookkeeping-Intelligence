@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const curriculum = fs.readFileSync('src/components/views/eve/observatory/CurriculumTab.tsx', 'utf8');
+for (const term of ['Source Coverage', 'Semantic Understanding', 'Accounting Accuracy', 'Product Truth', 'Deliverable Truth', 'NOT TESTED']) assert.ok(curriculum.includes(term), `Curriculum UI missing: ${term}`);
+const minervaUi = fs.readFileSync('src/components/views/eve/MinervaCertificationTab.tsx', 'utf8');
+assert.ok(!minervaUi.includes('CERTIFIED 100%'));
+const routes = fs.readFileSync('server/cpaOrganization/cpaOrganizationRoutes.ts', 'utf8');
+assert.ok(routes.includes("gradingModel: 'CASE_SCOPED_FIVE_DIMENSION'"));
+assert.ok(routes.includes('latestFiveDimensionEvaluation'));
+assert.ok(routes.includes('numericErrorRate: null'));
+console.log('FIVE_DIMENSION_ACADEMY_PRESENTATION_TESTS=PASS');

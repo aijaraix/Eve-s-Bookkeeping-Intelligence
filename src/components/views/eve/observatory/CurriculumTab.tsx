@@ -2,6 +2,7 @@ import React from 'react';
 import { GraduationCap, CheckCircle2, AlertCircle, Sparkles, Globe, Layers, ArrowRight } from 'lucide-react';
 
 export interface CurriculumTabProps {
+  fiveDimensionEvaluation?: any;
   coverage?: {
     languages?: Record<string, number>;
     currencies?: Record<string, number>;
@@ -11,7 +12,7 @@ export interface CurriculumTabProps {
   };
 }
 
-export const CurriculumTab: React.FC<CurriculumTabProps> = ({ coverage }) => {
+export const CurriculumTab: React.FC<CurriculumTabProps> = ({ coverage, fiveDimensionEvaluation }) => {
   const langCounts = coverage?.languages || { English: 6, German: 3, Japanese: 2, French: 2, Spanish: 2, Polish: 1, Hebrew: 1 };
   const currCounts = coverage?.currencies || { USD: 8, EUR: 7, GBP: 4, JPY: 2, CHF: 2, CAD: 1, PLN: 1 };
   const fwCounts = coverage?.frameworks || { US_GAAP: 8, IFRS: 9 };
@@ -78,6 +79,36 @@ export const CurriculumTab: React.FC<CurriculumTabProps> = ({ coverage }) => {
         <p className="text-xs text-slate-400 leading-relaxed">
           Real metrics derived directly from Hermes Academy execution history across accounting standards, multilingual filings, and cross-border currency combinations.
         </p>
+      </div>
+
+      {/* Five-dimension Minerva grading */}
+      <div className="p-5 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-4 font-mono text-xs" data-testid="academy-five-dimension-grading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-indigo-400 font-bold">Minerva Five-Dimension Evidence Grade</div>
+            <div className="text-sm font-bold text-white mt-1">Source Coverage · Semantic Understanding · Accounting Accuracy · Product Truth · Deliverable Truth</div>
+          </div>
+          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${fiveDimensionEvaluation?.overallStatus === 'FIVE_DIMENSION_PASS' ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : fiveDimensionEvaluation?.overallStatus === 'FIVE_DIMENSION_FAIL' ? 'bg-red-950 text-red-300 border-red-800' : 'bg-amber-950 text-amber-300 border-amber-800'}`}>
+            {fiveDimensionEvaluation?.overallStatus || 'NOT YET EVALUATED'}
+          </span>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">Case-scoped evidence only. Untested dimensions remain explicitly NOT TESTED; Eve does not inherit a pass from another dimension or a legacy aggregate score.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+          {[
+            ['SOURCE_COVERAGE', 'Source Coverage'], ['SEMANTIC_UNDERSTANDING', 'Semantic Understanding'],
+            ['ACCOUNTING_ACCURACY', 'Accounting Accuracy'], ['PRODUCT_TRUTH', 'Product Truth'], ['DELIVERABLE_TRUTH', 'Deliverable Truth']
+          ].map(([key, label]) => {
+            const dim = fiveDimensionEvaluation?.dimensions?.[key];
+            const status = dim?.status || 'NOT_TESTED';
+            return (
+              <div key={key} className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
+                <div className="text-white font-bold text-[11px]">{label}</div>
+                <div className={`text-[10px] font-bold ${status === 'PASS' ? 'text-emerald-400' : status === 'FAIL' ? 'text-red-400' : 'text-amber-400'}`}>{status.replace(/_/g, ' ')}</div>
+                <div className="text-[9px] text-slate-500">{dim?.score == null ? 'No score — not fully tested' : `${dim.score}% of tested checks passed`}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Grid: Frameworks & Complexities */}

@@ -70,10 +70,68 @@ export interface LiveEngagementValidationReport {
   score: number;
 }
 
+export type FiveDimensionName =
+  | 'SOURCE_COVERAGE'
+  | 'SEMANTIC_UNDERSTANDING'
+  | 'ACCOUNTING_ACCURACY'
+  | 'PRODUCT_TRUTH'
+  | 'DELIVERABLE_TRUTH';
+
+export type FiveDimensionCheckOutcome = 'PASS' | 'FAIL' | 'REVIEW_REQUIRED' | 'NOT_TESTED';
+export type FiveDimensionStatus = 'PASS' | 'FAIL' | 'REVIEW_REQUIRED' | 'PARTIAL' | 'NOT_TESTED';
+
+export interface FiveDimensionCheck {
+  checkId: string;
+  label: string;
+  outcome: FiveDimensionCheckOutcome;
+  evidenceRefs?: string[];
+  details?: string[];
+}
+
+export interface FiveDimensionInput { checks: FiveDimensionCheck[]; }
+
+export interface FiveDimensionEvaluationInput {
+  caseId: string;
+  executionId?: string;
+  dimensions: Record<FiveDimensionName, FiveDimensionInput>;
+}
+
+export interface FiveDimensionGrade {
+  dimension: FiveDimensionName;
+  label: string;
+  status: FiveDimensionStatus;
+  score: number | null;
+  totalChecks: number;
+  testedChecks: number;
+  passedChecks: number;
+  failedChecks: number;
+  reviewRequiredChecks: number;
+  notTestedChecks: number;
+  evidenceRefs: string[];
+  findings: string[];
+}
+
+export interface FiveDimensionEvaluationReport {
+  evaluationId: string;
+  caseId: string;
+  executionId?: string;
+  runAt: string;
+  overallStatus: 'FIVE_DIMENSION_PASS' | 'FIVE_DIMENSION_FAIL' | 'REVIEW_REQUIRED' | 'INCOMPLETE_DIMENSION_COVERAGE';
+  fullyTested: boolean;
+  dimensions: Record<FiveDimensionName, FiveDimensionGrade>;
+  testedDimensions: FiveDimensionName[];
+  passedDimensions: FiveDimensionName[];
+  failedDimensions: FiveDimensionName[];
+  reviewRequiredDimensions: FiveDimensionName[];
+  incompleteDimensions: FiveDimensionName[];
+  gradingRule: string;
+}
+
 export class AcademyMinervaLab {
   private static instance: AcademyMinervaLab | null = null;
   private sealedCorpus: BenchmarkTestCase[] = [];
   private evaluationHistory: EvaluationReport[] = [];
+  private fiveDimensionHistory: FiveDimensionEvaluationReport[] = [];
 
   private constructor() {
     this.initializeSealedCorpus();
@@ -621,6 +679,71 @@ export class AcademyMinervaLab {
         details: ['Fact was missing or not present in persisted memory recall response.']
       };
     }
+  }
+
+  private gradeFiveDimension(dimension: FiveDimensionName, input: FiveDimensionInput): FiveDimensionGrade {
+    const labels: Record<FiveDimensionName, string> = {
+      SOURCE_COVERAGE: 'Source Coverage',
+      SEMANTIC_UNDERSTANDING: 'Semantic Understanding',
+      ACCOUNTING_ACCURACY: 'Accounting Accuracy',
+      PRODUCT_TRUTH: 'Product Truth',
+      DELIVERABLE_TRUTH: 'Deliverable Truth'
+    };
+    const checks = Array.isArray(input?.checks) ? input.checks : [];
+    const tested = checks.filter(c => c.outcome !== 'NOT_TESTED');
+    const passed = tested.filter(c => c.outcome === 'PASS');
+    const failed = tested.filter(c => c.outcome === 'FAIL');
+    const review = tested.filter(c => c.outcome === 'REVIEW_REQUIRED');
+    const notTested = checks.filter(c => c.outcome === 'NOT_TESTED');
+    let status: FiveDimensionStatus;
+    if (tested.length === 0) status = 'NOT_TESTED';
+    else if (failed.length > 0) status = 'FAIL';
+    else if (review.length > 0) status = 'REVIEW_REQUIRED';
+    else if (notTested.length > 0) status = 'PARTIAL';
+    else status = 'PASS';
+    const score = tested.length > 0 ? Number(((passed.length / tested.length) * 100).toFixed(1)) : null;
+    return {
+      dimension, label: labels[dimension], status, score,
+      totalChecks: checks.length, testedChecks: tested.length, passedChecks: passed.length,
+      failedChecks: failed.length, reviewRequiredChecks: review.length, notTestedChecks: notTested.length,
+      evidenceRefs: [...new Set(checks.flatMap(c => c.evidenceRefs || []).filter(Boolean))],
+      findings: checks.filter(c => c.outcome !== 'PASS').flatMap(c => (c.details && c.details.length ? c.details : [`${c.label}: ${c.outcome}`]))
+    };
+  }
+
+  /** P2-001: five independent Academy quality dimensions. No generic weighted accuracy score. */
+  public evaluateFiveDimensions(input: FiveDimensionEvaluationInput): FiveDimensionEvaluationReport {
+    const names: FiveDimensionName[] = ['SOURCE_COVERAGE','SEMANTIC_UNDERSTANDING','ACCOUNTING_ACCURACY','PRODUCT_TRUTH','DELIVERABLE_TRUTH'];
+    const dimensions = Object.fromEntries(names.map(name => [name, this.gradeFiveDimension(name, input.dimensions[name])])) as Record<FiveDimensionName, FiveDimensionGrade>;
+    const passedDimensions = names.filter(name => dimensions[name].status === 'PASS');
+    const failedDimensions = names.filter(name => dimensions[name].status === 'FAIL');
+    const reviewRequiredDimensions = names.filter(name => dimensions[name].status === 'REVIEW_REQUIRED');
+    const incompleteDimensions = names.filter(name => dimensions[name].status === 'NOT_TESTED' || dimensions[name].status === 'PARTIAL');
+    const testedDimensions = names.filter(name => dimensions[name].status !== 'NOT_TESTED');
+    const fullyTested = incompleteDimensions.length === 0;
+    const overallStatus: FiveDimensionEvaluationReport['overallStatus'] = failedDimensions.length > 0
+      ? 'FIVE_DIMENSION_FAIL'
+      : reviewRequiredDimensions.length > 0
+        ? 'REVIEW_REQUIRED'
+        : !fullyTested ? 'INCOMPLETE_DIMENSION_COVERAGE' : 'FIVE_DIMENSION_PASS';
+    const report: FiveDimensionEvaluationReport = {
+      evaluationId: `five-dim-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+      caseId: input.caseId, executionId: input.executionId, runAt: new Date().toISOString(),
+      overallStatus, fullyTested, dimensions, testedDimensions, passedDimensions, failedDimensions,
+      reviewRequiredDimensions, incompleteDimensions,
+      gradingRule: 'Five independent dimensions; no weighted overall accuracy score. Any failed dimension fails the evaluation; review-required remains review; untested/partial dimensions make coverage incomplete.'
+    };
+    this.fiveDimensionHistory.unshift(report);
+    if (this.fiveDimensionHistory.length > 100) this.fiveDimensionHistory = this.fiveDimensionHistory.slice(0, 100);
+    return report;
+  }
+
+  public getFiveDimensionHistory(): FiveDimensionEvaluationReport[] {
+    return this.fiveDimensionHistory.map(r => ({ ...r, dimensions: { ...r.dimensions } }));
+  }
+
+  public getLatestFiveDimensionEvaluation(): FiveDimensionEvaluationReport | null {
+    return this.fiveDimensionHistory[0] || null;
   }
 
   public evaluateAuthoritativePhysicalSource(filePath: string): {
