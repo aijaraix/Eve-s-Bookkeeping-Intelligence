@@ -16,6 +16,7 @@ import { FileRouter } from "./src/lib/parser/router";
 import { AnyDocParser } from "./src/lib/parser/anydocParser";
 import { SpreadsheetParser } from "./src/lib/parser/spreadsheetParser";
 import { OCRParser } from "./src/lib/parser/ocrParser";
+import { selectParserPath } from "./src/lib/parser/parserSelection";
 import { WebParser } from "./src/lib/parser/webParser";
 import { DocumentIntelligenceAgent } from "./src/lib/agents/documentAgents";
 import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
@@ -2731,13 +2732,10 @@ app.post("/api/documents/upload", (req, res) => {
         let canonicalDoc;
         try {
           const parsePromise = (async () => {
-            if (inspection.requiresSpreadsheetPath) {
-              return await spreadsheetParser.parse(fileInput, inspection);
-            } else if (inspection.needsOCR) {
-              return await ocrParser.parse(fileInput, inspection);
-            } else {
-              return await anyDocParser.parse(fileInput, inspection);
-            }
+            const parserPath = selectParserPath(inspection);
+            if (parserPath === "SPREADSHEET") return await spreadsheetParser.parse(fileInput, inspection);
+            if (parserPath === "OCR") return await ocrParser.parse(fileInput, inspection);
+            return await anyDocParser.parse(fileInput, inspection);
           })();
           const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 180000));
           canonicalDoc = await Promise.race([parsePromise, timeoutPromise]);

@@ -53,6 +53,9 @@ export interface SourceToPixelMetadata {
   sourceCoordinates?: any[];
   sourceLocationLabel?: string;
   sourceFormula?: string;
+  sourceConfidence?: number;
+  sourceExtractionMethod?: string;
+  sourceExtractionVersion?: string;
 }
 
 export interface PracticeKpiSummary {
@@ -145,6 +148,9 @@ export interface StatementLinePresentation {
   sourceCoordinates?: any[];
   sourceLocationLabel?: string;
   sourceFormula?: string;
+  sourceConfidence?: number;
+  sourceExtractionMethod?: string;
+  sourceExtractionVersion?: string;
   factLineageId?: string;
   renderId?: string;
 }

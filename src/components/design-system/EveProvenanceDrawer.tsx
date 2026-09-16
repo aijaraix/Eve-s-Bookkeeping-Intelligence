@@ -161,6 +161,18 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                       <span className="text-slate-500">Provenance ID</span><span className="break-all">{metadata.sourceProvenanceId || 'Not recorded'}</span>
                     </div>
                   )}
+                  {coordinate?.sourceType === 'IMAGE' && (
+                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-teal-50/60 border border-teal-100 rounded-lg p-3">
+                      <span className="text-slate-500">Image / Page</span><span>{coordinate.imageWidth}×{coordinate.imageHeight}{coordinate.pageNumber ? ` · page ${coordinate.pageNumber}` : ''}</span>
+                      <span className="text-slate-500">OCR region</span><span>{coordinate.ocrRegionId || 'Not recorded'}</span>
+                      <span className="text-slate-500">Bounding box</span><span>x={Number(coordinate.boundingBox?.x || 0).toFixed(4)} y={Number(coordinate.boundingBox?.y || 0).toFixed(4)} w={Number(coordinate.boundingBox?.width || 0).toFixed(4)} h={Number(coordinate.boundingBox?.height || 0).toFixed(4)} {coordinate.boundingBox?.unit || ''}</span>
+                      <span className="text-slate-500">OCR text</span><span>{coordinate.rawLiteral || metadata.sourceText || 'Not recorded'}</span>
+                      <span className="text-slate-500">Confidence</span><span>{typeof coordinate.confidence === 'number' ? `${(coordinate.confidence * 100).toFixed(2)}%` : 'Not recorded'}</span>
+                      <span className="text-slate-500">OCR engine</span><span>{coordinate.extractionMethod || metadata.sourceExtractionMethod || 'Not recorded'}</span>
+                      <span className="text-slate-500">Engine version</span><span>{coordinate.extractionVersion || metadata.sourceExtractionVersion || 'Not recorded'}</span>
+                      <span className="text-slate-500">Provenance ID</span><span className="break-all">{metadata.sourceProvenanceId || 'Not recorded'}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

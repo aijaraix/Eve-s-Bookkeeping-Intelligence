@@ -26,7 +26,7 @@ export class FileRouter {
     } else if (["pdf"].includes(ext) || mime.includes("pdf")) {
       detectedType = "pdf";
       requiresParser = "AnyDocParser";
-    } else if (["png", "jpg", "jpeg", "webp", "tiff"].includes(ext) || mime.startsWith("image/")) {
+    } else if (["png", "jpg", "jpeg", "webp", "tiff", "tif", "bmp"].includes(ext) || mime.startsWith("image/")) {
       detectedType = ext || "image";
       requiresParser = "OCRParser";
       needsOCR = true;

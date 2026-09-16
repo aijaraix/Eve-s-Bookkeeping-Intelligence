@@ -75,7 +75,8 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
       sourcePage: line.sourcePage, sourceText: line.sourceText, sourceRawValue: line.sourceRawValue ?? line.values[selectedPeriod],
       renderId: line.renderId, sourceType: line.sourceType, sourceProvenanceId: line.sourceProvenanceId,
       sourceCoordinate: line.sourceCoordinate, sourceCoordinates: line.sourceCoordinates, sourceLocationLabel: line.sourceLocationLabel,
-      sourceFormula: line.sourceFormula });
+      sourceFormula: line.sourceFormula, sourceConfidence: line.sourceConfidence, sourceExtractionMethod: line.sourceExtractionMethod,
+      sourceExtractionVersion: line.sourceExtractionVersion });
   };
 
   return (

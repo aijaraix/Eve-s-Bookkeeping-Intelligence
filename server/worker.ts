@@ -8,6 +8,7 @@ import { FileRouter } from "../src/lib/parser/router.js";
 import { AnyDocParser } from "../src/lib/parser/anydocParser.js";
 import { SpreadsheetParser } from "../src/lib/parser/spreadsheetParser.js";
 import { OCRParser } from "../src/lib/parser/ocrParser.js";
+import { selectParserPath } from "../src/lib/parser/parserSelection.js";
 import {
   ForensicEntityResolver,
   LocaleAwareNumberParser,
@@ -456,10 +457,11 @@ async function executeWorkerExtraction(job: WorkerJob) {
     job.progress = 25;
 
     let parsedDoc: any;
-    const ext = inspection.detectedType.toLowerCase();
-
-    if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+    const parserPath = selectParserPath(inspection);
+    if (parserPath === "SPREADSHEET") {
       parsedDoc = await spreadsheetParser.parse(fileInput, inspection);
+    } else if (parserPath === "OCR") {
+      parsedDoc = await ocrParser.parse(fileInput, inspection);
     } else {
       parsedDoc = await anyDocParser.parse(fileInput, inspection);
     }
@@ -604,6 +606,7 @@ async function executeWorkerExtraction(job: WorkerJob) {
 function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): ExtractedFact[] {
   const extractedFacts: ExtractedFact[] = [];
   const parserProvenanceById = new Map<string, any>((Array.isArray(parsedDoc.sourceValueProvenance) ? parsedDoc.sourceValueProvenance : []).map((p: any) => [p.provenanceId, p]));
+  const ocrLines: any[] = Array.isArray(parsedDoc.ocrLines) ? parsedDoc.ocrLines : [];
   const fullText = (parsedDoc.raw_text || parsedDoc.markdown || "") + "\n" + (parsedDoc.sections?.map((s: any) => s.text).join("\n") || "");
   
   // Detect document scale
@@ -827,8 +830,16 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
             else if (/m|million/i.test(rawVal) && num < 1000000) num *= 1000000;
             else if (num < 1000000) num *= scale;
 
+            const normalizedLine = line.trim();
+            const ocrEvidence = ocrLines.find((entry: any) => String(entry?.text || '').trim() === normalizedLine);
+            const sourceCoordinates = ocrEvidence?.coordinate ? [ocrEvidence.coordinate] : [];
+            const sourceProvenanceIds = ocrEvidence?.provenanceId ? [ocrEvidence.provenanceId] : [];
+            const sourceProvenanceRecords = sourceProvenanceIds.map((id: string) => parserProvenanceById.get(id)).filter(Boolean);
+            const factId = `fct-${pattern.metric}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+            const factConfidence = ocrEvidence ? Math.min(0.95, Number(ocrEvidence.confidence) || 0) : 0.95;
+
             extractedFacts.push({
-              id: `fct-${pattern.metric}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              id: factId,
               workspaceId: job.workspaceId,
               documentId: job.documentId,
               factType: pattern.factType,
@@ -844,14 +855,52 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
               reportingPeriod: defaultPeriod,
               periodStart: defaultPeriodStart,
               periodEnd: defaultPeriodEnd,
-              pageNumber: 1,
-              confidence: 0.95,
+              pageNumber: ocrEvidence?.pageNumber || 1,
+              confidence: factConfidence,
               verificationStatus: "CANONICAL_SELECTED",
+              sourceProvenanceId: ocrEvidence?.provenanceId,
+              sourceProvenanceIds,
+              sourceCoordinate: ocrEvidence?.coordinate,
+              sourceCoordinates,
+              provenanceCoordinates: sourceCoordinates,
+              sourceProvenanceRecords,
+              universalProvenance: sourceProvenanceIds.length ? {
+                provenanceId: `prov-fact-${factId}`,
+                workspaceId: job.workspaceId,
+                period: defaultPeriod,
+                currency: job.functionalCurrency,
+                lineageKind: "CANONICAL_FACT",
+                materiality: "MATERIAL",
+                coordinates: [],
+                parentProvenanceIds: sourceProvenanceIds,
+                rawLiteral: rawVal,
+                normalizedValue: num,
+                transformationSteps: [{
+                  stepId: `step-map-${factId}`,
+                  operation: "MAP",
+                  inputProvenanceIds: sourceProvenanceIds,
+                  inputLiteral: rawVal,
+                  outputValue: num,
+                  engine: "EveDeterministicFactExtractor",
+                  engineVersion: "1"
+                }],
+                verificationState: factConfidence >= 0.90 ? "VERIFIED" : "REVIEW_REQUIRED",
+                presentationUsages: []
+              } : undefined,
               provenance: {
                 documentId: job.documentId,
                 documentTitle: job.documentTitle,
-                pageNumber: 1,
-                sourceText: line.trim()
+                pageNumber: ocrEvidence?.pageNumber || 1,
+                sourceText: line.trim(),
+                sourceProvenanceId: ocrEvidence?.provenanceId,
+                sourceProvenanceIds,
+                sourceCoordinate: ocrEvidence?.coordinate,
+                provenanceCoordinates: sourceCoordinates,
+                sourceArtifactId: ocrEvidence?.coordinate?.sourceArtifactId,
+                sourceSha256: ocrEvidence?.coordinate?.sourceSha256,
+                ocrEngine: ocrEvidence?.coordinate?.extractionMethod,
+                ocrEngineVersion: ocrEvidence?.coordinate?.extractionVersion,
+                ocrConfidence: ocrEvidence?.confidence
               }
             });
             break;

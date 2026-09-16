@@ -119,7 +119,13 @@ function sourceCoordinateLabel(coordinate: any, sourcePage?: number): string | u
     return `Row ${coordinate.rowIndex}${coordinate.columnIndex ? ` · Column ${coordinate.columnIndex}` : ''}`;
   }
   if (coordinate.sourceType === 'PDF') return `Page ${coordinate.pageNumber}`;
-  if (coordinate.sourceType === 'IMAGE') return coordinate.pageNumber ? `Image page ${coordinate.pageNumber}` : 'Image region';
+  if (coordinate.sourceType === 'IMAGE') {
+    const box = coordinate.boundingBox;
+    const page = coordinate.pageNumber ? `Page ${coordinate.pageNumber} · ` : '';
+    if (!box) return `${page}Image region`;
+    const pct = (n: any) => `${(Number(n || 0) * 100).toFixed(1)}%`;
+    return `${page}Image region x=${pct(box.x)} y=${pct(box.y)} w=${pct(box.width)} h=${pct(box.height)}`;
+  }
   return sourcePage ? `Page ${sourcePage}` : coordinate.sourceType;
 }
 
@@ -154,6 +160,9 @@ function makeLine(
     sourceType: factSourceCoordinates(fact)[0]?.sourceType,
     sourceLocationLabel: sourceCoordinateLabel(factSourceCoordinates(fact)[0], factSourcePage(fact)),
     sourceFormula: factSourceCoordinates(fact)[0]?.formula,
+    sourceConfidence: factSourceCoordinates(fact)[0]?.confidence,
+    sourceExtractionMethod: factSourceCoordinates(fact)[0]?.extractionMethod,
+    sourceExtractionVersion: factSourceCoordinates(fact)[0]?.extractionVersion,
     factLineageId: fact?.id,
     renderId: fact?.id ? renderRegistry.registerRender({
       route: id.startsWith('bs-') ? 'financials-balance' : 'financials-income', screen: 'Financial statements',
