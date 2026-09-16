@@ -672,6 +672,14 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
         status: persistFactStatus(f.status, f.evidenceStatus),
         extractionMethod: f.extractionMethod,
         extractionEngine: f.extractionEngine,
+        sourceProvenanceId: f.sourceProvenanceId,
+        sourceProvenanceIds: f.sourceProvenanceIds,
+        sourceCoordinate: f.sourceCoordinate,
+        sourceCoordinates: f.sourceCoordinates || f.provenanceCoordinates,
+        provenanceCoordinates: f.provenanceCoordinates || f.sourceCoordinates,
+        sourceProvenanceRecords: f.sourceProvenanceRecords,
+        universalProvenance: f.universalProvenance,
+        provenance: f.provenance,
         created_at: new Date().toISOString()
       };
 

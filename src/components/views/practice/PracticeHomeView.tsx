@@ -72,7 +72,10 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
     if (!line?.factLineageId || !onInspectFact) return;
     onInspectFact({ factLineageId: line.factLineageId, canonicalMetric: line.canonicalMetric, period: selectedPeriod,
       currency: line.currency, scale: line.scale, provenanceStatus: 'review_required', sourceDocName: line.sourceDocName,
-      sourcePage: line.sourcePage, sourceRawValue: line.values[selectedPeriod] });
+      sourcePage: line.sourcePage, sourceText: line.sourceText, sourceRawValue: line.sourceRawValue ?? line.values[selectedPeriod],
+      renderId: line.renderId, sourceType: line.sourceType, sourceProvenanceId: line.sourceProvenanceId,
+      sourceCoordinate: line.sourceCoordinate, sourceCoordinates: line.sourceCoordinates, sourceLocationLabel: line.sourceLocationLabel,
+      sourceFormula: line.sourceFormula });
   };
 
   return (
@@ -256,7 +259,13 @@ export const PracticeHomeView: React.FC<PracticeHomeViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center font-mono">
                 {['total_assets', 'total_liabilities', 'total_equity'].map(metric => {
                   const line = lines.find(l => l.canonicalMetric === metric);
-                  return <button type="button" key={metric} disabled={!line?.factLineageId} onClick={() => inspectLine(line)} className="p-4 bg-slate-50 rounded-xl border border-slate-200 disabled:cursor-default">
+                  return <button type="button" key={metric} disabled={!line?.factLineageId} onClick={() => inspectLine(line)}
+                    data-fact-lineage-id={line?.factLineageId || undefined}
+                    data-render-id={line?.renderId || undefined}
+                    data-source-provenance-id={line?.sourceProvenanceId || undefined}
+                    data-source-type={line?.sourceType || undefined}
+                    data-source-location={line?.sourceLocationLabel || undefined}
+                    className="p-4 bg-slate-50 rounded-xl border border-slate-200 disabled:cursor-default">
                     <span className="text-xs block mb-1">{metric.replaceAll('_', ' ')}</span>
                     <span className="text-lg font-bold">{line ? formatFinancialValue(line.values[selectedPeriod], line.currency) : 'Not available'}</span>
                     <span className="text-[10px] block mt-1">{line?.sourceDocName || 'Source linkage not recorded'}</span>

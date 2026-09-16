@@ -21,7 +21,15 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
 
   if (!isOpen || !metadata) return null;
 
-  const recordedHash = metadata.sha256Hash || 'Hash not recorded';
+  const recordedHash = metadata.sha256Hash || metadata.sourceCoordinate?.sourceSha256 || 'Hash not recorded';
+  const coordinate = metadata.sourceCoordinate || metadata.sourceCoordinates?.[0];
+  const sourceLocator = metadata.sourceLocationLabel || (coordinate?.sourceType === 'SPREADSHEET'
+    ? `${coordinate.sheetName || 'Sheet'}!${coordinate.cellAddress || coordinate.rangeAddress || 'cell not recorded'}`
+    : coordinate?.sourceType === 'CSV'
+      ? `Row ${coordinate.rowIndex}${coordinate.columnIndex ? ` · Column ${coordinate.columnIndex}` : ''}`
+      : coordinate?.sourceType === 'PDF'
+        ? `Page ${coordinate.pageNumber}`
+        : metadata.sourcePage ? `Page ${metadata.sourcePage}` : 'not recorded');
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard?.writeText(text);
@@ -134,7 +142,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                       {metadata.sourceDocName || 'Source document not recorded'}
                     </span>
                     <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600 text-[11px]">
-                      Source locator: {metadata.sourcePage || 'not recorded'} (physical PDF page not independently verified)
+                      Source locator: {sourceLocator}
                     </span>
                   </div>
 
@@ -143,6 +151,16 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                       {metadata.sourceText || 'No source quotation is recorded for this reference.'}
                     </p>
                   </div>
+                  {coordinate?.sourceType === 'SPREADSHEET' && (
+                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-indigo-50/60 border border-indigo-100 rounded-lg p-3">
+                      <span className="text-slate-500">Workbook</span><span>{coordinate.workbookName || metadata.sourceDocName || 'Not recorded'}</span>
+                      <span className="text-slate-500">Sheet / Cell</span><span>{coordinate.sheetName || 'Sheet'}!{coordinate.cellAddress || coordinate.rangeAddress || 'Not recorded'}</span>
+                      <span className="text-slate-500">Formula</span><span>{coordinate.formula || 'Literal value'}</span>
+                      <span className="text-slate-500">Cached / parsed value</span><span>{coordinate.cachedValue !== undefined && coordinate.cachedValue !== null ? String(coordinate.cachedValue) : 'Not recorded'}</span>
+                      <span className="text-slate-500">Number format</span><span>{coordinate.numberFormat || 'Not recorded'}</span>
+                      <span className="text-slate-500">Provenance ID</span><span className="break-all">{metadata.sourceProvenanceId || 'Not recorded'}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -153,7 +171,7 @@ export const EveProvenanceDrawer: React.FC<EveProvenanceDrawerProps> = ({
                 </h4>
                 <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 text-xs">
                   <div className="p-3 flex items-center justify-between">
-                    <span className="text-slate-500">Raw Filing Value</span>
+                    <span className="text-slate-500">Raw Source Value</span>
                     <span className="font-mono font-semibold text-slate-900">
                       {metadata.sourceRawValue !== undefined ? String(metadata.sourceRawValue) : 'Extracted from filing'}
                     </span>

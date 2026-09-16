@@ -603,6 +603,7 @@ async function executeWorkerExtraction(job: WorkerJob) {
 
 function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): ExtractedFact[] {
   const extractedFacts: ExtractedFact[] = [];
+  const parserProvenanceById = new Map<string, any>((Array.isArray(parsedDoc.sourceValueProvenance) ? parsedDoc.sourceValueProvenance : []).map((p: any) => [p.provenanceId, p]));
   const fullText = (parsedDoc.raw_text || parsedDoc.markdown || "") + "\n" + (parsedDoc.sections?.map((s: any) => s.text).join("\n") || "");
   
   // Detect document scale
@@ -722,6 +723,12 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
                 // Determine whether scale should be multiplied
                 const finalValue = Math.abs(parsedNum) < 1000000 ? parsedNum * scale : parsedNum;
                 const factId = `fct-${pattern.metric}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                const valueEvidence = table.rowEvidence?.[rIdx]?.[cIdx];
+                const labelEvidence = table.rowEvidence?.[rIdx]?.[0];
+                const sourceCoordinates = [labelEvidence?.coordinate, valueEvidence?.coordinate].filter(Boolean);
+                const sourceProvenanceIds = [labelEvidence?.provenanceId, valueEvidence?.provenanceId].filter(Boolean);
+                const sourceProvenanceRecords = sourceProvenanceIds.map((id: string) => parserProvenanceById.get(id)).filter(Boolean);
+                const universalProvenanceId = `prov-fact-${factId}`;
 
                 extractedFacts.push({
                   id: factId,
@@ -743,6 +750,36 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
                   pageNumber: 1,
                   confidence: 0.99,
                   verificationStatus: "CANONICAL_SELECTED",
+                  sourceProvenanceId: valueEvidence?.provenanceId,
+                  sourceProvenanceIds,
+                  sourceCoordinate: valueEvidence?.coordinate,
+                  sourceCoordinates,
+                  provenanceCoordinates: sourceCoordinates,
+                  sourceProvenanceRecords,
+                  universalProvenance: {
+                    provenanceId: universalProvenanceId,
+                    workspaceId: job.workspaceId,
+                    entityId: undefined,
+                    period: defaultPeriod,
+                    currency: job.functionalCurrency,
+                    lineageKind: "CANONICAL_FACT",
+                    materiality: "MATERIAL",
+                    coordinates: [],
+                    parentProvenanceIds: sourceProvenanceIds,
+                    rawLiteral: cellValStr,
+                    normalizedValue: finalValue,
+                    transformationSteps: [{
+                      stepId: `step-map-${factId}`,
+                      operation: "MAP",
+                      inputProvenanceIds: sourceProvenanceIds,
+                      inputLiteral: cellValStr,
+                      outputValue: finalValue,
+                      engine: "EveSpreadsheetFactExtractor",
+                      engineVersion: "1"
+                    }],
+                    verificationState: "VERIFIED",
+                    presentationUsages: []
+                  },
                   provenance: {
                     documentId: job.documentId,
                     documentTitle: job.documentTitle,
@@ -750,7 +787,17 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
                     sourceText: `${rawLabel}: ${cellValStr} (${sheetName})`,
                     tableName: sheetName,
                     rowLabel: rawLabel,
-                    columnLabel: table.headers?.[cIdx] || "Value"
+                    columnLabel: table.headers?.[cIdx] || "Value",
+                    sourceProvenanceId: valueEvidence?.provenanceId,
+                    sourceProvenanceIds,
+                    sourceCoordinate: valueEvidence?.coordinate,
+                    provenanceCoordinates: sourceCoordinates,
+                    sourceArtifactId: valueEvidence?.coordinate?.sourceArtifactId,
+                    sourceSha256: valueEvidence?.coordinate?.sourceSha256,
+                    sheetName: valueEvidence?.coordinate?.sheetName || sheetName,
+                    cellAddress: valueEvidence?.coordinate?.cellAddress,
+                    formula: valueEvidence?.coordinate?.formula,
+                    numberFormat: valueEvidence?.coordinate?.numberFormat
                   }
                 });
                 break;
