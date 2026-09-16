@@ -18,10 +18,11 @@ Future agents must read this directory before proposing broad work. Do not resta
 4. `03_ACADEMY_QUALITY_AND_ACCEPTANCE.md`
 5. `04_CUSTOMER_COMMERCE_AND_OPERATIONS.md`
 6. `05_PUBLIC_CUSTOMER_OWNER_EXPERIENCE.md`
-7. `06_SECURITY_RELIABILITY_AND_OBSERVABILITY.md`
-8. `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`
-9. `08_CODEX_LAST_RESORT_POLICY.md`
-10. `09_LAUNCH_ACCEPTANCE_CHECKLIST.md`
+7. `11_BRAND_ASSET_HANDOFF_MANIFEST.md` — locked Canva brand tokens, production asset structure and handoff status
+8. `06_SECURITY_RELIABILITY_AND_OBSERVABILITY.md`
+9. `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`
+10. `08_CODEX_LAST_RESORT_POLICY.md`
+11. `09_LAUNCH_ACCEPTANCE_CHECKLIST.md`
 
 Also preserve and defer to the deeper operating-system specifications under `docs/eve-operating-system/` where they are more specific, especially Universal Document IR and zero-loss information custody.
 
