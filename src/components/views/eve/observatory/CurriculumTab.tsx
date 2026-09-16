@@ -104,7 +104,7 @@ export const CurriculumTab: React.FC<CurriculumTabProps> = ({ coverage, fiveDime
               <div key={key} className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
                 <div className="text-white font-bold text-[11px]">{label}</div>
                 <div className={`text-[10px] font-bold ${status === 'PASS' ? 'text-emerald-400' : status === 'FAIL' ? 'text-red-400' : 'text-amber-400'}`}>{status.replace(/_/g, ' ')}</div>
-                <div className="text-[9px] text-slate-500">{dim?.score == null ? 'No score — not fully tested' : `${dim.score}% of tested checks passed`}</div>
+                <div className="text-[9px] text-slate-500">{status === 'NOT_TESTED' ? 'No dimension score — incomplete or not exercised' : dim?.score == null ? 'No tested score' : `${dim.score}% of tested assertions passed`}</div>
               </div>
             );
           })}

@@ -1281,6 +1281,7 @@ export function createCPAOrganizationRouter(): Router {
 
       const recentEvents = observatoryEventLedger.getEvents({ limit: 50 });
       const latestFiveDimensionEvaluation = academyMinervaLab.getLatestFiveDimensionEvaluation();
+      const fiveDimensionHistory = academyMinervaLab.getFiveDimensionHistory();
 
       const stateObj = {
         heartbeat: heartbeatState,
@@ -1293,12 +1294,15 @@ export function createCPAOrganizationRouter(): Router {
           gradingModel: 'CASE_SCOPED_FIVE_DIMENSION',
           latestFiveDimensionStatus: latestFiveDimensionEvaluation?.overallStatus || 'NOT_YET_EVALUATED',
           fullyTestedFiveDimensions: latestFiveDimensionEvaluation?.fullyTested || false,
-          zeroToleranceCertified: latestFiveDimensionEvaluation?.overallStatus === 'FIVE_DIMENSION_PASS',
+          allRequiredFiveDimensionsPassed: latestFiveDimensionEvaluation?.allRequiredDimensionsPassed || false,
+          zeroToleranceCertified: null,
+          zeroToleranceCertificationNote: 'Legacy global certification field disabled. Use case-scoped five-dimension evidence grading; this is an internal technical evaluation, not a CPA opinion or statutory professional certification.',
           numericErrorRate: null,
           provenanceIntegrity: null,
           crossEngagementLeakage: null
         },
         latestFiveDimensionEvaluation,
+        fiveDimensionHistory,
         currentEngagement,
         agents: annotatedAgents,
         activePathways,

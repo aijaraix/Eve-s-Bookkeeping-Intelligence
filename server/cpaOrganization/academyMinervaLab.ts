@@ -77,8 +77,8 @@ export type FiveDimensionName =
   | 'PRODUCT_TRUTH'
   | 'DELIVERABLE_TRUTH';
 
-export type FiveDimensionCheckOutcome = 'PASS' | 'FAIL' | 'REVIEW_REQUIRED' | 'NOT_TESTED';
-export type FiveDimensionStatus = 'PASS' | 'FAIL' | 'REVIEW_REQUIRED' | 'PARTIAL' | 'NOT_TESTED';
+export type FiveDimensionCheckOutcome = 'PASS' | 'FAIL' | 'NOT_TESTED';
+export type FiveDimensionStatus = 'PASS' | 'FAIL' | 'NOT_TESTED';
 
 export interface FiveDimensionCheck {
   checkId: string;
@@ -86,6 +86,7 @@ export interface FiveDimensionCheck {
   outcome: FiveDimensionCheckOutcome;
   evidenceRefs?: string[];
   details?: string[];
+  examinerNotes?: string[];
 }
 
 export interface FiveDimensionInput { checks: FiveDimensionCheck[]; }
@@ -101,14 +102,18 @@ export interface FiveDimensionGrade {
   label: string;
   status: FiveDimensionStatus;
   score: number | null;
+  evidenceRefs: string[];
+  testedAssertions: string[];
+  passedAssertions: string[];
+  failedAssertions: string[];
+  notTestedReason: string | null;
+  defects: string[];
+  examinerNotes: string[];
   totalChecks: number;
   testedChecks: number;
   passedChecks: number;
   failedChecks: number;
-  reviewRequiredChecks: number;
   notTestedChecks: number;
-  evidenceRefs: string[];
-  findings: string[];
 }
 
 export interface FiveDimensionEvaluationReport {
@@ -116,14 +121,19 @@ export interface FiveDimensionEvaluationReport {
   caseId: string;
   executionId?: string;
   runAt: string;
-  overallStatus: 'FIVE_DIMENSION_PASS' | 'FIVE_DIMENSION_FAIL' | 'REVIEW_REQUIRED' | 'INCOMPLETE_DIMENSION_COVERAGE';
+  overallStatus: 'FIVE_DIMENSION_PASS' | 'FIVE_DIMENSION_FAIL' | 'INCOMPLETE_DIMENSION_COVERAGE';
   fullyTested: boolean;
+  allRequiredDimensionsPassed: boolean;
+  testedDimensionCount: number;
+  passedDimensionCount: number;
+  failedDimensionCount: number;
+  notTestedDimensionCount: number;
+  testedOnlyAverageScore: number | null;
   dimensions: Record<FiveDimensionName, FiveDimensionGrade>;
   testedDimensions: FiveDimensionName[];
   passedDimensions: FiveDimensionName[];
   failedDimensions: FiveDimensionName[];
-  reviewRequiredDimensions: FiveDimensionName[];
-  incompleteDimensions: FiveDimensionName[];
+  notTestedDimensions: FiveDimensionName[];
   gradingRule: string;
 }
 
@@ -690,48 +700,106 @@ export class AcademyMinervaLab {
       DELIVERABLE_TRUTH: 'Deliverable Truth'
     };
     const checks = Array.isArray(input?.checks) ? input.checks : [];
-    const tested = checks.filter(c => c.outcome !== 'NOT_TESTED');
-    const passed = tested.filter(c => c.outcome === 'PASS');
-    const failed = tested.filter(c => c.outcome === 'FAIL');
-    const review = tested.filter(c => c.outcome === 'REVIEW_REQUIRED');
     const notTested = checks.filter(c => c.outcome === 'NOT_TESTED');
+    const tested = checks.filter(c => c.outcome !== 'NOT_TESTED');
+    const explicitFailures = tested.filter(c => c.outcome === 'FAIL');
+    const validPasses = tested.filter(c => c.outcome === 'PASS' && (c.evidenceRefs || []).some(ref => Boolean(String(ref || '').trim())));
+    const passWithoutEvidence = tested.filter(c => c.outcome === 'PASS' && !(c.evidenceRefs || []).some(ref => Boolean(String(ref || '').trim())));
+    const effectiveFailedChecks = [...explicitFailures, ...passWithoutEvidence];
+
     let status: FiveDimensionStatus;
-    if (tested.length === 0) status = 'NOT_TESTED';
-    else if (failed.length > 0) status = 'FAIL';
-    else if (review.length > 0) status = 'REVIEW_REQUIRED';
-    else if (notTested.length > 0) status = 'PARTIAL';
+    if (effectiveFailedChecks.length > 0) status = 'FAIL';
+    else if (checks.length === 0 || notTested.length > 0) status = 'NOT_TESTED';
     else status = 'PASS';
-    const score = tested.length > 0 ? Number(((passed.length / tested.length) * 100).toFixed(1)) : null;
+
+    // A partially exercised dimension remains NOT_TESTED and receives no score.
+    // This prevents a few successful assertions from inflating an incomplete dimension.
+    const score = status === 'NOT_TESTED'
+      ? null
+      : tested.length > 0
+        ? Number(((validPasses.length / tested.length) * 100).toFixed(1))
+        : null;
+
+    const evidenceRefs = [...new Set(checks.flatMap(c => c.evidenceRefs || []).map(ref => String(ref || '').trim()).filter(Boolean))];
+    const testedAssertions = tested.map(c => c.checkId);
+    const passedAssertions = validPasses.map(c => c.checkId);
+    const failedAssertions = effectiveFailedChecks.map(c => c.checkId);
+    const notTestedReasons = notTested.flatMap(c => (c.details && c.details.length ? c.details : [`${c.label} was not tested.`]));
+    const defects = [
+      ...explicitFailures.flatMap(c => (c.details && c.details.length ? c.details : [`${c.label}: FAIL`])),
+      ...passWithoutEvidence.map(c => `${c.label}: EVIDENCE_REQUIRED_FOR_PASS`)
+    ];
+    const examinerNotes = checks.flatMap(c => c.examinerNotes || c.details || []);
+
     return {
-      dimension, label: labels[dimension], status, score,
-      totalChecks: checks.length, testedChecks: tested.length, passedChecks: passed.length,
-      failedChecks: failed.length, reviewRequiredChecks: review.length, notTestedChecks: notTested.length,
-      evidenceRefs: [...new Set(checks.flatMap(c => c.evidenceRefs || []).filter(Boolean))],
-      findings: checks.filter(c => c.outcome !== 'PASS').flatMap(c => (c.details && c.details.length ? c.details : [`${c.label}: ${c.outcome}`]))
+      dimension,
+      label: labels[dimension],
+      status,
+      score,
+      evidenceRefs,
+      testedAssertions,
+      passedAssertions,
+      failedAssertions,
+      notTestedReason: notTestedReasons.length ? notTestedReasons.join(' | ') : null,
+      defects,
+      examinerNotes,
+      totalChecks: checks.length,
+      testedChecks: tested.length,
+      passedChecks: validPasses.length,
+      failedChecks: effectiveFailedChecks.length,
+      notTestedChecks: notTested.length
     };
   }
 
-  /** P2-001: five independent Academy quality dimensions. No generic weighted accuracy score. */
+  /** P2-001: five independent Academy quality dimensions. NOT_TESTED never becomes PASS. */
   public evaluateFiveDimensions(input: FiveDimensionEvaluationInput): FiveDimensionEvaluationReport {
-    const names: FiveDimensionName[] = ['SOURCE_COVERAGE','SEMANTIC_UNDERSTANDING','ACCOUNTING_ACCURACY','PRODUCT_TRUTH','DELIVERABLE_TRUTH'];
-    const dimensions = Object.fromEntries(names.map(name => [name, this.gradeFiveDimension(name, input.dimensions[name])])) as Record<FiveDimensionName, FiveDimensionGrade>;
+    const names: FiveDimensionName[] = [
+      'SOURCE_COVERAGE',
+      'SEMANTIC_UNDERSTANDING',
+      'ACCOUNTING_ACCURACY',
+      'PRODUCT_TRUTH',
+      'DELIVERABLE_TRUTH'
+    ];
+    const dimensions = Object.fromEntries(
+      names.map(name => [name, this.gradeFiveDimension(name, input.dimensions[name])])
+    ) as Record<FiveDimensionName, FiveDimensionGrade>;
     const passedDimensions = names.filter(name => dimensions[name].status === 'PASS');
     const failedDimensions = names.filter(name => dimensions[name].status === 'FAIL');
-    const reviewRequiredDimensions = names.filter(name => dimensions[name].status === 'REVIEW_REQUIRED');
-    const incompleteDimensions = names.filter(name => dimensions[name].status === 'NOT_TESTED' || dimensions[name].status === 'PARTIAL');
+    const notTestedDimensions = names.filter(name => dimensions[name].status === 'NOT_TESTED');
     const testedDimensions = names.filter(name => dimensions[name].status !== 'NOT_TESTED');
-    const fullyTested = incompleteDimensions.length === 0;
+    const testedScores = testedDimensions
+      .map(name => dimensions[name].score)
+      .filter((score): score is number => score !== null);
+    const testedOnlyAverageScore = testedScores.length
+      ? Number((testedScores.reduce((sum, score) => sum + score, 0) / testedScores.length).toFixed(1))
+      : null;
+    const fullyTested = notTestedDimensions.length === 0;
+    const allRequiredDimensionsPassed = passedDimensions.length === names.length;
     const overallStatus: FiveDimensionEvaluationReport['overallStatus'] = failedDimensions.length > 0
       ? 'FIVE_DIMENSION_FAIL'
-      : reviewRequiredDimensions.length > 0
-        ? 'REVIEW_REQUIRED'
-        : !fullyTested ? 'INCOMPLETE_DIMENSION_COVERAGE' : 'FIVE_DIMENSION_PASS';
+      : allRequiredDimensionsPassed
+        ? 'FIVE_DIMENSION_PASS'
+        : 'INCOMPLETE_DIMENSION_COVERAGE';
+
     const report: FiveDimensionEvaluationReport = {
       evaluationId: `five-dim-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
-      caseId: input.caseId, executionId: input.executionId, runAt: new Date().toISOString(),
-      overallStatus, fullyTested, dimensions, testedDimensions, passedDimensions, failedDimensions,
-      reviewRequiredDimensions, incompleteDimensions,
-      gradingRule: 'Five independent dimensions; no weighted overall accuracy score. Any failed dimension fails the evaluation; review-required remains review; untested/partial dimensions make coverage incomplete.'
+      caseId: input.caseId,
+      executionId: input.executionId,
+      runAt: new Date().toISOString(),
+      overallStatus,
+      fullyTested,
+      allRequiredDimensionsPassed,
+      testedDimensionCount: testedDimensions.length,
+      passedDimensionCount: passedDimensions.length,
+      failedDimensionCount: failedDimensions.length,
+      notTestedDimensionCount: notTestedDimensions.length,
+      testedOnlyAverageScore,
+      dimensions,
+      testedDimensions,
+      passedDimensions,
+      failedDimensions,
+      notTestedDimensions,
+      gradingRule: 'Five independent dimensions. PASS requires evidence. Any failed dimension fails the case. Any untested assertion leaves its dimension NOT_TESTED. A case passes only when all five required dimensions PASS; NOT_TESTED dimensions never inflate the tested-only average.'
     };
     this.fiveDimensionHistory.unshift(report);
     if (this.fiveDimensionHistory.length > 100) this.fiveDimensionHistory = this.fiveDimensionHistory.slice(0, 100);
@@ -739,7 +807,12 @@ export class AcademyMinervaLab {
   }
 
   public getFiveDimensionHistory(): FiveDimensionEvaluationReport[] {
-    return this.fiveDimensionHistory.map(r => ({ ...r, dimensions: { ...r.dimensions } }));
+    return this.fiveDimensionHistory.map(r => ({
+      ...r,
+      dimensions: Object.fromEntries(
+        Object.entries(r.dimensions).map(([key, value]) => [key, { ...value }])
+      ) as Record<FiveDimensionName, FiveDimensionGrade>
+    }));
   }
 
   public getLatestFiveDimensionEvaluation(): FiveDimensionEvaluationReport | null {
