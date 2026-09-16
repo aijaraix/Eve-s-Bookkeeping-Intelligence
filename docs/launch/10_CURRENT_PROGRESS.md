@@ -114,16 +114,7 @@ Real browser marker:
 
 `P1_005_REAL_PRACTICE_HOME_IMAGE_LINEAGE=PASS`
 
-The real Eve Practice Home rendered a material value with image provenance and the real provenance drawer displayed:
-
-- source image filename
-- image dimensions
-- page / image-region locator
-- normalized bounding box
-- OCR text
-- confidence
-- OCR engine/version
-- source provenance ID
+The real Eve Practice Home rendered a material value with image provenance and the real provenance drawer displayed source image filename, dimensions, page/image-region locator, normalized bounding box, OCR text, confidence, OCR engine/version and source provenance ID.
 
 Important release boundary:
 
@@ -136,16 +127,14 @@ Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / PRODUCTION APP ACTIVATION PENDING
 Draft PR: #31
 Evidence: `docs/launch/evidence/2026-09-16_TASK_EVIDENCE_SUFFICIENCY_ACCEPTANCE.md` on the feature branch
 
-Implemented decision states:
-
-Source completeness:
+Implemented source-completeness states:
 
 - `SOURCE_COMPLETE`
 - `SOURCE_GAP_NON_MATERIAL_FOR_CURRENT_PURPOSE`
 - `SOURCE_GAP_MATERIAL_FOR_CURRENT_PURPOSE`
 - `SOURCE_GAP_UNKNOWN_MATERIALITY`
 
-Task evidence sufficiency:
+Implemented task-sufficiency states:
 
 - `SUFFICIENT_FOR_CURRENT_PURPOSE`
 - `INSUFFICIENT_FOR_CURRENT_PURPOSE`
@@ -162,13 +151,11 @@ Accepted behavior:
 - a requested document with no saved completeness record becomes an unknown-impact gap rather than being silently treated as complete
 - decisions persist with evidence references and a decision hash under runtime storage
 
-Operational internal CPA API candidate now includes:
+Operational internal CPA API candidate includes:
 
 - `POST /api/cpa/evidence-sufficiency/evaluate`
 - `GET /api/cpa/evidence-sufficiency/decisions`
 - `GET /api/cpa/evidence-sufficiency/decisions/:decisionId`
-
-The evaluation route consumes existing `deepDocumentIntelligence` completeness records and unresolved evidence. Evaluation/readback requires authenticated internal-operator authority.
 
 Physical CI markers:
 
@@ -177,7 +164,63 @@ Physical CI markers:
 - core run `35050184183`: PASS through production build
 - operational API run `35050681084`: PASS through route/auth tests, prior evidence/OCR regressions and production build
 
-P1-009 deliberately does not create another completeness system or another clarification queue. It sits between existing source completeness/custody evidence and the existing `professionalClarificationEngine` that P1-010 will extend/link.
+P1-009 deliberately does not create another completeness system or another clarification queue.
+
+### EVE-P1-010 — Clarification / PBC tied to task evidence sufficiency
+Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / PRODUCTION APP ACTIVATION PENDING
+Draft PR: #31
+Evidence: `docs/launch/evidence/2026-09-16_CLARIFICATION_PBC_SUFFICIENCY_ACCEPTANCE.md` on the feature branch
+
+P1-010 extends the existing `professionalClarificationEngine`; it does not create a parallel clarification queue.
+
+Permanent workflow:
+
+`P1-009 decision -> exact gap -> affected conclusion(s) -> clarification/PBC -> authenticated response + evidence -> P1-009 re-evaluation -> resolve only when every affected conclusion is ALLOWED`
+
+Accepted behavior:
+
+- one durable request per concrete actionable gap
+- idempotent creation for the same source decision + gap
+- material client-evidence gaps become `PBC_EVIDENCE_REQUEST`
+- unknown materiality becomes `INTERNAL_MATERIALITY_REVIEW`
+- non-client material issues can become `CPA_REVIEW`
+- request preserves source decision/hash/task, gap IDs, affected conclusion IDs and source evidence references
+- response before PBC submission state is rejected
+- response evidence/document IDs persist
+- authenticated server principal is the responder; body identity cannot spoof it
+- a PBC response becomes `RESPONSE_RECEIVED`, not automatically `RESOLVED`
+- linked response explicitly requires P1-009 re-evaluation
+- unrelated task/workspace/engagement decisions cannot clear the request
+- unresolved re-evaluation creates follow-up rather than false clearance
+- request resolves only when every affected conclusion is `ALLOWED`
+- legacy unlinked clarification response behavior remains compatible
+
+Feature-branch professional clarification API candidate includes:
+
+- `GET /api/cpa/professional-clarifications`
+- `GET /api/cpa/professional-clarifications/:requestId`
+- `POST /api/cpa/professional-clarifications/from-sufficiency/:decisionId`
+- `POST /api/cpa/professional-clarifications/:requestId/submit`
+- `POST /api/cpa/professional-clarifications/:requestId/respond`
+- `POST /api/cpa/professional-clarifications/:requestId/link-reevaluation`
+
+Important delivery boundary:
+
+`SUBMITTED_TO_CLIENT` is currently a durable workflow state only. It does **not** establish that an email, portal notification or other external message was physically sent.
+
+Physical CI acceptance:
+
+- corrected P1-010 run `35051920926`: PASS
+- P1-010 coordinator contract: PASS
+- P1-010 route/auth contract: PASS
+- P1-009 regression: PASS
+- universal evidence regression: PASS
+- spreadsheet lineage regression: PASS
+- OCR evidence regression: PASS
+- presentation regression: PASS
+- full production build: PASS
+
+The first P1-010 run failed only because its test expected an unknown-materiality review for a task that explicitly required a complete transaction population. P1-009 correctly treated that missing page as material. The production rule was preserved; the test was corrected to a true unknown-materiality scenario.
 
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
@@ -203,7 +246,7 @@ Final canonical asset selection/export is still being populated by the Canva wor
 
 ## Source-control / runtime safety
 
-Current evidence/OCR/sufficiency application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work.
+Current evidence/OCR/sufficiency/clarification application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work.
 
 Pfizer / Company 1 was not rerun or altered.
 
@@ -211,7 +254,7 @@ Hermes was not replaced and no second Academy scheduler was created.
 
 The two OCR services were added side-by-side and do not replace any existing Eve service.
 
-A transient accidental `noop` helper file created while updating the feature-branch metadata was immediately removed before this checkpoint. It never touched `main` or production runtime.
+Transient helper-file mistakes (`noop` earlier and an empty `nonexistent` file during P1-010 metadata cleanup) were immediately removed from the feature branch. Neither touched `main` or production runtime.
 
 ## No-Codex engineering pattern established
 
@@ -227,22 +270,22 @@ For bounded work we can now:
 
 ## Active next tasks
 
-1. `EVE-P1-010` — integrate clarification/PBC contracts with P1-009 decisions, gap IDs, affected conclusions and source evidence; extend the existing `professionalClarificationEngine`, do not create a parallel queue
-2. `EVE-P2-001` — expand Academy into five-dimension grading: source coverage, semantic understanding, accounting accuracy, product truth, deliverable truth
-3. extend Academy curriculum to receipts, invoices, scans, missing pages, mixed batches and ambiguity cases
-4. controlled review/release plan for draft PR #31 after the next evidence-foundation task is integrated or explicitly split
-5. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
-6. `EVE-P4-001` — owner live operational read-model integration audit
-7. `EVE-P5-001` — remove development/internal language from customer-facing routes
-8. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
-9. `EVE-P6-003` — website structural implementation using locked brand tokens
+1. `EVE-P2-001` — expand Eve Quality Academy into five-dimension grading: source coverage, semantic understanding, accounting accuracy, product truth, deliverable truth
+2. extend Academy curriculum to receipts, invoices, scans, missing pages, mixed batches, OCR disagreement, task-sufficiency and clarification/PBC cases
+3. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from completion of branch acceptance
+4. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
+5. `EVE-P4-001` — owner live operational read-model integration audit
+6. `EVE-P5-001` — remove development/internal language from customer-facing routes
+7. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
+8. `EVE-P6-003` — website structural implementation using locked brand tokens
 
 ## Immediate blockers not requiring Codex
 
 - final canonical Canva asset population/export for full public-site visual fidelity
 - owner pricing/plan decisions before publishing commercial pricing
 - payment-processor selection/authorization before automated checkout
-- production application OCR/evidence/sufficiency activation is deliberately held behind PR #31 release control, not blocked by Codex
+- production application evidence/OCR/sufficiency/clarification activation is deliberately held behind PR #31 release control, not blocked by Codex
+- PBC external delivery/notification transport is not yet implemented; current accepted state is durable workflow state + authenticated response/re-evaluation contracts
 
 ## Codex status
 
