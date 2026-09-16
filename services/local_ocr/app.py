@@ -11,10 +11,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from PIL import Image
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 ENGINE = os.getenv("OCR_ENGINE", "paddle").strip().lower()
 MAX_INPUT_BYTES = int(os.getenv("OCR_MAX_INPUT_BYTES", str(25 * 1024 * 1024)))
 CPU_THREADS = max(1, int(os.getenv("OCR_CPU_THREADS", "2")))
+PDF_RENDER_DPI = max(72, min(300, int(os.getenv("OCR_PDF_RENDER_DPI", "160"))))
+MAX_PDF_PAGES = max(1, int(os.getenv("OCR_MAX_PDF_PAGES", "50")))
 
 app = FastAPI(title="Eve Local OCR", version=APP_VERSION)
 _model: Any = None
@@ -72,18 +74,46 @@ def decode_request(req: OcrRequest) -> tuple[bytes, str]:
     return payload, digest
 
 
-def ensure_supported_image(req: OcrRequest, payload: bytes) -> tuple[int, int, str]:
+def ensure_supported_source(req: OcrRequest, payload: bytes) -> tuple[str, str]:
+    suffix = Path(req.filename).suffix.lower() or ".bin"
+    mime = req.mimeType.lower()
+    if mime == "application/pdf" or suffix == ".pdf":
+        return "pdf", ".pdf"
+    if mime.startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}:
+        return "image", suffix
+    raise HTTPException(status_code=415, detail="LOCAL_OCR_UNSUPPORTED_SOURCE_TYPE")
+
+
+def render_pdf_pages(pdf_path: str, output_dir: str) -> list[dict[str, Any]]:
+    import pymupdf
+
+    doc = pymupdf.open(pdf_path)
     try:
-        with Image.open(tempfile.SpooledTemporaryFile()) as _:
-            pass
-    except Exception:
-        # The no-op above intentionally does not validate. Actual validation happens below
-        # after bytes are written to a named file so Pillow can infer the format reliably.
-        pass
-    suffix = Path(req.filename).suffix.lower() or ".img"
-    if req.mimeType.lower().startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}:
-        return 0, 0, suffix
-    raise HTTPException(status_code=415, detail="LOCAL_OCR_IMAGE_ONLY_CURRENTLY")
+        if doc.needs_pass:
+            raise HTTPException(status_code=422, detail="PDF_PASSWORD_REQUIRED")
+        page_count = len(doc)
+        if page_count < 1:
+            raise HTTPException(status_code=422, detail="PDF_HAS_NO_PAGES")
+        if page_count > MAX_PDF_PAGES:
+            raise HTTPException(status_code=413, detail=f"PDF_PAGE_LIMIT_EXCEEDED:{page_count}>{MAX_PDF_PAGES}")
+        matrix = pymupdf.Matrix(PDF_RENDER_DPI / 72.0, PDF_RENDER_DPI / 72.0)
+        rendered: list[dict[str, Any]] = []
+        for index, page in enumerate(doc, start=1):
+            pix = page.get_pixmap(matrix=matrix, alpha=False)
+            page_path = os.path.join(output_dir, f"page-{index:04d}.png")
+            pix.save(page_path)
+            rendered.append({
+                "pageNumber": index,
+                "path": page_path,
+                "width": int(pix.width),
+                "height": int(pix.height),
+                "sourcePageWidthPoints": float(page.rect.width),
+                "sourcePageHeightPoints": float(page.rect.height),
+                "rasterDpi": PDF_RENDER_DPI,
+            })
+        return rendered
+    finally:
+        doc.close()
 
 
 def get_paddle_model() -> Any:
@@ -234,6 +264,14 @@ def doctr_ocr(path: str) -> dict[str, Any]:
     }
 
 
+def ocr_single_image(path: str, width: int, height: int) -> dict[str, Any]:
+    if ENGINE == "paddle":
+        return paddle_ocr(path, width, height)
+    if ENGINE == "doctr":
+        return doctr_ocr(path)
+    raise HTTPException(status_code=500, detail=f"UNSUPPORTED_OCR_ENGINE:{ENGINE}")
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -243,26 +281,53 @@ def health() -> dict[str, Any]:
         "engine": ENGINE,
         "modelLoaded": _model is not None,
         "cpuThreads": CPU_THREADS,
+        "pdfRenderDpi": PDF_RENDER_DPI,
+        "maxPdfPages": MAX_PDF_PAGES,
+        "supportedSourceKinds": ["image", "pdf"],
     }
 
 
 @app.post("/v1/ocr")
 def recognize(req: OcrRequest) -> dict[str, Any]:
     payload, digest = decode_request(req)
-    _, _, suffix = ensure_supported_image(req, payload)
+    source_kind, suffix = ensure_supported_source(req, payload)
     started = time.perf_counter()
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
         fh.write(payload)
         path = fh.name
     try:
-        with Image.open(path) as image:
-            width, height = image.size
-        if ENGINE == "paddle":
-            out = paddle_ocr(path, width, height)
-        elif ENGINE == "doctr":
-            out = doctr_ocr(path)
+        if source_kind == "pdf":
+            with tempfile.TemporaryDirectory(prefix="eve-ocr-pdf-") as pages_dir:
+                rasterized = render_pdf_pages(path, pages_dir)
+                combined_pages: list[dict[str, Any]] = []
+                combined_warnings: list[str] = ["PDF_RASTERIZED_FOR_OCR"]
+                engine_metadata: dict[str, Any] | None = None
+                for page_meta in rasterized:
+                    page_out = ocr_single_image(
+                        page_meta["path"],
+                        page_meta["width"],
+                        page_meta["height"],
+                    )
+                    if engine_metadata is None:
+                        engine_metadata = {k: v for k, v in page_out.items() if k not in {"pages", "warnings"}}
+                    combined_warnings.extend(page_out.get("warnings") or [])
+                    for page_payload in page_out.get("pages") or []:
+                        normalized_page = dict(page_payload)
+                        normalized_page["pageNumber"] = page_meta["pageNumber"]
+                        normalized_page["width"] = page_meta["width"]
+                        normalized_page["height"] = page_meta["height"]
+                        normalized_page["sourcePageWidthPoints"] = page_meta["sourcePageWidthPoints"]
+                        normalized_page["sourcePageHeightPoints"] = page_meta["sourcePageHeightPoints"]
+                        normalized_page["rasterDpi"] = page_meta["rasterDpi"]
+                        combined_pages.append(normalized_page)
+                out = dict(engine_metadata or {})
+                out["pages"] = combined_pages
+                out["warnings"] = list(dict.fromkeys(combined_warnings))
         else:
-            raise HTTPException(status_code=500, detail=f"UNSUPPORTED_OCR_ENGINE:{ENGINE}")
+            with Image.open(path) as image:
+                width, height = image.size
+            out = ocr_single_image(path, width, height)
+
         out["sourceSha256"] = digest
         out["elapsedMs"] = int((time.perf_counter() - started) * 1000)
         out["serviceVersion"] = APP_VERSION

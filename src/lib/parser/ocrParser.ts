@@ -1,14 +1,14 @@
 import crypto from "crypto";
 import { CanonicalDocumentModel, FileInspectionResult } from "./types.js";
 import { localOcrClient, LocalOcrClient, LocalOcrCompositeResult } from "../ocr/localOcrClient.js";
-import { ImageSourceCoordinate, SourceValueProvenance } from "../evidence/universalSourceEvidence.js";
+import { ImageSourceCoordinate, PdfSourceCoordinate, SourceValueProvenance } from "../evidence/universalSourceEvidence.js";
 
 interface OcrLineEvidence {
   provenanceId: string;
   pageNumber: number;
   text: string;
   confidence: number;
-  coordinate: ImageSourceCoordinate;
+  coordinate: ImageSourceCoordinate | PdfSourceCoordinate;
 }
 
 export class OCRParser {
@@ -31,9 +31,10 @@ export class OCRParser {
     if (!buffer.length) throw new Error("OCR_SOURCE_BYTES_REQUIRED");
 
     const sourceSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-    const sourceArtifactId = `artifact-image-${sourceSha256.slice(0, 24)}`;
-    const docId = `doc-ocr-${sourceSha256.slice(0, 16)}-${Date.now()}`;
     const mimeType = fileInput.mimeType || inspection?.mimeType || "application/octet-stream";
+    const isPdf = mimeType.toLowerCase().includes("pdf") || originalName.toLowerCase().endsWith(".pdf") || String(inspection?.detectedType || '').toLowerCase() === 'pdf';
+    const sourceArtifactId = `${isPdf ? 'artifact-pdf' : 'artifact-image'}-${sourceSha256.slice(0, 24)}`;
+    const docId = `doc-ocr-${sourceSha256.slice(0, 16)}-${Date.now()}`;
 
     const result: LocalOcrCompositeResult = await this.client.recognize({
       filename: originalName,
@@ -57,22 +58,38 @@ export class OCRParser {
         const safeRegionId = String(region.regionId || `p${page.pageNumber}-r${ocrLines.length + 1}`).replace(/[^a-zA-Z0-9_.-]/g, "-");
         const coordinateId = `coord-${sourceSha256.slice(0, 16)}-p${page.pageNumber}-${safeRegionId}`;
         const provenanceId = `prov-${sourceSha256.slice(0, 16)}-p${page.pageNumber}-${safeRegionId}`;
-        const coordinate: ImageSourceCoordinate = {
-          coordinateId,
-          sourceArtifactId,
-          sourceSha256,
-          sourceType: "IMAGE",
-          pageNumber: page.pageNumber,
-          imageWidth: page.width,
-          imageHeight: page.height,
-          boundingBox: region.boundingBox,
-          ocrRegionId: safeRegionId,
-          rawLiteral: text,
-          normalizedLiteral: text,
-          confidence: region.confidence,
-          extractionMethod: `local-ocr:${result.engine}`,
-          extractionVersion: result.engineVersion,
-        };
+        const coordinate: ImageSourceCoordinate | PdfSourceCoordinate = isPdf
+          ? {
+              coordinateId,
+              sourceArtifactId,
+              sourceSha256,
+              sourceType: "PDF",
+              pageNumber: page.pageNumber,
+              boundingBox: region.boundingBox,
+              nativeTextAvailable: false,
+              evidenceMode: "OCR",
+              rawLiteral: text,
+              normalizedLiteral: text,
+              confidence: region.confidence,
+              extractionMethod: `local-ocr:${result.engine}`,
+              extractionVersion: result.engineVersion,
+            }
+          : {
+              coordinateId,
+              sourceArtifactId,
+              sourceSha256,
+              sourceType: "IMAGE",
+              pageNumber: page.pageNumber,
+              imageWidth: page.width,
+              imageHeight: page.height,
+              boundingBox: region.boundingBox,
+              ocrRegionId: safeRegionId,
+              rawLiteral: text,
+              normalizedLiteral: text,
+              confidence: region.confidence,
+              extractionMethod: `local-ocr:${result.engine}`,
+              extractionVersion: result.engineVersion,
+            };
         const provenance: SourceValueProvenance = {
           provenanceId,
           lineageKind: "SOURCE_OBSERVATION",
@@ -104,7 +121,7 @@ export class OCRParser {
           raw_text: text,
           text_content: text,
           evidence_scope: "OCR_REGION",
-          source_format: inspection?.detectedType || "image",
+          source_format: isPdf ? "pdf" : (inspection?.detectedType || "image"),
           source_artifact_id: sourceArtifactId,
           source_sha256: sourceSha256,
           source_provenance_id: provenanceId,
@@ -128,7 +145,7 @@ export class OCRParser {
       source: {
         filename,
         originalName,
-        format: inspection?.detectedType || "image",
+        format: isPdf ? "pdf" : (inspection?.detectedType || "image"),
         hash: sourceSha256,
         sourceArtifactId,
         access_timestamp: new Date().toISOString()
@@ -148,7 +165,7 @@ export class OCRParser {
         entityName: filename.replace(/\.[^/.]+$/, ""),
         page_count: pages.length || 1,
         pages: pages.length || 1,
-        detectedType: "ocr_image",
+        detectedType: isPdf ? "ocr_pdf" : "ocr_image",
         ocrEngine: result.engine,
         ocrEngineVersion: result.engineVersion,
         ocrModel: result.model,

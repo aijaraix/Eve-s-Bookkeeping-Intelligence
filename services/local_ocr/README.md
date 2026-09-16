@@ -93,6 +93,8 @@ OCR services:
 
 - `OCR_CPU_THREADS=2`
 - `OCR_MAX_INPUT_BYTES=26214400`
+- `OCR_PDF_RENDER_DPI=160`
+- `OCR_MAX_PDF_PAGES=50`
 
 Optional Paddle model overrides:
 
@@ -108,7 +110,7 @@ This is deliberately not a majority-vote system. Downstream accounting reconcili
 
 ## Evidence contract
 
-`OCRParser` converts selected OCR regions into `ImageSourceCoordinate` + `SourceValueProvenance` records. Every promoted value must retain:
+`OCRParser` converts direct-image regions into `ImageSourceCoordinate` records and scanned-PDF regions into `PdfSourceCoordinate` records, both wrapped by `SourceValueProvenance`. Every promoted value must retain:
 
 - original source SHA-256
 - image dimensions
@@ -122,4 +124,4 @@ The real customer/operator UI must preserve these coordinates through the fact p
 
 ## Current format scope
 
-This implementation establishes first-class direct image OCR (`PNG/JPEG/WEBP/TIFF/BMP`). Native-text PDF parsing remains deterministic in `AnyDocParser`. Image-only/scanned PDF page rendering into this same OCR contract is a follow-on integration and must not be represented as complete until physically verified.
+This implementation supports direct image OCR (`PNG/JPEG/WEBP/TIFF/BMP`) and page-aware OCR for image-only/scanned PDFs. PDFs still begin in deterministic `AnyDocParser`; only an all-image PDF with no native text is routed to local OCR. Mixed native-text/image PDFs remain a follow-on selective-page integration and must not be represented as complete.

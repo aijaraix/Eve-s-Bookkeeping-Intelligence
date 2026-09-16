@@ -9,6 +9,7 @@ import { AnyDocParser } from "../src/lib/parser/anydocParser.js";
 import { SpreadsheetParser } from "../src/lib/parser/spreadsheetParser.js";
 import { OCRParser } from "../src/lib/parser/ocrParser.js";
 import { selectParserPath } from "../src/lib/parser/parserSelection.js";
+import { shouldUsePdfOcrFallback } from "../src/lib/parser/pdfOcrFallback.js";
 import {
   ForensicEntityResolver,
   LocaleAwareNumberParser,
@@ -458,12 +459,25 @@ async function executeWorkerExtraction(job: WorkerJob) {
 
     let parsedDoc: any;
     const parserPath = selectParserPath(inspection);
+    let ocrUsed = parserPath === "OCR";
     if (parserPath === "SPREADSHEET") {
       parsedDoc = await spreadsheetParser.parse(fileInput, inspection);
     } else if (parserPath === "OCR") {
       parsedDoc = await ocrParser.parse(fileInput, inspection);
     } else {
       parsedDoc = await anyDocParser.parse(fileInput, inspection);
+      if (shouldUsePdfOcrFallback(parsedDoc, inspection)) {
+        job.status = "OCR";
+        job.currentStage = "Native PDF text unavailable; rasterizing pages for local OCR...";
+        parsedDoc = await ocrParser.parse(fileInput, {
+          ...inspection,
+          detectedType: "pdf",
+          needsOCR: true,
+          requiresParser: "OCRParser",
+        });
+        ocrUsed = true;
+        job.warnings = Array.from(new Set([...(job.warnings || []), "IMAGE_ONLY_PDF_OCR_FALLBACK_USED"]));
+      }
     }
 
     const pagesCount = parsedDoc.page_count || parsedDoc.pages?.length || 1;
@@ -480,7 +494,7 @@ async function executeWorkerExtraction(job: WorkerJob) {
     job.counters.tablesExtracted = extractedTables.length;
 
     // LAYER 4: SELECTIVE OCR CHECK
-    if (inspection.needsOCR || inspection.isMultimodalImage) {
+    if (ocrUsed || inspection.needsOCR || inspection.isMultimodalImage) {
       job.status = "OCR";
       job.currentStage = "Performing selective OCR on visual pages...";
       job.counters.ocrPagesCount = pagesCount;

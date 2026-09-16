@@ -18,6 +18,8 @@ import {
   isConfirmedEvidenceStatus
 } from '../failClosedGuards.js';
 import { SpreadsheetParser } from '../../src/lib/parser/spreadsheetParser.js';
+import { OCRParser } from '../../src/lib/parser/ocrParser.js';
+import { shouldUsePdfOcrFallback } from '../../src/lib/parser/pdfOcrFallback.js';
 
 export function applyPrimaryStatementAuthority(
   candidates: StatementFactCandidate[],
@@ -62,6 +64,7 @@ export interface HybridExtractionResult {
 
 export class HybridExtractionOrchestrator {
   private parser: AnyDocParser = new AnyDocParser();
+  private ocrParser: OCRParser = new OCRParser();
 
   /**
    * Execute Hybrid PDF Processing pipeline:
@@ -104,6 +107,22 @@ export class HybridExtractionOrchestrator {
         size: fileBuffer.length,
         mimeType
       });
+
+      if (!isSpreadsheet && shouldUsePdfOcrFallback(parsedDoc, { detectedType: 'pdf', mimeType })) {
+        parsedDoc = await this.ocrParser.parse({
+          filename: params.originalFilename,
+          originalName: params.originalFilename,
+          buffer: fileBuffer,
+          size: fileBuffer.length,
+          mimeType
+        }, {
+          detectedType: 'pdf',
+          mimeType,
+          needsOCR: true,
+          isMultimodalImage: false,
+          requiresParser: 'OCRParser'
+        });
+      }
 
       if (isSpreadsheet) {
         try {
