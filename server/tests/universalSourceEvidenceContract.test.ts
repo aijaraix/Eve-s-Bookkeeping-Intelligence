@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import {
-  SourceValueProvenance,
   evaluateRenderedLineageCompleteness,
   traceProvenanceToSources,
   validateSourceValueProvenance
 } from '../../src/lib/evidence/universalSourceEvidence.js';
+import type { SourceValueProvenance } from '../../src/lib/evidence/universalSourceEvidence.js';
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
