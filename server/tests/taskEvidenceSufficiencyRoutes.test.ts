@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createCPAOrganizationRouter } from '../cpaOrganization/cpaOrganizationRoutes.js';
+import { hermesHeartbeat } from '../cpaOrganization/hermesHeartbeat.js';
 
 function routeHandler(path: string, method: 'get' | 'post') {
   const router = createCPAOrganizationRouter();
@@ -104,4 +105,5 @@ const internalUser = {
   assert.equal(res.payload?.decision?.recommendedAction, 'REQUEST_ADDITIONAL_EVIDENCE');
 }
 
+hermesHeartbeat.stopHeartbeat();
 console.log('TASK_EVIDENCE_SUFFICIENCY_ROUTES_TESTS=PASS');
