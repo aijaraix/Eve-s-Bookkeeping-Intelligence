@@ -40,7 +40,7 @@ jobs:
         run: npx tsx server/tests/taskEvidenceSufficiency.test.ts
 
       - name: Task evidence sufficiency routes
-        run: npx tsx server/tests/taskEvidenceSufficiencyRoutes.test.ts
+        run: timeout 30s npx tsx server/tests/taskEvidenceSufficiencyRoutes.test.ts
 
       - name: Universal evidence regression
         run: npx tsx server/tests/universalSourceEvidenceContract.test.ts
