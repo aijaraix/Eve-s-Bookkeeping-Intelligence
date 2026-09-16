@@ -195,6 +195,13 @@ export interface ExtractedFact {
   normalizedSign?: number;
   sourcePresentationSign?: string;
   provenanceCoordinates?: any;
+  sourceProvenanceId?: string;
+  sourceProvenanceIds?: string[];
+  sourceCoordinate?: any;
+  sourceCoordinates?: any[];
+  sourceProvenanceRecords?: any[];
+  universalProvenance?: any;
+  provenance?: any;
   [key: string]: any;
 }
 

@@ -102,6 +102,33 @@ function factSourcePage(fact: any): number | undefined {
   return Number.isFinite(num) ? num : undefined;
 }
 
+function factSourceCoordinates(fact: any): any[] {
+  const coordinates = fact?.sourceCoordinates || fact?.provenanceCoordinates || fact?.provenance?.provenanceCoordinates;
+  if (Array.isArray(coordinates) && coordinates.length > 0) return coordinates;
+  const single = fact?.sourceCoordinate || fact?.provenance?.sourceCoordinate;
+  return single ? [single] : [];
+}
+
+function sourceCoordinateLabel(coordinate: any, sourcePage?: number): string | undefined {
+  if (!coordinate) return sourcePage ? `Page ${sourcePage}` : undefined;
+  if (coordinate.sourceType === 'SPREADSHEET') {
+    const cell = coordinate.cellAddress || coordinate.rangeAddress || 'cell not recorded';
+    return `${coordinate.sheetName || 'Sheet'}!${cell}`;
+  }
+  if (coordinate.sourceType === 'CSV') {
+    return `Row ${coordinate.rowIndex}${coordinate.columnIndex ? ` · Column ${coordinate.columnIndex}` : ''}`;
+  }
+  if (coordinate.sourceType === 'PDF') return `Page ${coordinate.pageNumber}`;
+  if (coordinate.sourceType === 'IMAGE') {
+    const box = coordinate.boundingBox;
+    const page = coordinate.pageNumber ? `Page ${coordinate.pageNumber} · ` : '';
+    if (!box) return `${page}Image region`;
+    const pct = (n: any) => `${(Number(n || 0) * 100).toFixed(1)}%`;
+    return `${page}Image region x=${pct(box.x)} y=${pct(box.y)} w=${pct(box.width)} h=${pct(box.height)}`;
+  }
+  return sourcePage ? `Page ${sourcePage}` : coordinate.sourceType;
+}
+
 function makeLine(
   id: string,
   canonicalMetric: string,
@@ -125,6 +152,17 @@ function makeLine(
     verificationStatus: String(fact?.verificationStatus || 'review_required').toLowerCase() as StatementLinePresentation['verificationStatus'],
     sourceDocName: factSourceName(fact),
     sourcePage: factSourcePage(fact),
+    sourceText: fact?.sourceText || fact?.rawText || fact?.provenance?.sourceText,
+    sourceRawValue: fact?.valueOriginal ?? fact?.rawValue,
+    sourceProvenanceId: fact?.sourceProvenanceId || fact?.provenance?.sourceProvenanceId,
+    sourceCoordinates: factSourceCoordinates(fact),
+    sourceCoordinate: factSourceCoordinates(fact)[0],
+    sourceType: factSourceCoordinates(fact)[0]?.sourceType,
+    sourceLocationLabel: sourceCoordinateLabel(factSourceCoordinates(fact)[0], factSourcePage(fact)),
+    sourceFormula: factSourceCoordinates(fact)[0]?.formula,
+    sourceConfidence: factSourceCoordinates(fact)[0]?.confidence,
+    sourceExtractionMethod: factSourceCoordinates(fact)[0]?.extractionMethod,
+    sourceExtractionVersion: factSourceCoordinates(fact)[0]?.extractionVersion,
     factLineageId: fact?.id,
     renderId: fact?.id ? renderRegistry.registerRender({
       route: id.startsWith('bs-') ? 'financials-balance' : 'financials-income', screen: 'Financial statements',
