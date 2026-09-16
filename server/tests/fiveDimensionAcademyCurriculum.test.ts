@@ -8,8 +8,8 @@ const coverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 assert.equal(cases.length, 20);
 assert.equal(new Set(cases.map(c => c.caseId)).size, 20);
 assert.equal(coverage.totalCases, 20);
-assert.equal(coverage.contractReadyCases, 18);
-assert.equal(coverage.physicalFixturePendingCases, 2);
+assert.equal(coverage.contractReadyCases, 19);
+assert.equal(coverage.physicalFixturePendingCases, 1);
 assert.equal(coverage.autonomousEligibleCases, 0, 'new curriculum cases must not silently enter autonomous scheduling');
 
 const requiredIds = [
@@ -102,7 +102,9 @@ assert.equal(find('CURR-SEMANTIC-LONG-DOCUMENT').fixtureStatus, 'CONTRACT_READY'
 assert.deepEqual(find('CURR-SEMANTIC-LONG-DOCUMENT').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING']);
 assert.ok(find('CURR-SEMANTIC-LONG-DOCUMENT').expectedSafeguards.join(' ').includes('Impossible cross-entity'));
 assert.ok(find('CURR-SEMANTIC-LONG-DOCUMENT').validationRefs.includes('server/tests/longDocumentSemanticCurriculumAcceptance.test.ts'));
+assert.equal(find('CURR-PRODUCT-SOURCE-TO-DASHBOARD').fixtureStatus, 'CONTRACT_READY');
 assert.ok(find('CURR-PRODUCT-SOURCE-TO-DASHBOARD').expectedSafeguards.join(' ').includes('actual browser-rendered value'));
+assert.ok(find('CURR-PRODUCT-SOURCE-TO-DASHBOARD').validationRefs.includes('server/tests/sourceToDashboardProductTruthBrowser.test.ts'));
 assert.ok(find('CURR-DELIVERABLE-FINAL-LINEAGE').expectedSafeguards.join(' ').includes('reverse-trace'));
 
 const routeText = fs.readFileSync('server/cpaOrganization/cpaOrganizationRoutes.ts', 'utf8');

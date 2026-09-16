@@ -568,8 +568,8 @@ export class AcademyMinervaLab {
           'Verify the actual browser-rendered value rather than a backend-only adapter object.',
           'Click-through provenance must reverse-trace the rendered value to original customer evidence coordinates.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['docs/launch/evidence/2026-09-16_SPREADSHEET_SOURCE_TO_PIXEL_LINEAGE_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md']
+        'CONTRACT_READY',
+        ['server/tests/sourceToDashboardPresentationIntegrity.test.ts', 'server/tests/sourceToDashboardProductTruthBrowser.test.ts', 'server/tests/sourceToDashboardCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_SOURCE_TO_DASHBOARD_PRODUCT_TRUTH_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-DELIVERABLE-FINAL-LINEAGE',

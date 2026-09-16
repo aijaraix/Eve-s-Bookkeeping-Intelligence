@@ -1,4 +1,5 @@
 import { renderRegistry } from '../utils/renderRegistry';
+import { validatePresentationSourceIdentity } from '../lib/evidence/presentationSourceIdentity';
 /**
  * EVE FRONTEND — authoritative presentation adapters.
  *
@@ -140,6 +141,11 @@ function makeLine(
   options: Partial<StatementLinePresentation> = {}
 ): StatementLinePresentation {
   const lineCurrency = factCurrency(fact, currency);
+  const sourceIdentity = validatePresentationSourceIdentity(fact);
+  const claimedVerificationStatus = String(fact?.verificationStatus || 'review_required').toLowerCase();
+  const effectiveVerificationStatus = claimedVerificationStatus === 'verified' && !sourceIdentity.valid
+    ? 'review_required'
+    : claimedVerificationStatus;
   return {
     id,
     label: fact?.labelNormalized || fact?.labelOriginal || label,
@@ -149,7 +155,7 @@ function makeLine(
     formattedValues: { [period]: formatFinancialValue(value, lineCurrency) },
     currency: lineCurrency,
     scale: factScale(fact),
-    verificationStatus: String(fact?.verificationStatus || 'review_required').toLowerCase() as StatementLinePresentation['verificationStatus'],
+    verificationStatus: effectiveVerificationStatus as StatementLinePresentation['verificationStatus'],
     sourceDocName: factSourceName(fact),
     sourcePage: factSourcePage(fact),
     sourceText: fact?.sourceText || fact?.rawText || fact?.provenance?.sourceText,
@@ -169,7 +175,7 @@ function makeLine(
       component: 'EveFinancialTable', widget: id, factLineageId: fact.id, canonicalFactId: fact.id,
       entityId: fact.entityId || fact.workspaceId || '', period, currency: lineCurrency, displayScale: factScale(fact),
       displayValue: formatFinancialValue(value, lineCurrency), normalizedBaseValue: value,
-      verificationState: String(fact.verificationStatus).toUpperCase() === 'VERIFIED' ? 'VERIFIED' : 'REVIEW_REQUIRED'
+      verificationState: effectiveVerificationStatus === 'verified' ? 'VERIFIED' : 'REVIEW_REQUIRED'
     }) : undefined,
     ...options
   };
