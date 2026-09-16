@@ -270,6 +270,51 @@ Physical CI acceptance:
 
 P2-001 extends the existing Minerva / Hermes Academy path; no second evaluator service was created.
 
+### EVE-P2-002 — Five-dimension Academy curriculum catalog
+Status: CATALOG FOUNDATION ACCEPTED ON FEATURE BRANCH / PHYSICAL FIXTURE EXECUTION IN PROGRESS / PRODUCTION APP ACTIVATION PENDING
+Draft PR: #31
+Accepted implementation checkpoint: `98d3c236b247ea3fdb0b8d9782a1482b187a1b4a`
+Evidence: `docs/launch/evidence/2026-09-16_P2_ACADEMY_CURRICULUM_CATALOG_ACCEPTANCE.md` on the feature branch
+
+The existing Minerva service now owns a curated 19-case curriculum spanning:
+
+- receipt photo and scanned invoice OCR
+- image-only PDF
+- low-quality, rotated/skewed, glare/crop image conditions
+- PaddleOCR vs docTR material disagreement
+- missing-page non-material, material transaction-population and unknown-materiality cases
+- mixed-source batch and spreadsheet + receipt conclusions
+- insufficient PBC response and resolving PBC response after re-evaluation
+- duplicate / near-duplicate evidence
+- bulk mixed-client upload isolation
+- long-document semantic/context extraction
+- real source-to-dashboard click-through
+- final report/export evidence lineage
+
+Truthful readiness state:
+
+- total curated cases: 19
+- contract-ready cases: 5
+- physical-fixture-required cases: 14
+- autonomous-eligible cases: 0
+
+All new cases are explicitly excluded from autonomous scheduling until their fixture/execution path is physically proven. A curriculum specification is not treated as a pass.
+
+The Observatory and existing Curriculum tab expose the case catalog, target dimensions, readiness state and explicit `Autonomous scheduler: NOT ELIGIBLE` status.
+
+Physical CI acceptance:
+
+- curriculum catalog run `35053836636`: PASS
+- 19-case curriculum contract: PASS
+- P2 five-dimension grading/presentation regressions: PASS
+- P1-009 regression: PASS
+- P1-010 coordinator + route/auth regressions: PASS
+- universal evidence, spreadsheet lineage, OCR evidence and presentation regressions: PASS
+- Academy dashboard truth regression: PASS
+- full production build: PASS
+
+No new evaluator service or scheduler was created.
+
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
 Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
@@ -294,7 +339,7 @@ Final canonical asset selection/export is still being populated by the Canva wor
 
 ## Source-control / runtime safety
 
-Current evidence/OCR/sufficiency/clarification/Academy application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work; this progress-document update does not activate feature-branch application code.
+Current evidence/OCR/sufficiency/clarification/Academy application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work; progress-document updates do not activate feature-branch application code.
 
 Pfizer / Company 1 was not rerun or altered.
 
@@ -302,7 +347,7 @@ Hermes was not replaced and no second Academy scheduler was created.
 
 The two OCR services were added side-by-side and do not replace any existing Eve service.
 
-Transient helper-file mistakes (`noop` earlier and an empty `nonexistent` file during P1-010 metadata cleanup) were immediately removed from the feature branch. P2-001 one-shot hardening machinery was also removed automatically after its green build. None of these helper files touched production runtime.
+Transient helper-file mistakes (`noop` earlier and an empty `nonexistent` file during P1-010 metadata cleanup) were immediately removed from the feature branch. P2 one-shot hardening/catalog machinery also removed itself automatically after green builds. None of these helper files touched production runtime.
 
 ## No-Codex engineering pattern established
 
@@ -318,10 +363,10 @@ For bounded work we can now:
 
 ## Active next tasks
 
-1. expand the accepted five-dimension Academy curriculum with curated/synthetic cases for receipt photos, scanned invoices, image-only PDFs, low-quality/rotated/glare scans and OCR disagreement
-2. add missing-page materiality, mixed-source, P1-009 sufficiency and P1-010 response/re-evaluation curriculum cases, including insufficient and resolving responses
-3. add duplicate/near-duplicate, bulk mixed-client isolation, long-document semantic/context, real source-to-dashboard click-through and final deliverable-lineage cases
-4. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from completion of branch acceptance
+1. physically implement and execute the receipt-photo, scanned-invoice and image-only-PDF curriculum fixtures against the local OCR/evidence path
+2. then execute low-quality, rotated/skewed, glare/crop and PaddleOCR-vs-docTR disagreement fixtures
+3. exercise the mixed-source, duplicate/isolation, semantic-context, real browser source-to-dashboard and final deliverable-lineage cases, preserving `NOT_TESTED` until each dimension is actually proven
+4. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from branch acceptance
 5. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
 6. `EVE-P4-001` — owner live operational read-model integration audit
 7. `EVE-P5-001` — remove development/internal language from customer-facing routes
@@ -333,7 +378,7 @@ For bounded work we can now:
 - final canonical Canva asset population/export for full public-site visual fidelity
 - owner pricing/plan decisions before publishing commercial pricing
 - payment-processor selection/authorization before automated checkout
-- production application evidence/OCR/sufficiency/clarification/P2-001 activation is deliberately held behind PR #31 release control, not blocked by Codex
+- production application evidence/OCR/sufficiency/clarification/P2 activation is deliberately held behind PR #31 release control, not blocked by Codex
 - PBC external delivery/notification transport is not yet implemented; current accepted state is durable workflow state + authenticated response/re-evaluation contracts
 
 ## Codex status
