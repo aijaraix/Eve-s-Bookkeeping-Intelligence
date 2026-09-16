@@ -56,6 +56,11 @@ assert.equal(find('CURR-SUFF-MISSING-PAGE-NON-MATERIAL').fixtureStatus, 'CONTRAC
 assert.ok(find('CURR-SUFF-MISSING-PAGE-NON-MATERIAL').expectedSafeguards.join(' ').includes('Persist the source gap'));
 assert.ok(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').expectedSafeguards.join(' ').includes('Block the affected'));
 assert.ok(find('CURR-SUFF-MISSING-PAGE-UNKNOWN').expectedSafeguards.join(' ').includes('review required'));
+assert.ok(find('CURR-SUFF-MISSING-PAGE-NON-MATERIAL').sourceKinds.includes('BANK_STATEMENT'));
+assert.ok(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').sourceKinds.includes('BANK_STATEMENT'));
+assert.deepEqual(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
+assert.ok(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').validationRefs.includes('server/tests/bankStatementFiveDimensionAcceptance.test.ts'));
+assert.ok(find('CURR-SUFF-MISSING-PAGE-UNKNOWN').sourceKinds.includes('BANK_STATEMENT'));
 assert.ok(find('CURR-OCR-ENGINE-DISAGREEMENT').expectedSafeguards.join(' ').includes('Preserve both engine outputs'));
 assert.ok(find('CURR-PBC-INSUFFICIENT-RESPONSE').expectedSafeguards.join(' ').includes('not automatic clearance'));
 assert.ok(find('CURR-PBC-INSUFFICIENT-RESPONSE').expectedSafeguards.join(' ').includes('remains unresolved'));

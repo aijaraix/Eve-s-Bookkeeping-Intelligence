@@ -48,25 +48,23 @@ export function csvCell(value: any): string {
   const safe = /^[=+@\-\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? "'" + s : s;
   return '"' + safe.replace(/"/g, '""') + '"';
 }
-export function buildReviewCsv(facts: any[], currency: string, apReview?: any): string {
+export function buildReviewCsv(facts: any[], currency: string, apReview?: any, bankReview?: any): string {
   const rows = [['Source Fact ID','Metric','Label','Value','Currency','Reporting Period','Statement','Document ID','Source Document','Extractor Locator','Verification','Evidence Status','Source Block IDs','Source SHA256','Source Provenance IDs','Source Coordinate','Extraction Method','Extraction Version','Confidence','Source Excerpt'],
     ...facts.map(f=>{const r=reviewRow(f);return [r.id,r.metric,r.label,r.value,currency,r.period,r.statement,r.documentId,r.sourceDoc,r.extractorPage,r.verificationStatus,r.evidenceStatus,r.sourceBlockIds.join(';'),r.sourceSha256,r.sourceProvenanceIds.join(';'),sourceCoordinateText(r),r.sourceExtractionMethod,r.sourceExtractionVersion,r.sourceConfidence,r.sourceText];})];
-  const factCsv = rows.map(row=>row.map(csvCell).join(',')).join('\r\n');
-  if (!apReview) return factCsv;
-  const apRows: any[][] = [
-    [], ['AP INVOICE REVIEW'],
-    ['Vendor', apReview.vendor?.value], ['Invoice Number', apReview.invoiceNumber?.value],
-    ['Invoice Date', apReview.invoiceDate?.value], ['Due Date', apReview.dueDate?.value],
-    ['Bill To', apReview.billTo?.value], ['PO Reference On Invoice', apReview.purchaseOrderReference?.value],
-    ['Currency', apReview.currency?.value], ['Subtotal', apReview.subtotal?.value], ['Sales Tax', apReview.salesTax?.value], ['Total Due', apReview.totalDue?.value],
-    ['Semantic Adjudication', apReview.semanticAdjudication?.status], ['Raw OCR Label Evidence', (apReview.semanticAdjudication?.rawLabelTexts || []).join(' | ')],
-    ['Arithmetic Reconciliation', apReview.reconciliation?.status], ['Payable Candidate Status', apReview.apControl?.payableCandidateStatus],
-    ['Three-way Match', apReview.apControl?.threeWayMatchStatus], ['Independent PO Verified', apReview.apControl?.independentPurchaseOrderVerified],
-    ['Receiving Evidence Verified', apReview.apControl?.receivingEvidenceVerified], ['Approval', apReview.apControl?.approvalStatus],
-    ['Payment Eligibility', apReview.apControl?.paymentEligibility], ['Payment Status', apReview.apControl?.paymentStatus], ['Posting', apReview.apControl?.postingStatus],
-    ['Evidence Refs', (apReview.evidenceRefs || []).join(';')], ['Source SHA256', apReview.sourceSha256],
-  ];
-  return factCsv + '\r\n' + apRows.map(row=>row.map(csvCell).join(',')).join('\r\n');
+  const sections = [rows.map(row=>row.map(csvCell).join(',')).join('\r\n')];
+  if (apReview) {
+    const a=apReview;
+    const apRows:any[][]=[[],['AP INVOICE REVIEW'],['Vendor',a.vendor?.value],['Invoice Number',a.invoiceNumber?.value],['Invoice Date',a.invoiceDate?.value],['Due Date',a.dueDate?.value],['Bill To',a.billTo?.value],['PO Reference On Invoice',a.purchaseOrderReference?.value],['Currency',a.currency?.value],['Subtotal',a.subtotal?.value],['Sales Tax',a.salesTax?.value],['Total Due',a.totalDue?.value],['Semantic Adjudication',a.semanticAdjudication?.status],['Raw OCR Label Evidence',(a.semanticAdjudication?.rawLabelTexts||[]).join(' | ')],['Arithmetic Reconciliation',a.reconciliation?.status],['Payable Candidate Status',a.apControl?.payableCandidateStatus],['Three-way Match',a.apControl?.threeWayMatchStatus],['Independent PO Verified',a.apControl?.independentPurchaseOrderVerified],['Receiving Evidence Verified',a.apControl?.receivingEvidenceVerified],['Approval',a.apControl?.approvalStatus],['Payment Eligibility',a.apControl?.paymentEligibility],['Payment Status',a.apControl?.paymentStatus],['Posting',a.apControl?.postingStatus],['Evidence Refs',(a.evidenceRefs||[]).join(';')],['Source SHA256',a.sourceSha256]];
+    sections.push(apRows.map(row=>row.map(csvCell).join(',')).join('\r\n'));
+  }
+  if (bankReview) {
+    const b=bankReview, s=b.summary||{};
+    const ending=(b.endingBalanceDecision?.conclusionAssessments||[]).find((r:any)=>r.conclusionId==='ending-cash')?.state;
+    const txns=(b.transactionPopulationDecision?.conclusionAssessments||[]).find((r:any)=>r.conclusionId==='complete-transaction-population')?.state;
+    const bankRows:any[][]=[[],['BANK STATEMENT COMPLETENESS REVIEW'],['Expected Logical Pages',b.expectedLogicalPageCount],['Observed Logical Pages',(b.observedLogicalPages||[]).join(';')],['Missing Logical Pages',(b.missingLogicalPages||[]).join(';')],['Physical Pages Supplied',b.physicalPageCount],['Currency',s.currency],['Beginning Balance',s.beginningBalance],['Total Deposits',s.totalDeposits],['Total Withdrawals',s.totalWithdrawals],['Calculated Ending Balance',s.calculatedEndingBalance],['Reported Ending Balance',s.endingBalance],['Variance',s.variance],['Reconciliation',s.reconciliationStatus],['Ending Cash Conclusion',ending],['Transaction Population Conclusion',txns],['Ending Balance Action',b.endingBalanceDecision?.recommendedAction],['Transaction Population Action',b.transactionPopulationDecision?.recommendedAction],['Clarification Required',b.clarificationRecommended],['Gaps',(b.gaps||[]).map((g:any)=>`${g.location}:${g.gapType}:${g.explicitMateriality||'UNKNOWN'}`).join(' | ')],['Source SHA256',b.sourceSha256],['Evidence Refs',(b.evidenceRefs||[]).join(';')]];
+    sections.push(bankRows.map(row=>row.map(csvCell).join(',')).join('\r\n'));
+  }
+  return sections.join('\r\n');
 }
 const sha = (b: Buffer | Uint8Array) => crypto.createHash('sha256').update(b).digest('hex');
 function save(dir: string, filename: string, bytes: Buffer | Uint8Array) {
@@ -130,6 +128,18 @@ export async function renderReviewPdf(params: any, dir: string) {
     text('The invoice-stated PO reference is not independent purchase-order evidence. No approval, receiving evidence, payment, or ledger posting is inferred from invoice content.');
     for (const item of a.lineItems?.value || []) text(`${item.description}: ${item.quantity} x ${item.unitPrice} = ${item.lineTotal}`);
     text(`Source SHA-256: ${a.sourceSha256 || 'NOT_RECORDED'}\nEvidence refs: ${(a.evidenceRefs || []).join(', ') || 'NOT_RECORDED'}`);
+  }
+  if (params.bankStatementReview) {
+    const b=params.bankStatementReview, s=b.summary||{};
+    const ending=(b.endingBalanceDecision?.conclusionAssessments||[]).find((r:any)=>r.conclusionId==='ending-cash')?.state || 'NOT_RECORDED';
+    const txns=(b.transactionPopulationDecision?.conclusionAssessments||[]).find((r:any)=>r.conclusionId==='complete-transaction-population')?.state || 'NOT_RECORDED';
+    heading('Bank statement completeness and sufficiency review');
+    text(`Expected logical pages: ${b.expectedLogicalPageCount}\nObserved logical pages: ${(b.observedLogicalPages||[]).join(', ') || 'none'}\nMissing logical pages: ${(b.missingLogicalPages||[]).join(', ') || 'none'}\nPhysical pages supplied: ${b.physicalPageCount}`);
+    text(`Currency: ${s.currency || 'NOT_RECORDED'}\nBeginning balance: ${s.beginningBalance ?? 'NOT_RECORDED'}\nDeposits: ${s.totalDeposits ?? 'NOT_RECORDED'}\nWithdrawals: ${s.totalWithdrawals ?? 'NOT_RECORDED'}\nCalculated ending: ${s.calculatedEndingBalance ?? 'NOT_RECORDED'}\nReported ending: ${s.endingBalance ?? 'NOT_RECORDED'}\nVariance: ${s.variance ?? 'NOT_RECORDED'}\nReconciliation: ${s.reconciliationStatus || 'NOT_RUN'}`);
+    text(`Ending cash conclusion: ${ending}\nComplete transaction population: ${txns}\nEnding balance action: ${b.endingBalanceDecision?.recommendedAction || 'NOT_RECORDED'}\nTransaction population action: ${b.transactionPopulationDecision?.recommendedAction || 'NOT_RECORDED'}\nClarification required: ${b.clarificationRecommended ? 'YES' : 'NO'}`);
+    for (const g of b.gaps||[]) text(`Source gap: ${g.location || 'UNKNOWN'} | ${g.gapType} | ${g.explicitMateriality || 'UNKNOWN'} | ${g.description}`);
+    text(`Source SHA-256: ${b.sourceSha256 || 'NOT_RECORDED'}\nEvidence refs: ${(b.evidenceRefs||[]).join(', ') || 'NOT_RECORDED'}`);
+    text('A scoped conclusion may remain usable while a different complete-population conclusion is blocked. Missing pages remain disclosed and are never globally cleared by this review.');
   }
   const facts=params.facts||[], jobs=params.specialistReview?.jobs||[];
   heading('Package coverage and unresolved matters');
@@ -195,6 +205,9 @@ export function renderReviewWorkbook(params:any, dir:string){
     ['Receiving Evidence Verified',a.apControl?.receivingEvidenceVerified], ['Approval',a.apControl?.approvalStatus], ['Payment Eligibility',a.apControl?.paymentEligibility], ['Payment Status',a.apControl?.paymentStatus], ['Posting',a.apControl?.postingStatus],
     ['Source SHA256',a.sourceSha256], ['Evidence Refs',(a.evidenceRefs||[]).join(';')]
   ],[34,100]); }
+  if(params.bankStatementReview){ const b=params.bankStatementReview, s=b.summary||{}; const ending=(b.endingBalanceDecision?.conclusionAssessments||[]).find((r:any)=>r.conclusionId==='ending-cash')?.state; const txns=(b.transactionPopulationDecision?.conclusionAssessments||[]).find((r:any)=>r.conclusionId==='complete-transaction-population')?.state; add('Bank Review',[
+    ['Field','Recorded value'],['Expected Logical Pages',b.expectedLogicalPageCount],['Observed Logical Pages',(b.observedLogicalPages||[]).join(', ')],['Missing Logical Pages',(b.missingLogicalPages||[]).join(', ')],['Physical Pages Supplied',b.physicalPageCount],['Currency',s.currency],['Beginning Balance',s.beginningBalance],['Total Deposits',s.totalDeposits],['Total Withdrawals',s.totalWithdrawals],['Calculated Ending Balance',s.calculatedEndingBalance],['Reported Ending Balance',s.endingBalance],['Variance',s.variance],['Reconciliation',s.reconciliationStatus],['Ending Cash Conclusion',ending],['Transaction Population Conclusion',txns],['Ending Balance Action',b.endingBalanceDecision?.recommendedAction],['Transaction Population Action',b.transactionPopulationDecision?.recommendedAction],['Clarification Required',b.clarificationRecommended],['Gaps',(b.gaps||[]).map((g:any)=>`${g.location}:${g.gapType}:${g.explicitMateriality||'UNKNOWN'}`).join(' | ')],['Source SHA256',b.sourceSha256],['Evidence Refs',(b.evidenceRefs||[]).join(';')]
+  ],[38,110]); }
   add('Specialist Review',[
     ['Agent','Execution Status','Output Contract','Model','Review Limitations','Actual Output'],
     ...(params.specialistReview?.jobs||[]).flatMap((j:any)=>{

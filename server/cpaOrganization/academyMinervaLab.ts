@@ -394,7 +394,7 @@ export class AcademyMinervaLab {
         'CURR-SUFF-MISSING-PAGE-NON-MATERIAL',
         'Missing page proven non-material for the current task',
         'SOURCE_COMPLETENESS',
-        ['PDF', 'MISSING_PAGE'],
+        ['PDF', 'BANK_STATEMENT', 'MISSING_PAGE'],
         ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
         [
           'Persist the source gap even when the current conclusion may proceed.',
@@ -402,34 +402,34 @@ export class AcademyMinervaLab {
           'Do not erase or globally clear the missing page.'
         ],
         'CONTRACT_READY',
-        ['server/tests/taskEvidenceSufficiency.test.ts']
+        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/bankStatementCompletenessAdapter.test.ts']
       ),
       caseSpec(
         'CURR-SUFF-MISSING-TRANSACTION-MATERIAL',
         'Missing transaction pages material to population completeness',
         'SOURCE_COMPLETENESS',
-        ['PDF', 'TRANSACTION_POPULATION', 'MISSING_PAGE'],
-        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        ['PDF', 'BANK_STATEMENT', 'TRANSACTION_POPULATION', 'MISSING_PAGE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
         [
           'Classify broken transaction continuity as material for a complete-population task.',
           'Block the affected population-dependent conclusion.',
           'Do not block unrelated conclusions that remain independently supported.'
         ],
         'CONTRACT_READY',
-        ['server/tests/taskEvidenceSufficiency.test.ts']
+        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/bankStatementCompletenessAdapter.test.ts', 'server/tests/bankStatementProductTruthBrowser.test.ts', 'server/tests/bankStatementDeliverableTruth.test.ts', 'server/tests/bankStatementFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_BANK_STATEMENT_COMPLETENESS_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-SUFF-MISSING-PAGE-UNKNOWN',
         'Missing page with unknown materiality',
         'SOURCE_COMPLETENESS',
-        ['PDF', 'MISSING_PAGE'],
+        ['PDF', 'BANK_STATEMENT', 'MISSING_PAGE'],
         ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
         [
           'Classify unknown impact as review required rather than complete or sufficient.',
           'Apply fail-safe scope to current conclusions until the missing-page impact is established.'
         ],
         'CONTRACT_READY',
-        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/sufficiencyClarificationCoordinator.test.ts']
+        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/sufficiencyClarificationCoordinator.test.ts', 'server/tests/bankStatementCompletenessAdapter.test.ts']
       ),
       caseSpec(
         'CURR-MIXED-SOURCE-BATCH',
