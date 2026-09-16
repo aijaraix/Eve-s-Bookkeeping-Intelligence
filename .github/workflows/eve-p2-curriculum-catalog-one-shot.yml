@@ -1,0 +1,82 @@
+name: Eve P2 Five Dimension Curriculum Catalog One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-curriculum-catalog-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded curriculum catalog patch
+        run: |
+          python3 scripts/eve-p2-curriculum-catalog-apply.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Five-dimension curriculum catalog contract
+        run: npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+
+      - name: Five-dimension grading regression
+        run: npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+
+      - name: Five-dimension presentation regression
+        run: npx tsx server/tests/fiveDimensionAcademyPresentation.test.ts
+
+      - name: P1-009 sufficiency regression
+        run: npx tsx server/tests/taskEvidenceSufficiency.test.ts
+
+      - name: P1-010 clarification coordinator regression
+        run: npx tsx server/tests/sufficiencyClarificationCoordinator.test.ts
+
+      - name: P1-010 clarification route and auth regression
+        run: timeout 30s npx tsx server/tests/sufficiencyClarificationRoutes.test.ts
+
+      - name: Universal evidence regression
+        run: npx tsx server/tests/universalSourceEvidenceContract.test.ts
+
+      - name: Spreadsheet lineage regression
+        run: npx tsx server/tests/spreadsheetSourceToPixelLineage.test.ts
+
+      - name: OCR evidence regression
+        run: npx tsx server/tests/ocrParserEvidence.test.ts
+
+      - name: Presentation adapter regression
+        run: npx tsx src/adapters/presentationAdapters.test.ts
+
+      - name: Academy dashboard truth regression
+        run: npx tsx server/tests/academyDashboardTruthAuditor.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested curriculum catalog and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-curriculum-catalog-apply.py .github/workflows/eve-p2-curriculum-catalog-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add five-dimension Academy curriculum catalog'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
