@@ -146,7 +146,8 @@ export type FiveDimensionCurriculumFamily =
   | 'CLIENT_ISOLATION'
   | 'SEMANTIC_CONTEXT'
   | 'PRODUCT_RENDERING'
-  | 'DELIVERABLE_LINEAGE';
+  | 'DELIVERABLE_LINEAGE'
+  | 'LEDGER_RECONCILIATION';
 
 export type FiveDimensionCurriculumFixtureStatus =
   | 'CONTRACT_READY'
@@ -456,6 +457,23 @@ export class AcademyMinervaLab {
         ],
         'PHYSICAL_FIXTURE_REQUIRED',
         ['server/tests/spreadsheetSourceToPixelLineage.test.ts', 'server/tests/ocrParserEvidence.test.ts']
+      ),
+      caseSpec(
+        'CURR-SPREADSHEET-GL-TRIAL-BALANCE',
+        'Spreadsheet general ledger trial-balance reconciliation with exact cell/formula lineage',
+        'LEDGER_RECONCILIATION',
+        ['SPREADSHEET', 'GENERAL_LEDGER', 'TRIAL_BALANCE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Recompute debit and credit totals from account rows rather than trusting cached spreadsheet total cells.',
+          'Include hidden ledger rows in the population and retain their exact workbook/sheet/cell provenance.',
+          'Preserve total and variance formulas, cached values, source SHA and source provenance IDs.',
+          'A stale cached formula cannot override an unbalanced underlying ledger; unbalanced trial balances must be blocked.',
+          'Trial-balance equality is distinct from Assets = Liabilities + Equity and does not establish financial-statement completeness or posting approval.',
+          'Actual product and exported draft artifacts must preserve trial-balance state plus reverse lineage.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/trialBalanceInterpretationEngine.test.ts', 'server/tests/trialBalanceProductTruthBrowser.test.ts', 'server/tests/trialBalanceDeliverableTruth.test.ts', 'server/tests/trialBalanceFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_TRIAL_BALANCE_FIVE_DIMENSION_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-PBC-INSUFFICIENT-RESPONSE',
