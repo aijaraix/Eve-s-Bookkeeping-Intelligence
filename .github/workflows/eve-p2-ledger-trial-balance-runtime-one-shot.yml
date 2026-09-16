@@ -1,0 +1,150 @@
+name: Eve P2 LEDGER Trial Balance Runtime One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-ledger-trial-balance-runtime-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      TRIAL_BALANCE_RUNTIME_EVIDENCE_DIR: /tmp/eve-trial-balance-runtime
+      TRIAL_BALANCE_ACCEPTANCE_EVIDENCE_DIR: /tmp/eve-trial-balance-runtime
+      EVE_TEST_WORKER_URL: http://127.0.0.1:4017
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded LEDGER and worker integration
+        run: |
+          python3 scripts/eve-p2-ledger-trial-balance-runtime-apply.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install receipt regression dependency
+        run: python3 -m pip install --user --quiet 'Pillow==12.3.0'
+
+      - name: Generate physical trial-balance XLSX fixtures
+        run: npx tsx server/tests/generateTrialBalanceCurriculumFixtures.ts
+
+      - name: Shared runtime adapter and LEDGER fail-closed integration
+        run: npx tsx server/tests/trialBalanceRuntimeIntegration.test.ts
+
+      - name: Verified customer continuation physical reconstruction
+        run: npx tsx server/tests/trialBalanceContinuationRuntime.test.ts
+
+      - name: Physical dedicated worker upload and reconciliation
+        run: |
+          rm -rf /tmp/eve-worker-storage-runtime /tmp/eve-worker-jobs-runtime.json
+          mkdir -p /tmp/eve-worker-storage-runtime
+          WORKER_MODE=true NODE_ENV=production WORKER_PORT=4017 WORKER_STORAGE_DIR=/tmp/eve-worker-storage-runtime WORKER_JOBS_FILE=/tmp/eve-worker-jobs-runtime.json EXTRACTION_WORKER_SECRET='' PASSWORD='' LOCAL_AI_BASE_URL=http://127.0.0.1:9 npx tsx server/worker.ts >/tmp/eve-worker-runtime.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill $WORKER_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:4017/health >/dev/null; then break; fi
+            sleep 0.25
+          done
+          curl -fsS http://127.0.0.1:4017/health >/dev/null
+          npx tsx server/tests/trialBalanceWorkerPhysicalIntegration.test.ts
+          kill $WORKER_PID 2>/dev/null || true
+          wait $WORKER_PID 2>/dev/null || true
+          trap - EXIT
+
+      - name: Compose runtime integration acceptance receipt
+        run: npx tsx server/tests/trialBalanceRuntimeAcceptance.test.ts
+
+      - name: Trial-balance curriculum regressions
+        run: |
+          npx tsx server/tests/trialBalanceInterpretationEngine.test.ts
+          npx tsx server/tests/trialBalanceDeliverableTruth.test.ts
+          npx tsx server/tests/spreadsheetSourceToPixelLineage.test.ts
+
+      - name: Specialist retry and B2 execution regressions
+        run: |
+          npx tsx server/tests/academySpecialistRetry.test.ts
+          npx tsx server/tests/phasePackageB2RealAgentExecution.test.ts
+
+      - name: Bank statement regression
+        run: |
+          export BANK_STATEMENT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-bank-ledger-runtime-regression
+          npx tsx server/tests/generateBankStatementCurriculumFixtures.ts
+          npx tsx server/tests/bankStatementCompletenessAdapter.test.ts
+          npx tsx server/tests/bankStatementDeliverableTruth.test.ts
+
+      - name: Invoice AP regressions
+        run: |
+          npx tsx server/tests/invoiceApInterpretationEngine.test.ts
+          npx tsx server/tests/documentIntelligenceInvoiceTruth.test.ts
+          npx tsx server/tests/invoiceApDeliverableTruth.test.ts
+
+      - name: Receipt deliverable regression
+        run: |
+          rm -rf /tmp/eve-receipt-ledger-runtime-regression
+          mkdir -p /tmp/eve-receipt-ledger-runtime-regression
+          python3 scripts/academy/generate_ocr_curriculum_fixtures.py /tmp/eve-receipt-ledger-runtime-regression >/tmp/eve-receipt-ledger-runtime-regression/generation.txt
+          python3 - <<'PY'
+          from PIL import Image, ImageDraw, ImageFont
+          from pathlib import Path
+          import hashlib, json
+          root=Path('/tmp/eve-receipt-ledger-runtime-regression'); receipt=root/'receipt.png'; sha=hashlib.sha256(receipt.read_bytes()).hexdigest(); assert sha=='bdd93a72a51d82cc5df6c6a8989db023e9b45b1f18344e43054647851e173436'
+          image=Image.open(receipt).convert('L'); draw=ImageDraw.Draw(image); font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',40); x0,y0,x1,y1=draw.textbbox((60,552),'TOTAL $53.23',font=font)
+          (root/'source-region.json').write_text(json.dumps({'marker':'RECEIPT_FIXTURE_SOURCE_REGION=PASS','sourceSha256':sha,'filename':'receipt.png','imageWidth':900,'imageHeight':1000,'pixelBoundingBox':{'x':x0,'y':y0,'width':x1-x0,'height':y1-y0},'normalizedBoundingBox':{'x':x0/900,'y':y0/1000,'width':(x1-x0)/900,'height':(y1-y0)/1000,'unit':'NORMALIZED'},'rawLiteral':'TOTAL $53.23','transformId':'academy-fixture-glyph-bbox-v1'},indent=2))
+          PY
+          RECEIPT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-receipt-ledger-runtime-regression npx tsx server/tests/receiptDeliverableTruth.test.ts
+
+      - name: Evidence, OCR and grading regressions
+        run: |
+          npx tsx server/tests/taskEvidenceSufficiency.test.ts
+          npx tsx server/tests/sufficiencyClarificationCoordinator.test.ts
+          timeout 30s npx tsx server/tests/sufficiencyClarificationRoutes.test.ts
+          npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+          npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+          npx tsx server/tests/academyOcrCurriculumRunner.test.ts
+          npx tsx server/tests/ocrParserEvidence.test.ts
+          npx tsx server/tests/ocrOrientationRetry.test.ts
+          npx tsx server/tests/ocrFailClosedQualityGate.test.ts
+          npx tsx server/tests/pdfOcrFallback.test.ts
+          npx tsx server/tests/universalSourceEvidenceContract.test.ts
+          npx tsx src/adapters/presentationAdapters.test.ts
+          npx tsx server/tests/academyDashboardTruthAuditor.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Upload runtime integration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-ledger-trial-balance-runtime-acceptance
+          path: /tmp/eve-trial-balance-runtime
+          retention-days: 7
+
+      - name: Final production build after acceptance gates
+        run: npm run build
+
+      - name: Commit tested runtime integration and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-ledger-trial-balance-runtime-apply.py .github/workflows/eve-p2-ledger-trial-balance-runtime-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Wire trial balance truth into LEDGER runtime'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
