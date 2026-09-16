@@ -6,6 +6,7 @@ import { deliverableArtifactService, DeliverableArtifactRecord } from './deliver
 import { eveInternalAuditEngine } from './eveInternalAuditEngine.js';
 import { academyMinervaLab } from './academyMinervaLab.js';
 import { disclosureEvidenceLedgerService } from './disclosureEvidenceLedgerService.js';
+import { deriveTrialBalanceRuntimeEvidenceFromPhysicalSource, type TrialBalanceRuntimeEvidence } from './trialBalanceRuntimeAdapter.js';
 
 export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v6-bounded-lexicon-review-package';
 
@@ -52,6 +53,8 @@ export interface VerifiedContinuationState {
   minervaLiveValidation?: any;
   systemFindings?: string[];
   reviewFindings?: string[];
+  trialBalanceQualification?: string;
+  trialBalanceReview?: any;
   error?: string;
   specialistRetryId?: string;
 }
@@ -169,6 +172,24 @@ function countDiscoveredAccounts(facts: any[]) {
     liabilityAccountsCount: balanceFacts.filter(f => /liabil|debt|borrow|payable|accrued/.test(text(f))).length,
     equityAccountsCount: balanceFacts.filter(f => /equity|stock|capital|retained|treasury/.test(text(f))).length
   };
+}
+
+
+export async function deriveContinuationTrialBalanceEvidence(job: any, document: any): Promise<TrialBalanceRuntimeEvidence> {
+  const sourceFilePath=String(job?.filePath || document?.filePath || document?.url || '');
+  const filename=String(document?.originalName || document?.filename || job?.documentTitle || (sourceFilePath ? path.basename(sourceFilePath) : ''));
+  const mimeType=String(document?.mimeType || job?.mimeType || '');
+  const expectedSourceSha256=String(job?.documentHash || document?.sha256 || '');
+  const runtime=await deriveTrialBalanceRuntimeEvidenceFromPhysicalSource({sourceFilePath,expectedSourceSha256,filename,mimeType,currency:job?.functionalCurrency});
+  const workerReview=job?.result?.trialBalanceReview || job?.results?.trialBalanceReview;
+  if (workerReview) {
+    if (runtime.qualification !== 'QUALIFIED_TRIAL_BALANCE' || !runtime.review) throw new Error('TRIAL_BALANCE_WORKER_CONTINUATION_MISMATCH');
+    const same = workerReview.sourceSha256 === runtime.review.sourceSha256 && workerReview.status === runtime.review.status &&
+      Number(workerReview.totalDebits) === runtime.review.totalDebits && Number(workerReview.totalCredits) === runtime.review.totalCredits &&
+      Number(workerReview.variance) === runtime.review.variance && workerReview.formulaIntegrityStatus === runtime.review.formulaIntegrityStatus;
+    if (!same) throw new Error('TRIAL_BALANCE_WORKER_CONTINUATION_MISMATCH');
+  }
+  return runtime;
 }
 
 function compactSwarm(summary: SwarmExecutionSummary): any {
@@ -422,6 +443,9 @@ export class VerifiedCustomerContinuationService {
 
       const workspace = (db?.workspaces || []).find((w: any) => w.id === job.workspaceId);
       const document = (db?.documents || []).find((d: any) => d.id === job.documentId);
+      const trialBalanceRuntime = await deriveContinuationTrialBalanceEvidence(job, document);
+      base.trialBalanceQualification = trialBalanceRuntime.qualification;
+      base.trialBalanceReview = trialBalanceRuntime.review;
       const clientName = String(
         job?.result?.documentMap?.documentIssuer ||
         proofFacts.find((f: any) => f.reportingEntity)?.reportingEntity ||
@@ -502,6 +526,8 @@ export class VerifiedCustomerContinuationService {
           reportingCurrency,
           workspaceId: job.workspaceId,
           documentId: job.documentId,
+          trialBalanceQualification: trialBalanceRuntime.qualification,
+          trialBalanceReview: trialBalanceRuntime.review,
           reuseSuccessfulJobs,
           discoveredAccounts: countDiscoveredAccounts(proofFacts),
           customerPbcUploaded: false,
@@ -509,7 +535,9 @@ export class VerifiedCustomerContinuationService {
         } as any);
       }
 
-      state = this.persist({ ...state, status: 'SPECIALIST_SWARM_COMPLETE', specialistSummary: compactSwarm(swarm) });
+      const ledger = swarm.jobs.find(j => j.agentId === 'LEDGER');
+      const ledgerTrialBalanceReview = ledger?.outputManifest?.trialBalanceReview || trialBalanceRuntime.review;
+      state = this.persist({ ...state, status: 'SPECIALIST_SWARM_COMPLETE', specialistSummary: compactSwarm(swarm), trialBalanceQualification: trialBalanceRuntime.qualification, trialBalanceReview: ledgerTrialBalanceReview });
       const quinn = swarm.jobs.find(j => j.agentId === 'QUINN');
       const quinnReview = {
         aiQualityReview: quinn?.status || 'NOT_RUN',
@@ -549,6 +577,7 @@ export class VerifiedCustomerContinuationService {
             ...disclosureEvidenceSummary,
             records: disclosureLedger.records
           },
+          trialBalanceReview: ledgerTrialBalanceReview,
           facts: proofFacts.map((f: any) => ({
             id: f.id,
             canonicalMetric: f.canonicalMetric || f.labelNormalized,

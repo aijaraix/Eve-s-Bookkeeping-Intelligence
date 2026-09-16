@@ -22,6 +22,7 @@ import { CanonicalFactResolver } from "./canonicalFactResolver.js";
 import { assertRealDocumentHash } from "./failClosedGuards.js";
 import { ExtractedFact } from "../src/types.js";
 import { DocumentPurposeClassifier, DocumentClassificationResult } from "./cpaOrganization/documentClassificationEngine.js";
+import { qualifyParsedTrialBalanceDocument } from "./cpaOrganization/trialBalanceRuntimeAdapter.js";
 
 const app = express();
 const WORKER_PORT = Number(process.env.WORKER_PORT || process.env.PORT || 4000);
@@ -480,6 +481,12 @@ async function executeWorkerExtraction(job: WorkerJob) {
       }
     }
 
+    if (parserPath === "SPREADSHEET") {
+      const trialBalanceRuntime = qualifyParsedTrialBalanceDocument({ doc: parsedDoc, currency: job.functionalCurrency, expectedSourceSha256: job.documentHash, sourceFilePath: job.filePath, filename: job.documentTitle, mimeType: job.mimeType });
+      (job.results as any).trialBalanceQualification = trialBalanceRuntime.qualification;
+      if (trialBalanceRuntime.review) (job.results as any).trialBalanceReview = trialBalanceRuntime.review;
+    }
+
     const pagesCount = parsedDoc.page_count || parsedDoc.pages?.length || 1;
     job.counters.pagesInventoried = pagesCount;
     job.counters.pagesParsed = pagesCount;
@@ -591,16 +598,20 @@ async function executeWorkerExtraction(job: WorkerJob) {
     );
 
     job.counters.evidenceConfirmed = facts.filter((f) => f.confidence && f.confidence > 0.8).length;
+    const trialBalanceReview = (job.results as any).trialBalanceReview;
     job.counters.accountingGatesPassed = [
       (validationRes.balanceSheetIdentity?.status as any) === "BALANCED",
       (validationRes.incomeStatementIdentity?.status as any) === "BALANCED",
       (validationRes.cashFlowRollForward?.status as any) === "BALANCED",
+      trialBalanceReview?.status === "BALANCED",
       ...(validationRes.plausibilityDiagnostics?.map((p) => p.passed) || [])
     ].filter(Boolean).length;
     job.results.validationResults = validationRes;
 
     // COMPLETE JOB
-    const hasFailures = (validationRes.overallStatus as any) === "FAILED" || (validationRes as any).hasCriticalFailures;
+    const trialBalanceRequiresReview = Boolean(trialBalanceReview && trialBalanceReview.promotionState !== "READY_FOR_AUTHORIZED_REVIEW");
+    if (trialBalanceRequiresReview) job.warnings = Array.from(new Set([...(job.warnings || []), `TRIAL_BALANCE_${trialBalanceReview.status}:${trialBalanceReview.variance}`]));
+    const hasFailures = (validationRes.overallStatus as any) === "FAILED" || (validationRes as any).hasCriticalFailures || trialBalanceRequiresReview;
     job.status = hasFailures ? "COMPLETE_REVIEW_REQUIRED" : "COMPLETE";
     job.currentStage = "Deterministic extraction and accounting reconciliation completed";
     job.progress = 100;
