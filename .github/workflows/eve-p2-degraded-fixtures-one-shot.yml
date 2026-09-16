@@ -1,0 +1,87 @@
+name: Eve P2 Degraded OCR Fixtures One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-degraded-fixtures-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded degraded fixture patch
+        run: |
+          python3 scripts/eve-p2-degraded-fixtures-apply.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install deterministic Pillow fixture dependency
+        run: python3 -m pip install --user --quiet 'Pillow==12.3.0'
+
+      - name: Degraded fixture generator contract
+        run: npx tsx server/tests/degradedOcrFixtureGenerator.test.ts
+
+      - name: Physically reproduce degraded fixture hashes
+        run: |
+          rm -rf /tmp/eve-degraded-fixtures
+          python3 scripts/academy/generate_ocr_curriculum_fixtures.py /tmp/eve-degraded-fixtures --include-degraded | tee /tmp/eve-degraded-fixtures.txt
+          grep -q 'receipt_low_quality.jpg.*sha256=a1f03b9bdda7e8d8eae67d924a62de679a8d5fa6e6d0e94967b2cfd7d417de9c' /tmp/eve-degraded-fixtures.txt
+          grep -q 'receipt_rotated_90.png.*sha256=9f2496573071e396c8452534bf5afe67ddf0d676a0907919820733418609a698' /tmp/eve-degraded-fixtures.txt
+          grep -q 'receipt_skewed_6deg.png.*sha256=ec635a9f1cbb49d89afb0308339e50f591ed2a23d29d44fd8e754279eec4ce0a' /tmp/eve-degraded-fixtures.txt
+          grep -q 'receipt_glare_totals.png.*sha256=49fac9e0a910f8b8b3f8cd130569cc8732bd15783ddb6611514edb4cd667072a' /tmp/eve-degraded-fixtures.txt
+          grep -q 'receipt_cropped_before_totals.png.*sha256=017e27b1bdcf1d5045512fe82a2f577cb44e841bdf992405061c55781fa8eaed' /tmp/eve-degraded-fixtures.txt
+          echo DEGRADED_OCR_FIXTURE_REPRODUCIBILITY=PASS
+
+      - name: Local OCR routing regression
+        run: npx tsx server/tests/localOcrRouting.test.ts
+
+      - name: Academy OCR curriculum regression
+        run: npx tsx server/tests/academyOcrCurriculumRunner.test.ts
+
+      - name: Five-dimension grading regression
+        run: npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+
+      - name: P1-009 sufficiency regression
+        run: npx tsx server/tests/taskEvidenceSufficiency.test.ts
+
+      - name: P1-010 clarification regression
+        run: npx tsx server/tests/sufficiencyClarificationCoordinator.test.ts
+
+      - name: Universal evidence regression
+        run: npx tsx server/tests/universalSourceEvidenceContract.test.ts
+
+      - name: OCR parser evidence regression
+        run: npx tsx server/tests/ocrParserEvidence.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested degraded fixtures and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-degraded-fixtures-apply.py .github/workflows/eve-p2-degraded-fixtures-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add reproducible degraded OCR Academy fixtures'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
