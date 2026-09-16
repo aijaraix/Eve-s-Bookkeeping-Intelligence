@@ -107,3 +107,7 @@ const internalUser = {
 
 hermesHeartbeat.stopHeartbeat();
 console.log('TASK_EVIDENCE_SUFFICIENCY_ROUTES_TESTS=PASS');
+// The full CPA router imports several long-lived runtime services by design.
+// All route assertions above are awaited; exit explicitly so this isolated contract test
+// cannot be held open by unrelated production heartbeat/timer handles.
+process.exit(0);
