@@ -1,0 +1,88 @@
+name: Eve P2 OCR Edge Cases One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-ocr-edge-cases-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      OCR_EDGE_ACCEPTANCE_DIR: /tmp/eve-ocr-edge-cases
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded OCR edge-case closure patch
+        run: |
+          python3 scripts/eve-p2-ocr-edge-cases-apply.py
+          git diff --check
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Install deterministic image dependency
+        run: python3 -m pip install --user --quiet 'Pillow==12.3.0'
+
+      - name: Generate and verify physical degraded OCR fixtures
+        run: |
+          rm -rf "$OCR_EDGE_ACCEPTANCE_DIR"
+          mkdir -p "$OCR_EDGE_ACCEPTANCE_DIR"
+          python3 scripts/academy/generate_ocr_curriculum_fixtures.py "$OCR_EDGE_ACCEPTANCE_DIR" --include-degraded
+          python3 scripts/academy/verify_degraded_ocr_edge_cases.py
+
+      - name: Close four OCR edge curriculum cases on targeted dimensions
+        run: npx tsx server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts
+
+      - name: Existing OCR, sufficiency and grading regressions
+        run: |
+          npx tsx server/tests/academyOcrCurriculumRunner.test.ts
+          npx tsx server/tests/ocrOrientationRetry.test.ts
+          npx tsx server/tests/ocrFailClosedQualityGate.test.ts
+          npx tsx server/tests/ocrParserEvidence.test.ts
+          npx tsx server/tests/taskEvidenceSufficiency.test.ts
+          npx tsx server/tests/universalSourceEvidenceContract.test.ts
+          npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+          npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+          npx tsx server/tests/pdfOcrFallback.test.ts
+          npx tsx server/tests/mixedPdfSelectiveOcr.test.ts
+          npx tsx server/tests/mixedPdfSelectiveOcrFailClosed.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Upload OCR edge-case acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-ocr-edge-cases-targeted-acceptance
+          path: /tmp/eve-ocr-edge-cases
+          retention-days: 7
+
+      - name: Final production build after acceptance gates
+        run: npm run build
+
+      - name: Commit tested OCR edge closure and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-ocr-edge-cases-apply.py .github/workflows/eve-p2-ocr-edge-cases-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Close degraded OCR edge curriculum'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
