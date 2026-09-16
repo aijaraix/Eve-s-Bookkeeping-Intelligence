@@ -315,6 +315,52 @@ Physical CI acceptance:
 
 No new evaluator service or scheduler was created.
 
+### P2 physical OCR curriculum advancement — receipt, invoice, degraded images and image-only PDF
+Status: ACCEPTED FEATURE-BRANCH CANDIDATES / PRODUCTION ACTIVATION PENDING
+Draft PR: #31
+
+The Academy OCR curriculum has advanced beyond catalog-only state. Accepted checkpoints now include:
+
+- OCR curriculum runner: `47afb13d671d9449d2ae53303dc2d2ff29f1c643`
+- final OCR fail-closed quality gate: `e983ffbe7680a47c30e697618f0e19996a256cff`
+- reproducible degraded-image fixtures: `5066706e41dad96390665e92de9bd9e626e10a22`
+- image-only PDF OCR fallback: `ccedc37d7f3b07d49a6d4c4aaf9cb5c67d6c21d9`
+
+Physical findings on the Eve CPU host:
+
+- synthetic receipt: PaddleOCR and docTR both recovered the intended material fields/totals
+- synthetic invoice: PaddleOCR produced a high-confidence `INV0ICE` semantic substitution while docTR returned `INVOICE`; Academy dual-engine comparison preserves this disagreement rather than treating confidence as semantic truth
+- low-quality compressed receipt remained readable in both engines
+- 6-degree skew remained readable in both engines
+- 90-degree rotation failed materially in both engines; current feature code now fails closed when the selected OCR result still misses the final quality floor
+- glare/occlusion over subtotal/tax/total caused those material lines to disappear and must remain an evidence gap
+- crop before subtotal/tax/total likewise removes those facts and must not be inferred
+- image-only PDF rasterization with PyMuPDF on Eve physically passed and the resulting raster was successfully read by both live OCR engines (`IMAGE_ONLY_PDF_RASTER_TO_LIVE_OCR=PASS`)
+
+Image-only PDF feature-branch behavior now preserves native-text-first parsing and only falls back to OCR when all inventoried PDF pages lack native text. OCR observations from scanned PDFs use the PDF page/region source-coordinate family (`PdfSourceCoordinate`) rather than being mislabeled as generic images.
+
+Important boundaries:
+
+- live `eve-ocr-paddle` / `eve-ocr-doctr` services were not rebuilt/released with the new direct-PDF service code in this workstream
+- mixed PDFs with both native-text and scanned pages still need selective page-level OCR
+- automatic orientation correction for the 90-degree case is not yet implemented
+- Product Truth and Deliverable Truth remain `NOT_TESTED` for cases without actual browser/export proof
+- all new curriculum cases remain excluded from autonomous scheduling until their full physical execution path is accepted
+
+Evidence:
+
+- `docs/launch/evidence/2026-09-16_P2_OCR_CURRICULUM_RECEIPT_INVOICE_ACCEPTANCE.md`
+- `docs/launch/evidence/2026-09-16_P2_DEGRADED_OCR_FIXTURES_ACCEPTANCE.md`
+- `docs/launch/evidence/2026-09-16_P2_IMAGE_ONLY_PDF_OCR_ACCEPTANCE.md`
+
+CI acceptance:
+
+- OCR runner run `35054577162`: PASS through full production build
+- fail-closed quality gate run `35055215309`: PASS through full production build
+- degraded fixture run `35055472690`: PASS with exact fixture hash reproduction and full production build
+- image-only PDF run `35055831123`: PASS through PDF rasterization/fallback/coordinate contracts, all listed P1/P2 regressions and full production build
+
+
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
 Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
@@ -363,15 +409,16 @@ For bounded work we can now:
 
 ## Active next tasks
 
-1. physically implement and execute the receipt-photo, scanned-invoice and image-only-PDF curriculum fixtures against the local OCR/evidence path
-2. then execute low-quality, rotated/skewed, glare/crop and PaddleOCR-vs-docTR disagreement fixtures
-3. exercise the mixed-source, duplicate/isolation, semantic-context, real browser source-to-dashboard and final deliverable-lineage cases, preserving `NOT_TESTED` until each dimension is actually proven
-4. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from branch acceptance
-5. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
-6. `EVE-P4-001` — owner live operational read-model integration audit
-7. `EVE-P5-001` — remove development/internal language from customer-facing routes
-8. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
-9. `EVE-P6-003` — website structural implementation using locked brand tokens
+1. finish `EVE-P2-002` receipt-image curriculum by adding controlled orientation correction/retry and real Product Truth / Deliverable Truth proof where applicable
+2. continue `EVE-P2-003` invoice/AP curriculum beyond the OCR fixture into AP semantics, approval/reconciliation and deliverable truth
+3. continue `EVE-P2-004` bank-statement completeness/sufficiency curriculum, including missing non-material vs missing material page scenarios
+4. add selective page-level OCR for mixed native-text/scanned PDFs; do not convert an entire mixed PDF to OCR merely because one page is scanned
+5. exercise `EVE-P2-006/007` mixed-batch/duplicate and clarification curricula plus long-document semantic/context, real browser source-to-dashboard and final deliverable-lineage cases
+6. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from branch acceptance
+7. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
+8. `EVE-P4-001` — owner live operational read-model integration audit
+9. `EVE-P5-001` — remove development/internal language from customer-facing routes
+10. `EVE-P6-002/003` — public claims truth lock and website structural implementation using locked brand tokens
 
 ## Immediate blockers not requiring Codex
 
