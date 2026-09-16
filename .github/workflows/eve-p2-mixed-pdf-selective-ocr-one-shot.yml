@@ -1,0 +1,91 @@
+name: Eve P2 Mixed PDF Selective OCR One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-mixed-pdf-selective-ocr-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      MIXED_PDF_OCR_ACCEPTANCE_DIR: /tmp/eve-mixed-pdf-ocr
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded mixed-PDF selective OCR patch
+        run: |
+          python3 scripts/eve-p2-mixed-pdf-selective-ocr-apply.py
+          git diff --check
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Install deterministic PDF fixture and service-test dependencies
+        run: python3 -m pip install --user --quiet 'Pillow==12.3.0' 'PyMuPDF==1.26.4' 'fastapi==0.115.12' 'pydantic==2.11.7'
+
+      - name: Generate physical mixed native/scanned PDF
+        run: |
+          rm -rf "$MIXED_PDF_OCR_ACCEPTANCE_DIR"
+          mkdir -p "$MIXED_PDF_OCR_ACCEPTANCE_DIR"
+          python3 scripts/academy/generate_mixed_pdf_selective_fixture.py
+
+      - name: Local OCR service selected-page rasterization and coordinate remap
+        run: (cd services/local_ocr && python3 test_pdf_rasterization.py)
+
+      - name: PDF fallback and selective merge contracts
+        run: |
+          npx tsx server/tests/pdfOcrFallback.test.ts
+          npx tsx server/tests/mixedPdfSelectiveOcr.test.ts
+          npx tsx server/tests/mixedPdfSelectiveOcrFailClosed.test.ts
+          npx tsx server/tests/pdfOcrIntegrationWiring.test.ts
+          npx tsx server/tests/imageOnlyPdfCurriculumAcceptance.test.ts
+
+      - name: Existing OCR evidence and grading regressions
+        run: |
+          npx tsx server/tests/ocrParserEvidence.test.ts
+          npx tsx server/tests/ocrOrientationRetry.test.ts
+          npx tsx server/tests/ocrFailClosedQualityGate.test.ts
+          npx tsx server/tests/universalSourceEvidenceContract.test.ts
+          npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+          npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+          npx tsx server/tests/taskEvidenceSufficiency.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Upload mixed PDF selective OCR evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-mixed-pdf-selective-ocr-acceptance
+          path: /tmp/eve-mixed-pdf-ocr
+          retention-days: 7
+
+      - name: Final production build after acceptance gates
+        run: npm run build
+
+      - name: Commit tested mixed-PDF OCR closure and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-mixed-pdf-selective-ocr-apply.py .github/workflows/eve-p2-mixed-pdf-selective-ocr-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add selective mixed PDF OCR routing'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
