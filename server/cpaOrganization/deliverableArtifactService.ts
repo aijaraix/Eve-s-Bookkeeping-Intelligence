@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import * as XLSX from 'xlsx';
 import { ProfessionalApprovalObject, professionalSignoffGuard } from './professionalSignoffGuard.js';
+import { computeFinalDeliverableLineageHash, validateFinalDeliverableLineage } from './finalDeliverableLineageValidator.js';
 
 export interface ArtifactManifestItem {
   format: 'PDF' | 'XLSX' | 'JSON' | 'CSV';
@@ -95,6 +96,7 @@ export interface DeliverableArtifactRecord {
   mixedSourceReview?: any;
   mixedSourceBatchReview?: any;
   duplicateEvidenceReview?: any;
+  finalLineageValidation?: any;
 }
 
 export class DeliverableArtifactService {
@@ -328,6 +330,11 @@ export class DeliverableArtifactService {
       sourceConfidence?: number;
       sourceExtractionMethod?: string;
       sourceExtractionVersion?: string;
+      derivationId?: string;
+      derivationFormula?: string;
+      derivationOperation?: 'ADD' | 'SUBTRACT' | 'SUM';
+      operandFactIds?: string[];
+      operandValues?: Record<string, number>;
     }>;
     canonicalFacts?: any[];
     euclidBalance?: {
@@ -388,8 +395,18 @@ export class DeliverableArtifactService {
         sourceConfidence: f.sourceConfidence ?? sourceCoordinate?.confidence ?? f.provenance?.ocrConfidence,
         sourceExtractionMethod: f.sourceExtractionMethod || sourceCoordinate?.extractionMethod || f.provenance?.ocrEngine,
         sourceExtractionVersion: f.sourceExtractionVersion || sourceCoordinate?.extractionVersion || f.provenance?.ocrEngineVersion,
+        derivationId: f.derivationId || f.derivation?.derivationId || f.derivedCalculationId || undefined,
+        derivationFormula: f.derivationFormula || f.derivation?.formula || undefined,
+        derivationOperation: f.derivationOperation || f.derivation?.operation || undefined,
+        operandFactIds: Array.isArray(f.operandFactIds) ? f.operandFactIds.map(String) : (Array.isArray(f.derivation?.operandFactIds) ? f.derivation.operandFactIds.map(String) : []),
+        operandValues: f.operandValues || f.derivation?.operandValues || undefined,
       };
     });
+
+    const finalLineageValidation = validateFinalDeliverableLineage(normalizedFacts);
+    if (params.requireFinalLineage === true && !finalLineageValidation.valid) {
+      throw new Error(`FINAL_DELIVERABLE_LINEAGE_INVALID:${finalLineageValidation.issues.join('|')}`);
+    }
 
     // Normalize euclidBalance from real fact numbers rather than fabricated defaults
     const balance = params.euclidBalance || {};
@@ -464,9 +481,7 @@ export class DeliverableArtifactService {
     });
 
     // Canonical fact hash binds the draft package to the verified fact set.
-    const canonicalFactHash = crypto.createHash('sha256')
-      .update(normalizedFacts.map(f => `${f.canonicalMetric}:${f.value}`).join(';'))
-      .digest('hex');
+    const canonicalFactHash = computeFinalDeliverableLineageHash(normalizedFacts);
 
     // 3. Generate JSON deliverable
     const jsonFilename = `audit_package_${reportId}_${version}.json`;
@@ -497,7 +512,9 @@ export class DeliverableArtifactService {
       trialBalanceReview: params.trialBalanceReview || null,
       mixedSourceReview: params.mixedSourceReview || null,
       mixedSourceBatchReview: params.mixedSourceBatchReview || null,
-      duplicateEvidenceReview: params.duplicateEvidenceReview || null
+      duplicateEvidenceReview: params.duplicateEvidenceReview || null,
+      finalLineageRequired: params.requireFinalLineage === true,
+      finalLineageValidation
     };
     const jsonStr = JSON.stringify(jsonPayload, null, 2);
     fs.writeFileSync(jsonFilepath, jsonStr, 'utf-8');
@@ -516,6 +533,7 @@ export class DeliverableArtifactService {
       generator: 'DeliverableArtifactService:Scribe',
       engagementId,
       createdAt: new Date().toISOString(),
+      contentHash: canonicalFactHash,
       artifacts: {
         pdf: {
           format: 'PDF',
@@ -623,7 +641,8 @@ export class DeliverableArtifactService {
       trialBalanceReview: params.trialBalanceReview || undefined,
       mixedSourceReview: params.mixedSourceReview || undefined,
       mixedSourceBatchReview: params.mixedSourceBatchReview || undefined,
-      duplicateEvidenceReview: params.duplicateEvidenceReview || undefined
+      duplicateEvidenceReview: params.duplicateEvidenceReview || undefined,
+      finalLineageValidation
     };
 
     const updatedList = existing.filter(r => !(r.reportId === reportId && r.version === version));

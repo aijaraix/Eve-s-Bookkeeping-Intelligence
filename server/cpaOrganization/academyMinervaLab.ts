@@ -581,8 +581,8 @@ export class AcademyMinervaLab {
           'Final exported/report values must match canonical results and remain grounded in original evidence.',
           'Material report statements must retain enough lineage to reverse-trace through derivations to source coordinates.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['src/adapters/presentationAdapters.test.ts']
+        'CONTRACT_READY',
+        ['server/tests/finalDeliverableLineageValidator.test.ts', 'server/tests/finalDeliverableLineageTruth.test.ts', 'server/tests/finalDeliverableLineageCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_FINAL_DELIVERABLE_LINEAGE_ACCEPTANCE.md']
       )
     ];
   }

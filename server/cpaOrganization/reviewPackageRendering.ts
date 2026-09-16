@@ -27,6 +27,8 @@ export function reviewRow(f: any): any {
     sourceConfidence: f.sourceConfidence ?? coordinate?.confidence ?? null,
     sourceExtractionMethod: f.sourceExtractionMethod || coordinate?.extractionMethod || null,
     sourceExtractionVersion: f.sourceExtractionVersion || coordinate?.extractionVersion || null,
+    derivationId: f.derivationId || null, derivationFormula: f.derivationFormula || null, derivationOperation: f.derivationOperation || null,
+    operandFactIds: Array.isArray(f.operandFactIds) ? f.operandFactIds.map(String) : [], operandValues: f.operandValues || null,
     verificationStatus: f.verificationStatus || 'NOT_VERIFIED', evidenceStatus: f.evidenceStatus || 'NOT_MEASURED' };
 }
 export function sourceCoordinateText(row: any): string {
@@ -49,8 +51,8 @@ export function csvCell(value: any): string {
   return '"' + safe.replace(/"/g, '""') + '"';
 }
 export function buildReviewCsv(facts: any[], currency: string, apReview?: any, bankReview?: any, trialBalanceReview?: any, mixedSourceReview?: any, mixedSourceBatchReview?: any, duplicateEvidenceReview?: any): string {
-  const rows = [['Source Fact ID','Metric','Label','Value','Currency','Reporting Period','Statement','Document ID','Source Document','Extractor Locator','Verification','Evidence Status','Source Block IDs','Source SHA256','Source Provenance IDs','Source Coordinate','Extraction Method','Extraction Version','Confidence','Source Excerpt'],
-    ...facts.map(f=>{const r=reviewRow(f);return [r.id,r.metric,r.label,r.value,currency,r.period,r.statement,r.documentId,r.sourceDoc,r.extractorPage,r.verificationStatus,r.evidenceStatus,r.sourceBlockIds.join(';'),r.sourceSha256,r.sourceProvenanceIds.join(';'),sourceCoordinateText(r),r.sourceExtractionMethod,r.sourceExtractionVersion,r.sourceConfidence,r.sourceText];})];
+  const rows = [['Source Fact ID','Metric','Label','Value','Currency','Reporting Period','Statement','Document ID','Source Document','Extractor Locator','Verification','Evidence Status','Source Block IDs','Source SHA256','Source Provenance IDs','Source Coordinate','Extraction Method','Extraction Version','Confidence','Source Excerpt','Derivation ID','Derivation Formula','Derivation Operation','Operand Fact IDs','Operand Values'],
+    ...facts.map(f=>{const r=reviewRow(f);return [r.id,r.metric,r.label,r.value,currency,r.period,r.statement,r.documentId,r.sourceDoc,r.extractorPage,r.verificationStatus,r.evidenceStatus,r.sourceBlockIds.join(';'),r.sourceSha256,r.sourceProvenanceIds.join(';'),sourceCoordinateText(r),r.sourceExtractionMethod,r.sourceExtractionVersion,r.sourceConfidence,r.sourceText,r.derivationId,r.derivationFormula,r.derivationOperation,r.operandFactIds.join(';'),r.operandValues?JSON.stringify(r.operandValues):''];})];
   const sections = [rows.map(row=>row.map(csvCell).join(',')).join('\r\n')];
   if (apReview) {
     const a=apReview;
@@ -201,6 +203,7 @@ export async function renderReviewPdf(params: any, dir: string) {
     text(`Checks: ${r.verificationStatus} / ${r.evidenceStatus}`);
     text(`Source SHA-256: ${r.sourceSha256 || 'NOT_RECORDED'}\nSource provenance IDs: ${r.sourceProvenanceIds.length ? r.sourceProvenanceIds.join(', ') : 'NOT_RECORDED'}\nSource coordinate: ${sourceCoordinateText(r)}`);
     text(`Extraction: ${r.sourceExtractionMethod || 'NOT_RECORDED'} ${r.sourceExtractionVersion || ''} | Confidence: ${r.sourceConfidence == null ? 'NOT_RECORDED' : r.sourceConfidence}\nSource excerpt: ${r.sourceText || 'NOT_RECORDED'}`);
+    if(r.derivationId) text(`Derivation ID: ${r.derivationId}\nDerivation formula: ${r.derivationFormula || 'NOT_RECORDED'}\nDerivation operation: ${r.derivationOperation || 'NOT_RECORDED'}\nOperand fact IDs: ${r.operandFactIds.join(', ') || 'NOT_RECORDED'}\nOperand values: ${r.operandValues ? JSON.stringify(r.operandValues) : 'NOT_RECORDED'}`);
   });
   heading('Selected disclosure evidence');
   const ledger=params.disclosureEvidenceLedger;
@@ -234,9 +237,9 @@ export function renderReviewWorkbook(params:any, dir:string){
   ],[48,44,22,12,28,36,20,20]);
   rows.forEach((_:any,i:number)=>{const c=financial['C'+(i+2)];if(c)c.z='#,##0.00;[Red](#,##0.00);"-"';});
   add('Lead Schedules',[
-    ['Source Fact ID','Metric','Reporting Period','Document ID','Source Document','Extractor Locator','Source Block IDs','Source SHA256','Source Provenance IDs','Source Coordinate','Extraction Method','Extraction Version','Confidence','Source Excerpt'],
-    ...rows.map((r:any)=>[r.id,r.metric,r.period,r.documentId,r.sourceDoc,r.extractorPage,r.sourceBlockIds.join(';'),r.sourceSha256,r.sourceProvenanceIds.join(';'),sourceCoordinateText(r),r.sourceExtractionMethod,r.sourceExtractionVersion,r.sourceConfidence,r.sourceText])
-  ],[48,34,28,38,27,20,50,66,66,100,30,18,14,90]);
+    ['Source Fact ID','Metric','Reporting Period','Document ID','Source Document','Extractor Locator','Source Block IDs','Source SHA256','Source Provenance IDs','Source Coordinate','Extraction Method','Extraction Version','Confidence','Source Excerpt','Derivation ID','Derivation Formula','Derivation Operation','Operand Fact IDs','Operand Values'],
+    ...rows.map((r:any)=>[r.id,r.metric,r.period,r.documentId,r.sourceDoc,r.extractorPage,r.sourceBlockIds.join(';'),r.sourceSha256,r.sourceProvenanceIds.join(';'),sourceCoordinateText(r),r.sourceExtractionMethod,r.sourceExtractionVersion,r.sourceConfidence,r.sourceText,r.derivationId,r.derivationFormula,r.derivationOperation,r.operandFactIds.join(';'),r.operandValues?JSON.stringify(r.operandValues):''])
+  ],[48,34,28,38,27,20,50,66,66,100,30,18,14,90,42,54,22,70,90]);
   if(params.apReview){ const a=params.apReview; add('AP Review',[
     ['Field','Recorded value'], ['Vendor',a.vendor?.value], ['Invoice Number',a.invoiceNumber?.value], ['Invoice Date',a.invoiceDate?.value], ['Due Date',a.dueDate?.value],
     ['Bill To',a.billTo?.value], ['PO Reference On Invoice',a.purchaseOrderReference?.value], ['Currency',a.currency?.value], ['Subtotal',a.subtotal?.value], ['Sales Tax',a.salesTax?.value], ['Total Due',a.totalDue?.value],
