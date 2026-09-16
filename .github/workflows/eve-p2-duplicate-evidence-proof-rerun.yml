@@ -1,0 +1,86 @@
+name: Eve P2 Duplicate Evidence Proof Rerun
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-duplicate-evidence-proof-rerun.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      DUPLICATE_EVIDENCE_ACCEPTANCE_DIR: /tmp/eve-duplicate-evidence
+      EVE_TEST_BASE_URL: http://127.0.0.1:4173
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply proof hardening
+        run: |
+          python3 scripts/eve-p2-duplicate-evidence-proof-fix.py
+          git diff --check
+      - run: npm ci
+      - run: python3 -m pip install --user --quiet 'Pillow==12.3.0'
+      - name: Generate physical fixture families
+        run: |
+          rm -rf "$DUPLICATE_EVIDENCE_ACCEPTANCE_DIR" && mkdir -p "$DUPLICATE_EVIDENCE_ACCEPTANCE_DIR"
+          python3 scripts/academy/generate_ocr_curriculum_fixtures.py "$DUPLICATE_EVIDENCE_ACCEPTANCE_DIR" >/tmp/eve-dup-base.txt
+          python3 scripts/academy/generate_duplicate_evidence_images.py "$DUPLICATE_EVIDENCE_ACCEPTANCE_DIR"
+          npx tsx server/tests/generateDuplicateEvidenceFixtures.ts
+      - name: Source semantic accounting truth
+        run: npx tsx server/tests/duplicateEvidenceIntegrityEngine.test.ts
+      - name: Deliverable Truth
+        run: npx tsx server/tests/duplicateEvidenceDeliverableTruth.test.ts
+      - name: Evidence and grading regressions
+        run: |
+          npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+          npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+          npx tsx server/tests/universalSourceEvidenceContract.test.ts
+          npx tsx server/tests/taskEvidenceSufficiency.test.ts
+          npx tsx server/tests/ocrParserEvidence.test.ts
+          npx tsx server/tests/ocrFailClosedQualityGate.test.ts
+      - name: Production build
+        run: npm run build
+      - name: Product Truth
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME_BIN"
+          export CHROME_BIN
+          npx vite preview --host 127.0.0.1 --port 4173 >/tmp/eve-duplicate-preview.log 2>&1 &
+          PREVIEW_PID=$!
+          trap 'kill $PREVIEW_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4173/ >/dev/null; then break; fi; sleep 1; done
+          curl -fsS http://127.0.0.1:4173/ >/dev/null
+          npx tsx server/tests/duplicateEvidenceProductTruthBrowser.test.ts
+          kill $PREVIEW_PID 2>/dev/null || true
+          wait $PREVIEW_PID 2>/dev/null || true
+          trap - EXIT
+      - name: Five-dimension composition with tamper receipt
+        run: npx tsx server/tests/duplicateEvidenceFiveDimensionAcceptance.test.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eve-duplicate-evidence-five-dimension-acceptance-hardened
+          path: /tmp/eve-duplicate-evidence
+          retention-days: 7
+      - name: Final build
+        run: npm run build
+      - name: Commit proof hardening and self-clean
+        run: |
+          rm -f scripts/eve-p2-duplicate-evidence-proof-fix.py .github/workflows/eve-p2-duplicate-evidence-proof-rerun.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Harden duplicate evidence five-dimension proof'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
