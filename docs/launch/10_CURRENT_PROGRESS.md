@@ -1,10 +1,10 @@
 # Current Launch Progress
 
-Last updated: 2026-09-15 / 2026-09-16 UTC
+Last updated: 2026-09-16 UTC
 
 This file is the rolling execution overlay for `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`. Physical reality and evidence files listed here override stale task status text in earlier snapshots.
 
-## Completed in this launch-control pass
+## Completed / accepted in this launch-control pass
 
 ### EVE-P0-002 — Establish launch source of truth
 Status: DONE
@@ -15,67 +15,121 @@ Authoritative launch package committed to `main` under `docs/launch/`.
 Status: DONE
 Evidence: `docs/launch/evidence/2026-09-15_RUNTIME_BASELINE.md`
 
-Physically verified:
+Physically verified at baseline:
 
 - Eve web running
 - extraction worker running
 - local AI running
 - OpenClaw running
 - Hermes running
-- current observed pods at zero restarts
 - persistent web `/storage` evidence present
 - persistent Hermes `/opt/data` Academy evidence present
 - exactly one Academy cron job
 - Academy job `e9c9dd128ba4` enabled every 5 minutes
 - scheduler `last_status: ok`
-- cron continuing through 2026-09-16 00:25:50 UTC at audit time
 - public/customer/owner domains reachable over HTTPS
-- Hermes advanced endpoint reachable and redirects unauthenticated users to login
+- Hermes advanced endpoint reachable and protected
 
 ### EVE-P1-001 — Current intake/parser inventory
-Status: DONE for code/runtime support inventory
+Status: DONE
 Evidence: `docs/launch/evidence/2026-09-15_INPUT_SUPPORT_MATRIX.md`
 
-Key findings:
+The inventory established the pre-work boundary: corporate/iXBRL/native-text parsing was useful, image OCR was placeholder-only, spreadsheet parsing lacked exact cell/formula provenance, and mixed client-dump intake remained incomplete.
 
-- current corporate/iXBRL and native-text PDF foundation is useful
-- native PDF path inventories pages and extracts page text but lacks scan OCR fallback
-- image extensions route to `OCRParser`
-- current `OCRParser` is a placeholder, not real OCR
-- spreadsheet path uses SheetJS and iterates sheets but does not yet preserve exact cell/formula provenance
-- DOCX raw text extraction exists via Mammoth
-- archive/email/bulk client-dump intake is not launch-grade yet
-- no dedicated OCR/CV package is present in current Node dependencies
-- local Ollama currently exposes `qwen3.5:4b-q4_K_M`; vision/OCR capability of this exact model is not yet proven
+### EVE-P1-003 — Universal source-to-presentation provenance contract
+Status: ACCEPTED CANDIDATE ON FEATURE BRANCH
+Branch: `feature/universal-evidence-ocr-foundation`
+Evidence: `docs/launch/evidence/2026-09-16_UNIVERSAL_SOURCE_EVIDENCE_CONTRACT_ACCEPTANCE.md` on the feature branch
 
-### EVE-P1-003 — Source-to-value provenance gap audit
-Status: DESIGN/GAP AUDIT DONE; implementation active
-Evidence: `docs/launch/evidence/2026-09-15_PROVENANCE_GAP_AUDIT.md`
+Implemented and tested:
 
-Key finding:
+- one source-coordinate model across PDF, image, spreadsheet, CSV, HTML/iXBRL, DOCX, email, text and other sources
+- transformation history
+- mixed-source parent provenance
+- presentation usage references
+- recursive source tracing
+- browser-confirmed presentation requirement for dashboard lineage completion
 
-Eve already has raw evidence, semantic fact, canonical fact, formula operand and render lineage infrastructure. The required work is to unify these through one source-coordinate/provenance adapter that supports PDF/image/spreadsheet/HTML/iXBRL/DOCX/CSV/email evidence without replacing the current lineage system.
+Physical marker:
 
-### EVE-P1-005 — Local OCR candidate selection
-Status: CANDIDATES LOCKED / IMPLEMENTATION PENDING
-Evidence: `docs/launch/13_LOCAL_OCR_SELECTION_STRATEGY.md`
+`UNIVERSAL_SOURCE_EVIDENCE_CONTRACT_TESTS=PASS`
 
-Decision:
+### EVE-P1-004 — Spreadsheet source-to-pixel lineage
+Status: ACCEPTED CANDIDATE ON FEATURE BRANCH
+Evidence: `docs/launch/evidence/2026-09-16_SPREADSHEET_SOURCE_TO_PIXEL_LINEAGE_ACCEPTANCE.md` on the feature branch
 
-- primary local OCR: PaddleOCR
-- secondary local OCR: docTR
-- utility baseline: Tesseract/OCRmyPDF where operationally useful
-- Surya remains external reference only until license/runtime review
-- paid/cloud OCR is optional future escalation only
-- Codex is not to be used for repeated OCR benchmark loops
+Implemented and physically verified:
 
-Physical runtime constraints incorporated into the decision:
+- source SHA and workbook identity
+- sheet name
+- exact cell/range address
+- formulas and cached values
+- cell type and number format
+- merged/hidden metadata
+- preservation through fact persistence
+- propagation through presentation adapters
+- real Practice Home DOM lineage attributes
+- click-through to the actual Eve provenance drawer
 
-- 4 vCPU
-- ~14 GiB RAM
-- no NVIDIA GPU
+Physical marker:
 
-The strategy is to integrate the two local engines behind one Eve OCR contract and let Academy accumulate the real Eve-specific benchmark over time, with the secondary engine invoked selectively for low-confidence/material cases rather than on every page.
+`P1_004_REAL_PRACTICE_HOME_BROWSER_LINEAGE=PASS`
+
+The real browser path traced a rendered Eve value back to `Balance!B4`, including formula `=B2-B3` and number format `$#,##0.00`.
+
+### EVE-P1-005 — Local OCR + image source-to-pixel lineage
+Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / INTERNAL OCR SERVICES PHYSICALLY RUNNING / PRODUCTION APP ACTIVATION PENDING
+Draft PR: #31
+Evidence: `docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md` on the feature branch
+Runtime record: `docs/launch/evidence/2026-09-16_OCR_RUNTIME_CURRENT_STATE.md` on the feature branch
+
+Accepted local engines:
+
+- primary: PaddleOCR 3.7.0 / PP-OCRv6 medium / CPU-only
+- fallback: python-doctr 1.1.0 / `fast_base+crnn_vgg16_bn` / CPU-only PyTorch
+- paid/cloud OCR remains optional escalation only
+
+Physical engine proof on the actual Eve node:
+
+- PaddleOCR local CPU inference: PASS
+- docTR local CPU inference: PASS
+- exact text, regions, bounding boxes, confidence and source SHA returned by both
+
+Persistent internal-only services now running:
+
+- `eve-ocr-paddle:8765`
+- `eve-ocr-doctr:8765`
+
+Both are ClusterIP-only with no public ingress. Model caches are persisted under `/opt/eve-ocr-models/` and survived deployment restart.
+
+Persistent endpoint proof markers:
+
+- `PADDLE_PERSISTENT_OCR=PASS`
+- `DOCTR_PERSISTENT_OCR=PASS`
+- `OCR_CACHE_RESTART_SURVIVAL=PASS`
+- OCR network reachability from Eve extraction worker: PASS
+- OCR network reachability from actual Eve port-3000 web pod: PASS
+
+Real browser marker:
+
+`P1_005_REAL_PRACTICE_HOME_IMAGE_LINEAGE=PASS`
+
+The real Eve Practice Home rendered a material value with image provenance and the real provenance drawer displayed:
+
+- source image filename
+- image dimensions
+- page / image-region locator
+- normalized bounding box
+- OCR text
+- confidence
+- OCR engine/version
+- source provenance ID
+
+Important release boundary:
+
+The OCR services are physically running now, but active production application code remains sourced from `main`. Production customer OCR is **not yet declared active**. Activation requires controlled merge/release of PR #31, application runtime OCR URL configuration, and a post-deployment synthetic receipt/browser regression.
+
+PR #31 intentionally remains draft so service availability and application release remain separate control points.
 
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
@@ -83,10 +137,9 @@ Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
 
 Verified in Canva:
 
-- canonical folder `Eve's Bookkeeping — Brand System`
-- production folders for Brand Master, Logos, Icons, Hero Assets, Product UI, Document Examples, CTA Mountains, Social/OG and Codex Handoff
-- logo subfolders for Primary, Reversed, Emblem and App Mark
-- existing Website concept folder retained
+- canonical `Eve's Bookkeeping — Brand System`
+- Brand Master, Logos, Icons, Hero Assets, Product UI, Document Examples, CTA Mountains, Social/OG and Codex Handoff folders
+- Primary, Reversed, Emblem and App Mark logo subfolders
 
 Locked implementation tokens:
 
@@ -98,51 +151,50 @@ Locked implementation tokens:
 - `#E5E7EB`
 - `#FFFFFF`
 
-The production structure is ready. Final permanent Brand Master/Codex handoff selections and exported logos/icons/heroes/product mockups/document examples/mountain CTA/OG files are still being populated. Website structural implementation may proceed using the locked tokens while final assets are completed.
+Final canonical asset selection/export is still being populated by the Canva workstream.
 
-## Source-control safety note
+## Source-control / runtime safety
 
-During creation of the launch package an empty `README.md` was accidentally created by a helper write call and immediately removed. A compare against the pre-plan checkpoint confirmed the net launch-plan change contained only the intended `docs/launch/*` files. No prior repository content was lost.
+Current OCR/evidence application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work.
 
-## Tooling capability established
+Pfizer / Company 1 was not rerun or altered.
 
-The connected SentinelX host can reach GitHub with `git`.
+Hermes was not replaced and no second Academy scheduler was created.
 
-The production Eve web container has Node 22 and npm 10 with installed dependencies, but contains bundled production output rather than the full source tree.
+The two OCR services were added side-by-side and do not replace any existing Eve service.
 
-This creates a workable no-Codex pattern for bounded changes:
+## No-Codex engineering pattern established
 
-1. inspect/prepare exact patch through GitHub
-2. use an isolated scratch clone/worktree on the connected host where possible
-3. use container/runtime tooling for read-only verification or isolated execution
-4. commit through GitHub only after review
-5. avoid mutating running production containers as a substitute for deployment
+For bounded work we can now:
 
-Node 22 type-stripping was physically verified for isolated scratch TypeScript execution.
-
-If a patch cannot be fully tested with current tooling, record that limitation rather than claiming acceptance.
+1. inspect exact current source through GitHub
+2. prepare/test branch patches in isolated scratch or Kubernetes environments
+3. run branch CI/build gates
+4. exercise the actual Eve UI with the existing real-browser runtime
+5. physically verify runtime services through SentinelX
+6. commit only after tests pass
+7. reserve Codex for a documented blocker rather than routine implementation
 
 ## Active next tasks
 
-1. `EVE-P1-003` — universal source-coordinate/provenance contract implementation
-2. `EVE-P1-004` — spreadsheet cell/formula adapter into universal source-to-presentation lineage
-3. `EVE-P1-005` — integrate PaddleOCR/docTR behind normalized local OCR contract and connect regions to provenance; Academy owns continuing comparison
-4. `EVE-P1-009` — source completeness vs task evidence sufficiency model
-5. `EVE-P1-010` — clarification/PBC model
-6. `EVE-P2-001` — Academy five-dimension grading contract
-7. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
-8. `EVE-P4-001` — owner live operational read-model integration audit
-9. `EVE-P5-001` — remove development/internal language from customer-facing routes
-10. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
-11. `EVE-P6-003` — website structural implementation using locked brand tokens
+1. `EVE-P1-009` — implement source completeness vs task evidence sufficiency model
+2. `EVE-P1-010` — implement clarification/PBC contracts and auditable resolution chain
+3. `EVE-P2-001` — expand Academy into five-dimension grading: source coverage, semantic understanding, accounting accuracy, product truth, deliverable truth
+4. extend Academy curriculum to receipts, invoices, scans, missing pages, mixed batches and ambiguity cases
+5. controlled review/release plan for draft PR #31 after the next evidence-foundation tasks are integrated or explicitly split
+6. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
+7. `EVE-P4-001` — owner live operational read-model integration audit
+8. `EVE-P5-001` — remove development/internal language from customer-facing routes
+9. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
+10. `EVE-P6-003` — website structural implementation using locked brand tokens
 
-## Immediate blockers not requiring Codex yet
+## Immediate blockers not requiring Codex
 
-- final canonical Canva asset population/export for full visual fidelity
+- final canonical Canva asset population/export for full public-site visual fidelity
 - owner pricing/plan decisions before publishing commercial pricing
 - payment-processor selection/authorization before automated checkout
-- advanced Hermes/development credential closeout may require provider control-plane access, but must be audited with current tools before Codex escalation
+- production application OCR activation is deliberately held behind PR #31 release control, not blocked by Codex
 
 ## Codex status
 
-No current task is authorized as `CODEX_LAST_RESORT` merely because credits are unavailable. Current work continues through direct GitHub/runtime tooling until a specific physical blocker is documented.
+No current task is authorized as `CODEX_LAST_RESORT`. Current work continues through direct GitHub/runtime tooling until a specific physical blocker is documented.
