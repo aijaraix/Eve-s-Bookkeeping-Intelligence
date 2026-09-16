@@ -1,0 +1,70 @@
+name: Eve P1-004 Spreadsheet Lineage One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded P1-004 patch
+        run: |
+          python3 .eve/p1-004-apply.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/parser/spreadsheetParser.ts')
+          s = p.read_text()
+          old = 'cellFormula: true, cellNF: true, cellText: true });'
+          new = 'cellFormula: true, cellNF: true, cellText: true, cellStyles: true });'
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected one SheetJS read option marker, found {s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Universal evidence contract regression
+        run: npx tsx server/tests/universalSourceEvidenceContract.test.ts
+
+      - name: Spreadsheet source-to-pixel lineage test
+        run: npx tsx server/tests/spreadsheetSourceToPixelLineage.test.ts
+
+      - name: Presentation adapter regression
+        run: npx tsx src/adapters/presentationAdapters.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested branch patch and remove one-shot machinery
+        run: |
+          rm -f .eve/p1-004-apply.py
+          rm -f .github/workflows/eve-p1-004-one-shot.yml
+          rmdir .eve 2>/dev/null || true
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git add -A
+          git diff --cached --check
+          git config user.name 'Eve Integration Bot'
+          git config user.email 'eve-integration@users.noreply.github.com'
+          git commit -m 'Implement exact spreadsheet source-to-pixel lineage'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
