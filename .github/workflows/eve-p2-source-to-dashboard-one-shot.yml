@@ -34,7 +34,7 @@ jobs:
 
       - name: Apply bounded source-to-dashboard patch
         run: |
-          python3 scripts/eve-p2-source-to-dashboard-apply-v2.py
+          python3 scripts/eve-p2-source-to-dashboard-apply-v3.py
           git diff --check
 
       - name: Install dependencies
@@ -94,7 +94,7 @@ jobs:
 
       - name: Commit tested Product Truth closure and remove one-shot machinery
         run: |
-          rm -f scripts/eve-p2-source-to-dashboard-apply.py scripts/eve-p2-source-to-dashboard-apply-v2.py .github/workflows/eve-p2-source-to-dashboard-one-shot.yml
+          rm -f scripts/eve-p2-source-to-dashboard-apply.py scripts/eve-p2-source-to-dashboard-apply-v2.py scripts/eve-p2-source-to-dashboard-apply-v3.py .github/workflows/eve-p2-source-to-dashboard-one-shot.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
