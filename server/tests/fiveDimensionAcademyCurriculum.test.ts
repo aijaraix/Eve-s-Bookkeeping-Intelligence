@@ -8,8 +8,8 @@ const coverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 assert.equal(cases.length, 20);
 assert.equal(new Set(cases.map(c => c.caseId)).size, 20);
 assert.equal(coverage.totalCases, 20);
-assert.equal(coverage.contractReadyCases, 8);
-assert.equal(coverage.physicalFixturePendingCases, 12);
+assert.equal(coverage.contractReadyCases, 9);
+assert.equal(coverage.physicalFixturePendingCases, 11);
 assert.equal(coverage.autonomousEligibleCases, 0, 'new curriculum cases must not silently enter autonomous scheduling');
 
 const requiredIds = [
@@ -62,6 +62,10 @@ assert.ok(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').sourceKinds.includes('B
 assert.deepEqual(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
 assert.ok(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').validationRefs.includes('server/tests/bankStatementFiveDimensionAcceptance.test.ts'));
 assert.ok(find('CURR-SUFF-MISSING-PAGE-UNKNOWN').sourceKinds.includes('BANK_STATEMENT'));
+assert.equal(find('CURR-MIXED-SPREADSHEET-RECEIPT').fixtureStatus, 'CONTRACT_READY');
+assert.deepEqual(find('CURR-MIXED-SPREADSHEET-RECEIPT').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
+assert.ok(find('CURR-MIXED-SPREADSHEET-RECEIPT').expectedSafeguards.join(' ').includes('block canonical promotion'));
+assert.ok(find('CURR-MIXED-SPREADSHEET-RECEIPT').validationRefs.includes('server/tests/mixedSpreadsheetReceiptFiveDimensionAcceptance.test.ts'));
 assert.equal(find('CURR-SPREADSHEET-GL-TRIAL-BALANCE').fixtureStatus, 'CONTRACT_READY');
 assert.deepEqual(find('CURR-SPREADSHEET-GL-TRIAL-BALANCE').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
 assert.ok(find('CURR-SPREADSHEET-GL-TRIAL-BALANCE').expectedSafeguards.join(' ').includes('stale cached formula'));

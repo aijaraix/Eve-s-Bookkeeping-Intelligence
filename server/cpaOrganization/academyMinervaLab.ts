@@ -450,13 +450,15 @@ export class AcademyMinervaLab {
         'Spreadsheet plus receipt mixed conclusion',
         'MIXED_SOURCE',
         ['SPREADSHEET', 'IMAGE', 'RECEIPT'],
-        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
         [
           'A mixed conclusion must reverse-trace to the exact spreadsheet cell/range and receipt OCR region.',
-          'A correct spreadsheet value cannot mask contradictory receipt evidence.'
+          'Agreement may produce a reviewable matched value only when both independent sources establish the same metric and currency.',
+          'A correct-looking spreadsheet value cannot mask contradictory receipt evidence; conflict must preserve both values and block canonical promotion.',
+          'Actual product and exported PDF/JSON/CSV/XLSX artifacts must retain both parent source families and the reconciliation decision.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['server/tests/spreadsheetSourceToPixelLineage.test.ts', 'server/tests/ocrParserEvidence.test.ts']
+        'CONTRACT_READY',
+        ['server/tests/mixedSpreadsheetReceiptReconciliation.test.ts', 'server/tests/mixedSpreadsheetReceiptProductTruthBrowser.test.ts', 'server/tests/mixedSpreadsheetReceiptDeliverableTruth.test.ts', 'server/tests/mixedSpreadsheetReceiptFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_MIXED_SPREADSHEET_RECEIPT_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-SPREADSHEET-GL-TRIAL-BALANCE',

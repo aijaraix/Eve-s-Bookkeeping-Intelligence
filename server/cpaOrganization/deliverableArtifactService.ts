@@ -92,6 +92,7 @@ export interface DeliverableArtifactRecord {
   apReview?: any;
   bankStatementReview?: any;
   trialBalanceReview?: any;
+  mixedSourceReview?: any;
 }
 
 export class DeliverableArtifactService {
@@ -255,7 +256,8 @@ export class DeliverableArtifactService {
             disclosureEvidenceLedger: data.disclosureEvidenceLedger,
             apReview: data.apReview,
             bankStatementReview: data.bankStatementReview,
-            trialBalanceReview: data.trialBalanceReview
+            trialBalanceReview: data.trialBalanceReview,
+            mixedSourceReview: data.mixedSourceReview
           };
 
           const existing = this.artifacts.get(engagementId) || [];
@@ -428,7 +430,8 @@ export class DeliverableArtifactService {
       balanceIdentityApplicable,
       apReview: params.apReview,
       bankStatementReview: params.bankStatementReview,
-      trialBalanceReview: params.trialBalanceReview
+      trialBalanceReview: params.trialBalanceReview,
+      mixedSourceReview: params.mixedSourceReview
     });
 
     // 2. Generate Binary XLSX
@@ -448,7 +451,8 @@ export class DeliverableArtifactService {
       balanceIdentityApplicable,
       apReview: params.apReview,
       bankStatementReview: params.bankStatementReview,
-      trialBalanceReview: params.trialBalanceReview
+      trialBalanceReview: params.trialBalanceReview,
+      mixedSourceReview: params.mixedSourceReview
     });
 
     // Canonical fact hash binds the draft package to the verified fact set.
@@ -482,7 +486,8 @@ export class DeliverableArtifactService {
       disclosureEvidenceLedger: params.disclosureEvidenceLedger || null,
       apReview: params.apReview || null,
       bankStatementReview: params.bankStatementReview || null,
-      trialBalanceReview: params.trialBalanceReview || null
+      trialBalanceReview: params.trialBalanceReview || null,
+      mixedSourceReview: params.mixedSourceReview || null
     };
     const jsonStr = JSON.stringify(jsonPayload, null, 2);
     fs.writeFileSync(jsonFilepath, jsonStr, 'utf-8');
@@ -491,7 +496,7 @@ export class DeliverableArtifactService {
     // 4. Generate CSV Lead Schedules
     const csvFilename = `lead_schedules_${reportId}_${version}.csv`;
     const csvFilepath = path.join(this.storageDir, csvFilename);
-    const csvContent = buildReviewCsv(normalizedFacts, currency, params.apReview, params.bankStatementReview, params.trialBalanceReview);
+    const csvContent = buildReviewCsv(normalizedFacts, currency, params.apReview, params.bankStatementReview, params.trialBalanceReview, params.mixedSourceReview);
     fs.writeFileSync(csvFilepath, csvContent, 'utf-8');
     const csvSha = crypto.createHash('sha256').update(csvContent).digest('hex');
 
@@ -605,7 +610,8 @@ export class DeliverableArtifactService {
       disclosureEvidenceLedger: params.disclosureEvidenceLedger || undefined,
       apReview: params.apReview || undefined,
       bankStatementReview: params.bankStatementReview || undefined,
-      trialBalanceReview: params.trialBalanceReview || undefined
+      trialBalanceReview: params.trialBalanceReview || undefined,
+      mixedSourceReview: params.mixedSourceReview || undefined
     };
 
     const updatedList = existing.filter(r => !(r.reportId === reportId && r.version === version));
