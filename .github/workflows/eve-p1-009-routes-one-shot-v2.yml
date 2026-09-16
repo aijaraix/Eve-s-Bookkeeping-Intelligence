@@ -1,0 +1,66 @@
+name: Eve P1-009 Evidence Sufficiency Routes One Shot V2
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p1-009-routes-one-shot-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded P1-009 routes patch
+        run: |
+          python3 scripts/eve-p1-009-routes-apply.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Task evidence sufficiency contract
+        run: npx tsx server/tests/taskEvidenceSufficiency.test.ts
+
+      - name: Task evidence sufficiency routes
+        run: npx tsx server/tests/taskEvidenceSufficiencyRoutes.test.ts
+
+      - name: Universal evidence regression
+        run: npx tsx server/tests/universalSourceEvidenceContract.test.ts
+
+      - name: Spreadsheet lineage regression
+        run: npx tsx server/tests/spreadsheetSourceToPixelLineage.test.ts
+
+      - name: OCR parser evidence regression
+        run: npx tsx server/tests/ocrParserEvidence.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested P1-009 operational integration and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p1-009-routes-apply.py \
+            .github/workflows/eve-p1-009-routes-one-shot.yml \
+            .github/workflows/eve-p1-009-routes-one-shot-v2.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Expose task evidence sufficiency decisions through CPA API'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
