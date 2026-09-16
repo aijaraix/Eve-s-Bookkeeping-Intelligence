@@ -1,0 +1,27 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    OCR_ENGINE=doctr \
+    OCR_CPU_THREADS=2
+
+RUN apt-get update -qq \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+      libgl1 libglib2.0-0 libgomp1 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY services/local_ocr/app.py /app/app.py
+
+# Keep the fallback CPU-only. Installing from PyTorch's CPU index avoids pulling CUDA wheels.
+RUN python -m pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cpu \
+      torch==2.14.0+cpu torchvision==0.29.0+cpu \
+ && python -m pip install --no-cache-dir \
+      fastapi==0.116.1 \
+      "uvicorn[standard]==0.35.0" \
+      pillow==11.3.0 \
+      python-doctr==1.1.0
+
+EXPOSE 8765
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8765", "--workers", "1"]
