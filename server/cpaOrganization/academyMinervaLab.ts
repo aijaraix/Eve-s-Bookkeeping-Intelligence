@@ -351,8 +351,8 @@ export class AcademyMinervaLab {
           'Preserve OCR confidence and uncertain alternatives rather than force an unsupported value.',
           'Low-confidence material values must fail closed or enter review instead of silent promotion.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['server/tests/ocrParserEvidence.test.ts']
+        'CONTRACT_READY',
+        ['scripts/academy/verify_degraded_ocr_edge_cases.py', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'server/tests/ocrFailClosedQualityGate.test.ts', 'docs/launch/evidence/2026-09-16_P2_DEGRADED_OCR_FIXTURES_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-OCR-ROTATED-SKEWED',
@@ -364,7 +364,8 @@ export class AcademyMinervaLab {
           'Recover document reading order after orientation/skew handling.',
           'Retain original-image coordinate lineage even when preprocessing is applied.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED'
+        'CONTRACT_READY',
+        ['scripts/academy/verify_degraded_ocr_edge_cases.py', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'server/tests/ocrOrientationRetry.test.ts', 'docs/launch/evidence/2026-09-16_P2_OCR_ORIENTATION_RETRY_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-OCR-GLARE-CROP',
@@ -376,8 +377,8 @@ export class AcademyMinervaLab {
           'Detect unreadable/cropped material regions instead of declaring the source complete.',
           'Block conclusions that require the obscured evidence while allowing unrelated supported conclusions.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['server/tests/taskEvidenceSufficiency.test.ts']
+        'CONTRACT_READY',
+        ['scripts/academy/verify_degraded_ocr_edge_cases.py', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'server/tests/taskEvidenceSufficiency.test.ts', 'docs/launch/evidence/2026-09-16_P2_DEGRADED_OCR_FIXTURES_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-OCR-ENGINE-DISAGREEMENT',
@@ -390,8 +391,8 @@ export class AcademyMinervaLab {
           'Do not silently choose a materially different value solely because one engine is primary.',
           'Escalate or review material disagreement before canonical promotion.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md']
+        'CONTRACT_READY',
+        ['server/tests/academyOcrCurriculumRunner.test.ts', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_OCR_CURRICULUM_RECEIPT_INVOICE_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-SUFF-MISSING-PAGE-NON-MATERIAL',

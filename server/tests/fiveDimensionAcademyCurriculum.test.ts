@@ -8,8 +8,8 @@ const coverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 assert.equal(cases.length, 20);
 assert.equal(new Set(cases.map(c => c.caseId)).size, 20);
 assert.equal(coverage.totalCases, 20);
-assert.equal(coverage.contractReadyCases, 13);
-assert.equal(coverage.physicalFixturePendingCases, 7);
+assert.equal(coverage.contractReadyCases, 17);
+assert.equal(coverage.physicalFixturePendingCases, 3);
 assert.equal(coverage.autonomousEligibleCases, 0, 'new curriculum cases must not silently enter autonomous scheduling');
 
 const requiredIds = [
@@ -78,7 +78,15 @@ assert.equal(find('CURR-SPREADSHEET-GL-TRIAL-BALANCE').fixtureStatus, 'CONTRACT_
 assert.deepEqual(find('CURR-SPREADSHEET-GL-TRIAL-BALANCE').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
 assert.ok(find('CURR-SPREADSHEET-GL-TRIAL-BALANCE').expectedSafeguards.join(' ').includes('stale cached formula'));
 assert.ok(find('CURR-SPREADSHEET-GL-TRIAL-BALANCE').validationRefs.includes('server/tests/trialBalanceFiveDimensionAcceptance.test.ts'));
+assert.equal(find('CURR-OCR-LOW-QUALITY-SCAN').fixtureStatus, 'CONTRACT_READY');
+assert.ok(find('CURR-OCR-LOW-QUALITY-SCAN').validationRefs.includes('server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts'));
+assert.equal(find('CURR-OCR-ROTATED-SKEWED').fixtureStatus, 'CONTRACT_READY');
+assert.ok(find('CURR-OCR-ROTATED-SKEWED').validationRefs.includes('server/tests/ocrOrientationRetry.test.ts'));
+assert.equal(find('CURR-OCR-GLARE-CROP').fixtureStatus, 'CONTRACT_READY');
+assert.ok(find('CURR-OCR-GLARE-CROP').validationRefs.includes('server/tests/taskEvidenceSufficiency.test.ts'));
+assert.equal(find('CURR-OCR-ENGINE-DISAGREEMENT').fixtureStatus, 'CONTRACT_READY');
 assert.ok(find('CURR-OCR-ENGINE-DISAGREEMENT').expectedSafeguards.join(' ').includes('Preserve both engine outputs'));
+assert.ok(find('CURR-OCR-ENGINE-DISAGREEMENT').validationRefs.includes('server/tests/academyOcrCurriculumRunner.test.ts'));
 assert.ok(find('CURR-PBC-INSUFFICIENT-RESPONSE').expectedSafeguards.join(' ').includes('not automatic clearance'));
 assert.ok(find('CURR-PBC-INSUFFICIENT-RESPONSE').expectedSafeguards.join(' ').includes('remains unresolved'));
 assert.ok(find('CURR-PBC-RESOLVES-AFTER-REEVALUATION').expectedSafeguards.join(' ').includes('every affected conclusion ALLOWED'));
