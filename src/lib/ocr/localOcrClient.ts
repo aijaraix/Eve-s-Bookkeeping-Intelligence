@@ -32,11 +32,14 @@ export interface LocalOcrEngineResult {
   elapsedMs: number;
   pages: LocalOcrPage[];
   warnings?: string[];
+  appliedRotationDegrees?: number;
+  coordinateSpace?: 'ORIGINAL_SOURCE';
 }
 
 export interface LocalOcrAttempt {
   engine: OcrEngineName;
   url: string;
+  rotationDegrees: number;
   selected: boolean;
   score: number | null;
   averageConfidence: number | null;
@@ -52,6 +55,8 @@ export interface LocalOcrRoutingDecision {
   reasons: string[];
   primaryScore: number | null;
   fallbackScore: number | null;
+  orientationRetryInvoked: boolean;
+  selectedRotationDegrees: number;
 }
 
 export interface LocalOcrCompositeResult extends LocalOcrEngineResult {
@@ -74,6 +79,8 @@ export interface LocalOcrClientOptions {
   materialConfidenceFloor?: number;
   fallbackImprovementMargin?: number;
   forceFallbackEvaluation?: boolean;
+  orientationRetryEnabled?: boolean;
+  orientationRetryAngles?: number[];
   fetchImpl?: typeof fetch;
 }
 
@@ -113,6 +120,14 @@ const DEFAULT_IMPROVEMENT_MARGIN = 0.02;
 function envNumber(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
   return Number.isFinite(raw) ? raw : fallback;
+}
+
+function envBoolean(name: string, fallback: boolean): boolean {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!raw) return fallback;
+  if (['0', 'false', 'no', 'off'].includes(raw)) return false;
+  if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
+  return fallback;
 }
 
 function normalizeUrl(value?: string): string {
@@ -182,6 +197,11 @@ function validateServiceResult(payload: any): LocalOcrEngineResult {
       }
     }
   }
+  const rotationDegrees = Number(payload.appliedRotationDegrees ?? 0);
+  if (![0, 90, 180, 270].includes(rotationDegrees)) throw new Error('OCR_SERVICE_INVALID_ROTATION');
+  if (rotationDegrees !== 0 && payload.coordinateSpace !== 'ORIGINAL_SOURCE') {
+    throw new Error('OCR_SERVICE_ROTATED_COORDINATE_SPACE_NOT_ORIGINAL');
+  }
   return payload as LocalOcrEngineResult;
 }
 
@@ -193,6 +213,8 @@ export class LocalOcrClient {
   private materialConfidenceFloor: number;
   private fallbackImprovementMargin: number;
   private forceFallbackEvaluation: boolean;
+  private orientationRetryEnabled: boolean;
+  private orientationRetryAngles: number[];
   private fetchImpl: typeof fetch;
 
   constructor(options: LocalOcrClientOptions = {}) {
@@ -203,10 +225,13 @@ export class LocalOcrClient {
     this.materialConfidenceFloor = options.materialConfidenceFloor ?? envNumber('EVE_OCR_MATERIAL_CONFIDENCE_FLOOR', DEFAULT_MATERIAL_FLOOR);
     this.fallbackImprovementMargin = options.fallbackImprovementMargin ?? envNumber('EVE_OCR_FALLBACK_IMPROVEMENT_MARGIN', DEFAULT_IMPROVEMENT_MARGIN);
     this.forceFallbackEvaluation = options.forceFallbackEvaluation === true;
+    this.orientationRetryEnabled = options.orientationRetryEnabled ?? envBoolean('EVE_OCR_ORIENTATION_RETRY_ENABLED', true);
+    const configuredAngles = options.orientationRetryAngles?.length ? options.orientationRetryAngles : [90, 270, 180];
+    this.orientationRetryAngles = Array.from(new Set(configuredAngles.map(Number).filter(angle => [90, 180, 270].includes(angle))));
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  private async call(url: string, input: LocalOcrInput): Promise<LocalOcrEngineResult> {
+  private async call(url: string, input: LocalOcrInput, rotationDegrees = 0): Promise<LocalOcrEngineResult> {
     if (!url) throw new Error('LOCAL_OCR_ENDPOINT_NOT_CONFIGURED');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
@@ -219,6 +244,7 @@ export class LocalOcrClient {
           mimeType: input.mimeType,
           dataBase64: input.buffer.toString('base64'),
           sourceSha256: input.sourceSha256,
+          rotationDegrees,
         }),
         signal: controller.signal,
       });
@@ -278,6 +304,7 @@ export class LocalOcrClient {
         attempts.push({
           engine: primary.engine,
           url: this.primaryUrl,
+          rotationDegrees: 0,
           selected: false,
           score: primaryQuality.score,
           averageConfidence: primaryQuality.averageConfidence,
@@ -288,7 +315,7 @@ export class LocalOcrClient {
       } catch (error: any) {
         primaryError = error?.message || String(error);
         attempts.push({
-          engine: 'paddleocr', url: this.primaryUrl, selected: false, score: null,
+          engine: 'paddleocr', url: this.primaryUrl, rotationDegrees: 0, selected: false, score: null,
           averageConfidence: null, materialMinimumConfidence: null, regionCount: 0, error: primaryError,
         });
       }
@@ -307,6 +334,7 @@ export class LocalOcrClient {
         attempts.push({
           engine: fallback.engine,
           url: this.fallbackUrl,
+          rotationDegrees: 0,
           selected: false,
           score: fallbackQuality.score,
           averageConfidence: fallbackQuality.averageConfidence,
@@ -316,7 +344,7 @@ export class LocalOcrClient {
         });
       } catch (error: any) {
         attempts.push({
-          engine: 'doctr', url: this.fallbackUrl, selected: false, score: null,
+          engine: 'doctr', url: this.fallbackUrl, rotationDegrees: 0, selected: false, score: null,
           averageConfidence: null, materialMinimumConfidence: null, regionCount: 0,
           error: error?.message || String(error),
         });
@@ -336,16 +364,80 @@ export class LocalOcrClient {
       throw new Error(`LOCAL_OCR_FAILED:${primaryError || 'primary unavailable'}; fallback=${attempts.find(a => a.engine === 'doctr')?.error || 'unavailable'}`);
     }
 
-    for (const attempt of attempts) attempt.selected = attempt.result === selected;
-    const chosenQuality = assessOcrQuality(selected);
+    let chosenQuality = assessOcrQuality(selected);
     const routingDecision: LocalOcrRoutingDecision = {
       selectedEngine: selected.engine,
       fallbackInvoked: shouldInvokeFallback,
       reasons,
       primaryScore: primaryQuality?.score ?? null,
       fallbackScore: fallbackQuality?.score ?? null,
+      orientationRetryInvoked: false,
+      selectedRotationDegrees: Number(selected.appliedRotationDegrees ?? 0),
     };
-    const finalQualityReasons = this.finalQualityReasons(chosenQuality);
+    let finalQualityReasons = this.finalQualityReasons(chosenQuality);
+
+    const isDirectImage = input.mimeType.toLowerCase().startsWith('image/') || /\.(?:png|jpe?g|webp|tiff?|bmp)$/i.test(input.filename);
+    if (finalQualityReasons.length > 0 && this.orientationRetryEnabled && isDirectImage && this.orientationRetryAngles.length > 0) {
+      routingDecision.orientationRetryInvoked = true;
+      reasons.push('ORIENTATION_RETRY_AFTER_INSUFFICIENT_QUALITY');
+      const passingCandidates: Array<{ result: LocalOcrEngineResult; quality: OcrQualityAssessment; rotationDegrees: number }> = [];
+
+      const evaluateRotations = async (url: string, nominalEngine: OcrEngineName) => {
+        for (const rotationDegrees of this.orientationRetryAngles) {
+          try {
+            const rotatedResult = await this.call(url, input, rotationDegrees);
+            const rotatedQuality = assessOcrQuality(rotatedResult);
+            attempts.push({
+              engine: rotatedResult.engine,
+              url,
+              rotationDegrees,
+              selected: false,
+              score: rotatedQuality.score,
+              averageConfidence: rotatedQuality.averageConfidence,
+              materialMinimumConfidence: rotatedQuality.materialMinimumConfidence,
+              regionCount: rotatedQuality.regionCount,
+              result: rotatedResult,
+            });
+            if (this.finalQualityReasons(rotatedQuality).length === 0) {
+              passingCandidates.push({ result: rotatedResult, quality: rotatedQuality, rotationDegrees });
+            }
+          } catch (error: any) {
+            attempts.push({
+              engine: nominalEngine,
+              url,
+              rotationDegrees,
+              selected: false,
+              score: null,
+              averageConfidence: null,
+              materialMinimumConfidence: null,
+              regionCount: 0,
+              error: error?.message || String(error),
+            });
+          }
+        }
+      };
+
+      if (this.primaryUrl) await evaluateRotations(this.primaryUrl, 'paddleocr');
+      if (!passingCandidates.length && this.fallbackUrl) {
+        routingDecision.fallbackInvoked = true;
+        await evaluateRotations(this.fallbackUrl, 'doctr');
+      }
+
+      if (passingCandidates.length) {
+        passingCandidates.sort((a, b) => b.quality.score - a.quality.score);
+        const winner = passingCandidates[0];
+        selected = winner.result;
+        chosenQuality = winner.quality;
+        finalQualityReasons = [];
+        routingDecision.selectedEngine = selected.engine;
+        routingDecision.selectedRotationDegrees = winner.rotationDegrees;
+        reasons.push(`ORIENTATION_RETRY_SELECTED_${winner.rotationDegrees}`);
+      } else {
+        reasons.push('ORIENTATION_RETRY_NO_ACCEPTABLE_RESULT');
+      }
+    }
+
+    for (const attempt of attempts) attempt.selected = attempt.result === selected;
     if (finalQualityReasons.length > 0) {
       throw new LocalOcrInsufficientQualityError({
         selectedEngine: selected.engine,
@@ -364,6 +456,8 @@ export class LocalOcrClient {
         ...(selected.warnings || []),
         ...(primary && shouldInvokeFallback ? ['OCR_FALLBACK_EVALUATED'] : []),
         ...(selected.engine === 'doctr' ? ['OCR_FALLBACK_SELECTED'] : []),
+        ...(routingDecision.orientationRetryInvoked ? ['OCR_ORIENTATION_RETRY_EVALUATED'] : []),
+        ...(routingDecision.selectedRotationDegrees ? [`OCR_ORIENTATION_RETRY_SELECTED:${routingDecision.selectedRotationDegrees}`] : []),
         ...(chosenQuality.regionCount === 0 ? ['OCR_NO_TEXT_REGIONS'] : []),
       ],
     };

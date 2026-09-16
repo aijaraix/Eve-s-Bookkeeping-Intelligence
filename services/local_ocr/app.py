@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from PIL import Image
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 ENGINE = os.getenv("OCR_ENGINE", "paddle").strip().lower()
 MAX_INPUT_BYTES = int(os.getenv("OCR_MAX_INPUT_BYTES", str(25 * 1024 * 1024)))
 CPU_THREADS = max(1, int(os.getenv("OCR_CPU_THREADS", "2")))
@@ -27,6 +27,7 @@ class OcrRequest(BaseModel):
     mimeType: str = Field(default="application/octet-stream", max_length=128)
     dataBase64: str = Field(min_length=1)
     sourceSha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
+    rotationDegrees: int = Field(default=0)
 
 
 def package_version(name: str) -> str:
@@ -82,6 +83,93 @@ def ensure_supported_source(req: OcrRequest, payload: bytes) -> tuple[str, str]:
     if mime.startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}:
         return "image", suffix
     raise HTTPException(status_code=415, detail="LOCAL_OCR_UNSUPPORTED_SOURCE_TYPE")
+
+
+
+def normalize_rotation_degrees(value: int | None) -> int:
+    degrees = int(value or 0)
+    if degrees not in {0, 90, 180, 270}:
+        raise HTTPException(status_code=422, detail=f"OCR_ROTATION_UNSUPPORTED:{degrees}")
+    return degrees
+
+
+def inverse_rotate_normalized_point(x: float, y: float, rotation_degrees: int) -> tuple[float, float]:
+    """Map a point from the rotated OCR working copy back into original-source normalized space."""
+    x = clamp01(x)
+    y = clamp01(y)
+    degrees = normalize_rotation_degrees(rotation_degrees)
+    if degrees == 90:
+        return clamp01(1.0 - y), clamp01(x)
+    if degrees == 180:
+        return clamp01(1.0 - x), clamp01(1.0 - y)
+    if degrees == 270:
+        return clamp01(y), clamp01(1.0 - x)
+    return x, y
+
+
+def remap_bbox_to_original(box: dict[str, Any], rotation_degrees: int) -> dict[str, Any]:
+    x0 = clamp01(box.get("x"))
+    y0 = clamp01(box.get("y"))
+    x1 = clamp01(x0 + clamp01(box.get("width")))
+    y1 = clamp01(y0 + clamp01(box.get("height")))
+    points = [
+        inverse_rotate_normalized_point(x0, y0, rotation_degrees),
+        inverse_rotate_normalized_point(x1, y0, rotation_degrees),
+        inverse_rotate_normalized_point(x1, y1, rotation_degrees),
+        inverse_rotate_normalized_point(x0, y1, rotation_degrees),
+    ]
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    return {
+        "x": left,
+        "y": top,
+        "width": max(0.0, right - left),
+        "height": max(0.0, bottom - top),
+        "unit": "NORMALIZED",
+    }
+
+
+def remap_result_to_original(
+    result: dict[str, Any],
+    rotation_degrees: int,
+    original_width: int,
+    original_height: int,
+) -> dict[str, Any]:
+    degrees = normalize_rotation_degrees(rotation_degrees)
+    mapped = dict(result)
+    mapped_pages: list[dict[str, Any]] = []
+    for page in result.get("pages") or []:
+        mapped_page = dict(page)
+        mapped_page["workingImageWidth"] = int(page.get("width") or 0)
+        mapped_page["workingImageHeight"] = int(page.get("height") or 0)
+        mapped_page["width"] = int(original_width)
+        mapped_page["height"] = int(original_height)
+        mapped_regions: list[dict[str, Any]] = []
+        for region in page.get("regions") or []:
+            mapped_region = dict(region)
+            box = region.get("boundingBox") or {}
+            mapped_region["boundingBox"] = remap_bbox_to_original(box, degrees)
+            polygon = region.get("polygon") or []
+            if polygon:
+                mapped_region["polygon"] = [
+                    list(inverse_rotate_normalized_point(float(point[0]), float(point[1]), degrees))
+                    for point in polygon
+                    if isinstance(point, (list, tuple)) and len(point) >= 2
+                ]
+            mapped_regions.append(mapped_region)
+        mapped_page["regions"] = mapped_regions
+        mapped_pages.append(mapped_page)
+    mapped["pages"] = mapped_pages
+    mapped["appliedRotationDegrees"] = degrees
+    mapped["coordinateSpace"] = "ORIGINAL_SOURCE"
+    warnings = list(mapped.get("warnings") or [])
+    if degrees:
+        warnings.append(f"OCR_ORIENTATION_WORKING_COPY:{degrees}")
+        warnings.append("OCR_COORDINATES_REMAPPED_TO_ORIGINAL_SOURCE")
+    mapped["warnings"] = list(dict.fromkeys(warnings))
+    return mapped
 
 
 def render_pdf_pages(pdf_path: str, output_dir: str) -> list[dict[str, Any]]:
@@ -291,6 +379,9 @@ def health() -> dict[str, Any]:
 def recognize(req: OcrRequest) -> dict[str, Any]:
     payload, digest = decode_request(req)
     source_kind, suffix = ensure_supported_source(req, payload)
+    rotation_degrees = normalize_rotation_degrees(req.rotationDegrees)
+    if source_kind == "pdf" and rotation_degrees != 0:
+        raise HTTPException(status_code=422, detail="OCR_ROTATION_RETRY_IMAGE_ONLY")
     started = time.perf_counter()
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
         fh.write(payload)
@@ -326,8 +417,24 @@ def recognize(req: OcrRequest) -> dict[str, Any]:
         else:
             with Image.open(path) as image:
                 width, height = image.size
-            out = ocr_single_image(path, width, height)
+                if rotation_degrees:
+                    with tempfile.TemporaryDirectory(prefix="eve-ocr-rotate-") as rotation_dir:
+                        working = image.convert("RGB").rotate(
+                            rotation_degrees,
+                            expand=True,
+                            fillcolor=(255, 255, 255),
+                        )
+                        rotated_path = os.path.join(rotation_dir, f"rotation-{rotation_degrees}.png")
+                        working.save(rotated_path, "PNG", optimize=True)
+                        out = ocr_single_image(rotated_path, working.width, working.height)
+                else:
+                    out = ocr_single_image(path, width, height)
+            out = remap_result_to_original(out, rotation_degrees, width, height)
 
+        if "appliedRotationDegrees" not in out:
+            out["appliedRotationDegrees"] = 0
+        if "coordinateSpace" not in out:
+            out["coordinateSpace"] = "ORIGINAL_SOURCE"
         out["sourceSha256"] = digest
         out["elapsedMs"] = int((time.perf_counter() - started) * 1000)
         out["serviceVersion"] = APP_VERSION

@@ -107,6 +107,7 @@ const base = {
   const client = new LocalOcrClient({
     primaryUrl: 'http://paddle', fallbackUrl: 'http://doctr', fetchImpl: fetchImpl as typeof fetch,
     primaryAverageConfidenceFloor: 0.90, materialConfidenceFloor: 0.85,
+    orientationRetryEnabled: false,
   });
   await assert.rejects(
     () => client.recognize({ filename: 'rotated-receipt.png', mimeType: 'image/png', buffer, sourceSha256 }),

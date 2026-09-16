@@ -84,6 +84,7 @@ export class OCRParser {
               imageHeight: page.height,
               boundingBox: region.boundingBox,
               ocrRegionId: safeRegionId,
+              transformId: result.appliedRotationDegrees ? `ocr-rotation-${result.appliedRotationDegrees}-remapped-to-original` : undefined,
               rawLiteral: text,
               normalizedLiteral: text,
               confidence: region.confidence,
@@ -105,7 +106,11 @@ export class OCRParser {
             outputLiteral: text,
             engine: result.engine,
             engineVersion: result.engineVersion,
-            notes: result.model ? `model=${result.model}` : undefined,
+            notes: [
+              result.model ? `model=${result.model}` : '',
+              result.appliedRotationDegrees ? `orientationRetryDegrees=${result.appliedRotationDegrees}` : '',
+              result.appliedRotationDegrees ? 'coordinates=original-source' : '',
+            ].filter(Boolean).join('; ') || undefined,
           }],
           verificationState: region.confidence >= 0.90 ? "VERIFIED" : "REVIEW_REQUIRED",
           presentationUsages: [],
@@ -129,6 +134,7 @@ export class OCRParser {
           confidence: region.confidence,
           ocr_engine: result.engine,
           ocr_engine_version: result.engineVersion,
+          ocr_rotation_degrees: Number(result.appliedRotationDegrees || 0),
         });
         pageLines.push(text);
         totalConfidence += Number(region.confidence) || 0;
@@ -160,6 +166,8 @@ export class OCRParser {
         selectedModel: result.model,
         fallbackInvoked: result.routingDecision.fallbackInvoked,
         fallbackReasons: result.routingDecision.reasons,
+        orientationRetryInvoked: result.routingDecision.orientationRetryInvoked,
+        selectedRotationDegrees: result.routingDecision.selectedRotationDegrees,
       },
       metadata: {
         entityName: filename.replace(/\.[^/.]+$/, ""),
@@ -171,6 +179,7 @@ export class OCRParser {
         ocrModel: result.model,
         ocrAverageConfidence: averageConfidence,
         ocrRegions: ocrLines.length,
+        ocrRotationDegrees: Number(result.appliedRotationDegrees || 0),
       },
       raw_text: text,
       markdown: text,
@@ -190,6 +199,7 @@ export class OCRParser {
       ocrRoutingDecision: result.routingDecision,
       ocrEngineResults: result.attempts.map(attempt => ({
         engine: attempt.engine,
+        rotationDegrees: attempt.rotationDegrees,
         selected: attempt.selected,
         score: attempt.score,
         averageConfidence: attempt.averageConfidence,
