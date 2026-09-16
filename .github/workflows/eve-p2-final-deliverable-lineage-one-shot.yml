@@ -1,0 +1,92 @@
+name: Eve P2 Final Deliverable Lineage One Shot
+
+on:
+  push:
+    branches:
+      - feature/universal-evidence-ocr-foundation
+    paths:
+      - '.github/workflows/eve-p2-final-deliverable-lineage-one-shot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FINAL_LINEAGE_ACCEPTANCE_DIR: /tmp/eve-final-deliverable-lineage
+      SOURCE_DASHBOARD_ACCEPTANCE_DIR: /tmp/eve-final-deliverable-lineage
+      RECEIPT_ACCEPTANCE_EVIDENCE_DIR: /tmp/eve-final-deliverable-lineage
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/universal-evidence-ocr-foundation
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded final-deliverable lineage patch
+        run: |
+          python3 scripts/eve-p2-final-deliverable-lineage-apply.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install deterministic receipt fixture dependency
+        run: python3 -m pip install --user --quiet 'Pillow==12.3.0'
+
+      - name: Generate exact physical source parents
+        run: |
+          rm -rf "$FINAL_LINEAGE_ACCEPTANCE_DIR"
+          mkdir -p "$FINAL_LINEAGE_ACCEPTANCE_DIR"
+          python3 scripts/academy/generate_ocr_curriculum_fixtures.py "$FINAL_LINEAGE_ACCEPTANCE_DIR"
+          npx tsx server/tests/generateSourceToDashboardFixtures.ts
+
+      - name: Fail-closed final lineage validator
+        run: npx tsx server/tests/finalDeliverableLineageValidator.test.ts
+
+      - name: Physical PDF JSON CSV XLSX reverse-lineage readback
+        run: npx tsx server/tests/finalDeliverableLineageTruth.test.ts
+
+      - name: Existing deliverable and evidence regressions
+        run: |
+          npx tsx server/tests/receiptDeliverableTruth.test.ts
+          npx tsx server/tests/universalSourceEvidenceContract.test.ts
+          npx tsx server/tests/spreadsheetSourceToPixelLineage.test.ts
+          npx tsx server/tests/sourceToDashboardPresentationIntegrity.test.ts
+          npx tsx server/tests/fiveDimensionAcademyCurriculum.test.ts
+          npx tsx server/tests/fiveDimensionAcademyGrading.test.ts
+          npx tsx server/tests/taskEvidenceSufficiency.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Compose targeted Minerva acceptance
+        run: npx tsx server/tests/finalDeliverableLineageCurriculumAcceptance.test.ts
+
+      - name: Upload final-lineage acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-final-deliverable-lineage-acceptance
+          path: /tmp/eve-final-deliverable-lineage
+          retention-days: 7
+
+      - name: Final production build after acceptance gates
+        run: npm run build
+
+      - name: Commit tested final curriculum closure and remove one-shot machinery
+        run: |
+          rm -f scripts/eve-p2-final-deliverable-lineage-apply.py .github/workflows/eve-p2-final-deliverable-lineage-one-shot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Close final deliverable lineage curriculum'
+          git push origin HEAD:feature/universal-evidence-ocr-foundation
