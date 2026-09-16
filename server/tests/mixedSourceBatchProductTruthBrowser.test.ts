@@ -1,6 +1,4 @@
-from pathlib import Path
-p=Path('server/tests/mixedSourceBatchProductTruthBrowser.test.ts')
-p.write_text(r'''import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -43,5 +41,3 @@ try{
   fs.writeFileSync(path.join(batchEvidenceDir(),'product-truth.json'),JSON.stringify({marker:'P2_MIXED_SOURCE_BATCH_PRODUCT_TRUTH_BROWSER=PASS',screenshot:path.basename(screenshot),status:prepared.tamperedReview.status,promotionState:prepared.tamperedReview.promotionState,sourceShas:prepared.sourceShas,browserVersion:await browser.version()},null,2));
   console.log('P2_MIXED_SOURCE_BATCH_PRODUCT_TRUTH_BROWSER=PASS');
 }finally{await browser.close();}
-''')
-print('MIXED_BATCH_BROWSER_HYDRATION_FIX=PASS')

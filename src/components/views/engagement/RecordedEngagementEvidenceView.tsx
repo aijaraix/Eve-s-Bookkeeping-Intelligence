@@ -4,6 +4,7 @@ import { InvoiceApReviewPanel } from './InvoiceApReviewPanel';
 import { BankStatementCompletenessPanel } from './BankStatementCompletenessPanel';
 import { TrialBalanceReviewPanel } from './TrialBalanceReviewPanel';
 import { MixedSourceReconciliationPanel } from './MixedSourceReconciliationPanel';
+import { MixedSourceBatchPanel } from './MixedSourceBatchPanel';
 const readable = (value: any): string => value === null || value === undefined ? 'Not recorded' : typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value);
 export const RecordedEngagementEvidenceView: React.FC<{detail: any; period: string; findingsOnly?: boolean}> = ({detail,period,findingsOnly}) => {
   if (!detail) return <p className="p-6">No current engagement evidence is available.</p>;
@@ -20,6 +21,7 @@ export const RecordedEngagementEvidenceView: React.FC<{detail: any; period: stri
       </article>)}
       {!(detail.findings?.length || continuation?.structuredUncertainties?.length) && <p>No findings returned. This is not a clearance or completeness opinion.</p>}
     </> : <>
+      <MixedSourceBatchPanel review={detail.mixedSourceBatchReview} />
       <MixedSourceReconciliationPanel review={detail.mixedSourceReview} />
       <TrialBalanceReviewPanel review={detail.trialBalanceReview} />
       <BankStatementCompletenessPanel review={detail.bankStatementCompleteness} />

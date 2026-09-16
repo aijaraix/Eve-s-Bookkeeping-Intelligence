@@ -437,13 +437,16 @@ export class AcademyMinervaLab {
         'Mixed source batch with independent coordinate families',
         'MIXED_SOURCE',
         ['SPREADSHEET', 'PDF', 'IMAGE', 'CSV'],
-        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
         [
           'Preserve the correct coordinate family for every source rather than flattening provenance.',
-          'Mixed-source conclusions must retain all material parent evidence references.'
+          'Retain distinct document SHA, artifact and provenance identities for spreadsheet, PDF, image and CSV sources.',
+          'Similar monetary values are independent observations and do not establish source identity, corroboration or a canonical batch amount.',
+          'Cross-document coordinate or source-artifact substitution must block promotion and require source reconciliation.',
+          'Actual product and exported drafts must retain all material parent references and the fail-closed batch decision.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['server/tests/universalSourceEvidenceContract.test.ts']
+        'CONTRACT_READY',
+        ['server/tests/mixedSourceBatchEvidenceEngine.test.ts', 'server/tests/mixedSourceBatchProductTruthBrowser.test.ts', 'server/tests/mixedSourceBatchDeliverableTruth.test.ts', 'server/tests/mixedSourceBatchFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_MIXED_SOURCE_BATCH_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-MIXED-SPREADSHEET-RECEIPT',
