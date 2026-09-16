@@ -512,12 +512,16 @@ export class AcademyMinervaLab {
         'Duplicate and near-duplicate evidence discrimination',
         'EVIDENCE_INTEGRITY',
         ['PDF', 'IMAGE', 'DUPLICATE_EVIDENCE'],
-        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
         [
-          'Exact duplicates must not be double-counted as independent corroboration.',
-          'Near-duplicates with materially changed content must remain distinguishable and traceable.'
+          'Exact byte-identical duplicates retain source lineage but must not be double-counted as independent corroboration.',
+          'Cosmetic-only near-duplicates with a different physical SHA but unchanged material content must not increase evidentiary weight.',
+          'Near-duplicates with materially changed accounting content must remain separately traceable and block promotion pending reconciliation.',
+          'Duplicate discrimination must validate source SHA/artifact/coordinate consistency rather than relying on filename or amount alone.',
+          'Actual product and PDF/JSON/CSV/XLSX drafts must preserve classifications, source lineage, corroboration counts and the fail-closed conflict decision.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED'
+        'CONTRACT_READY',
+        ['server/tests/duplicateEvidenceIntegrityEngine.test.ts', 'server/tests/duplicateEvidenceProductTruthBrowser.test.ts', 'server/tests/duplicateEvidenceDeliverableTruth.test.ts', 'server/tests/duplicateEvidenceFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_DUPLICATE_EVIDENCE_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-ISOLATION-BULK-MIXED-CLIENT',
