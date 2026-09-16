@@ -3,6 +3,8 @@ import { GraduationCap, CheckCircle2, AlertCircle, Sparkles, Globe, Layers, Arro
 
 export interface CurriculumTabProps {
   fiveDimensionEvaluation?: any;
+  fiveDimensionCurriculum?: any[];
+  fiveDimensionCurriculumCoverage?: any;
   coverage?: {
     languages?: Record<string, number>;
     currencies?: Record<string, number>;
@@ -12,7 +14,7 @@ export interface CurriculumTabProps {
   };
 }
 
-export const CurriculumTab: React.FC<CurriculumTabProps> = ({ coverage, fiveDimensionEvaluation }) => {
+export const CurriculumTab: React.FC<CurriculumTabProps> = ({ coverage, fiveDimensionEvaluation, fiveDimensionCurriculum = [], fiveDimensionCurriculumCoverage }) => {
   const langCounts = coverage?.languages || { English: 6, German: 3, Japanese: 2, French: 2, Spanish: 2, Polish: 1, Hebrew: 1 };
   const currCounts = coverage?.currencies || { USD: 8, EUR: 7, GBP: 4, JPY: 2, CHF: 2, CAD: 1, PLN: 1 };
   const fwCounts = coverage?.frameworks || { US_GAAP: 8, IFRS: 9 };
@@ -108,6 +110,34 @@ export const CurriculumTab: React.FC<CurriculumTabProps> = ({ coverage, fiveDime
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Curated five-dimension curriculum */}
+      <div className="p-5 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-4 font-mono text-xs" data-testid="academy-five-dimension-curriculum">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-cyan-400 font-bold">Five-Dimension Curriculum Queue</div>
+            <div className="text-sm font-bold text-white mt-1">Curated cases are specifications until their declared fixture path is physically exercised</div>
+          </div>
+          <div className="flex gap-2 text-[9px]">
+            <span className="px-2 py-1 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">{fiveDimensionCurriculumCoverage?.contractReadyCases || 0} contract-ready</span>
+            <span className="px-2 py-1 rounded bg-amber-950 text-amber-300 border border-amber-800">{fiveDimensionCurriculumCoverage?.physicalFixturePendingCases || 0} physical fixture required</span>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">All new cases are intentionally excluded from autonomous scheduling until their fixture/execution path is proven. This catalog does not convert a specification into a pass.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+          {fiveDimensionCurriculum.map((item: any) => (
+            <div key={item.caseId} className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-[11px] text-white font-bold leading-snug">{item.title}</div>
+                <span className={`text-[8px] px-1.5 py-0.5 rounded border whitespace-nowrap ${item.fixtureStatus === 'CONTRACT_READY' ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-amber-950 text-amber-300 border-amber-800'}`}>{String(item.fixtureStatus || '').replace(/_/g, ' ')}</span>
+              </div>
+              <div className="text-[9px] text-slate-500">{item.caseId} · {String(item.family || '').replace(/_/g, ' ')}</div>
+              <div className="text-[9px] text-indigo-300">{(item.targetDimensions || []).map((d: string) => d.replace(/_/g, ' ')).join(' · ')}</div>
+              <div className="text-[9px] text-slate-500">Autonomous scheduler: NOT ELIGIBLE</div>
+            </div>
+          ))}
         </div>
       </div>
 

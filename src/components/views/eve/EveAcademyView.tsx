@@ -400,6 +400,8 @@ export const EveAcademyView: React.FC<EveAcademyViewProps> = ({ onNavigate }) =>
         <CurriculumTab
           coverage={stateData?.coverage}
           fiveDimensionEvaluation={stateData?.latestFiveDimensionEvaluation}
+          fiveDimensionCurriculum={stateData?.fiveDimensionCurriculum}
+          fiveDimensionCurriculumCoverage={stateData?.fiveDimensionCurriculumCoverage}
         />
       )}
 

@@ -137,14 +137,52 @@ export interface FiveDimensionEvaluationReport {
   gradingRule: string;
 }
 
+export type FiveDimensionCurriculumFamily =
+  | 'IMAGE_OCR'
+  | 'SOURCE_COMPLETENESS'
+  | 'MIXED_SOURCE'
+  | 'PBC_CLARIFICATION'
+  | 'EVIDENCE_INTEGRITY'
+  | 'CLIENT_ISOLATION'
+  | 'SEMANTIC_CONTEXT'
+  | 'PRODUCT_RENDERING'
+  | 'DELIVERABLE_LINEAGE';
+
+export type FiveDimensionCurriculumFixtureStatus =
+  | 'CONTRACT_READY'
+  | 'PHYSICAL_FIXTURE_REQUIRED';
+
+export interface FiveDimensionCurriculumCase {
+  caseId: string;
+  title: string;
+  family: FiveDimensionCurriculumFamily;
+  sourceKinds: string[];
+  targetDimensions: FiveDimensionName[];
+  expectedSafeguards: string[];
+  fixtureStatus: FiveDimensionCurriculumFixtureStatus;
+  autonomousEligible: false;
+  validationRefs: string[];
+}
+
+export interface FiveDimensionCurriculumCoverage {
+  totalCases: number;
+  contractReadyCases: number;
+  physicalFixturePendingCases: number;
+  autonomousEligibleCases: number;
+  byFamily: Record<string, number>;
+  targetDimensionCounts: Record<FiveDimensionName, number>;
+}
+
 export class AcademyMinervaLab {
   private static instance: AcademyMinervaLab | null = null;
   private sealedCorpus: BenchmarkTestCase[] = [];
   private evaluationHistory: EvaluationReport[] = [];
   private fiveDimensionHistory: FiveDimensionEvaluationReport[] = [];
+  private fiveDimensionCurriculum: FiveDimensionCurriculumCase[] = [];
 
   private constructor() {
     this.initializeSealedCorpus();
+    this.initializeFiveDimensionCurriculum();
   }
 
   public static getInstance(): AcademyMinervaLab {
@@ -229,6 +267,315 @@ export class AcademyMinervaLab {
         sealed: true
       }
     ];
+  }
+
+  private initializeFiveDimensionCurriculum(): void {
+    const caseSpec = (
+      caseId: string,
+      title: string,
+      family: FiveDimensionCurriculumFamily,
+      sourceKinds: string[],
+      targetDimensions: FiveDimensionName[],
+      expectedSafeguards: string[],
+      fixtureStatus: FiveDimensionCurriculumFixtureStatus,
+      validationRefs: string[] = []
+    ): FiveDimensionCurriculumCase => ({
+      caseId,
+      title,
+      family,
+      sourceKinds,
+      targetDimensions,
+      expectedSafeguards,
+      fixtureStatus,
+      autonomousEligible: false,
+      validationRefs
+    });
+
+    this.fiveDimensionCurriculum = [
+      caseSpec(
+        'CURR-OCR-RECEIPT-PHOTO',
+        'Receipt photo with exact OCR region provenance',
+        'IMAGE_OCR',
+        ['IMAGE', 'RECEIPT'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Identify merchant, transaction date, amount, tax and currency without inventing absent fields.',
+          'Preserve source SHA, image dimensions, OCR engine/version, confidence and exact bounding regions.',
+          'Promoted accounting fact must reverse-trace to the receipt region and any rendered product value.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['server/tests/ocrParserEvidence.test.ts', 'docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-OCR-SCANNED-INVOICE',
+        'Scanned invoice with line-item and total reconciliation',
+        'IMAGE_OCR',
+        ['IMAGE', 'INVOICE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'DELIVERABLE_TRUTH'],
+        [
+          'Extract vendor, invoice number, dates, line items, subtotal, tax and total with exact regions.',
+          'Reconcile line items/subtotal/tax/total and fail closed on a material mismatch.',
+          'Any invoice-derived report/export value must preserve original source lineage.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['server/tests/ocrParserEvidence.test.ts']
+      ),
+      caseSpec(
+        'CURR-OCR-IMAGE-ONLY-PDF',
+        'Image-only PDF requiring page-aware OCR',
+        'IMAGE_OCR',
+        ['PDF', 'IMAGE_ONLY_PDF'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY'],
+        [
+          'Detect that native text is absent and route pages through the local OCR path.',
+          'Preserve exact PDF page plus OCR region coordinates for every promoted observation.',
+          'Do not silently treat missing OCR output as a complete source.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['server/tests/ocrParserEvidence.test.ts', 'server/tests/universalSourceEvidenceContract.test.ts']
+      ),
+      caseSpec(
+        'CURR-OCR-LOW-QUALITY-SCAN',
+        'Low-quality scan with uncertainty preservation',
+        'IMAGE_OCR',
+        ['IMAGE', 'DEGRADED_SCAN'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY'],
+        [
+          'Preserve OCR confidence and uncertain alternatives rather than force an unsupported value.',
+          'Low-confidence material values must fail closed or enter review instead of silent promotion.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['server/tests/ocrParserEvidence.test.ts']
+      ),
+      caseSpec(
+        'CURR-OCR-ROTATED-SKEWED',
+        'Rotated/skewed document image',
+        'IMAGE_OCR',
+        ['IMAGE', 'ROTATED_SCAN', 'SKEWED_SCAN'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING'],
+        [
+          'Recover document reading order after orientation/skew handling.',
+          'Retain original-image coordinate lineage even when preprocessing is applied.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED'
+      ),
+      caseSpec(
+        'CURR-OCR-GLARE-CROP',
+        'Glare/crop image with material evidence loss',
+        'IMAGE_OCR',
+        ['IMAGE', 'GLARE', 'CROPPED_IMAGE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY'],
+        [
+          'Detect unreadable/cropped material regions instead of declaring the source complete.',
+          'Block conclusions that require the obscured evidence while allowing unrelated supported conclusions.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['server/tests/taskEvidenceSufficiency.test.ts']
+      ),
+      caseSpec(
+        'CURR-OCR-ENGINE-DISAGREEMENT',
+        'PaddleOCR versus docTR material disagreement',
+        'IMAGE_OCR',
+        ['IMAGE', 'OCR_MULTI_ENGINE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY'],
+        [
+          'Preserve both engine outputs, confidence and engine/version metadata.',
+          'Do not silently choose a materially different value solely because one engine is primary.',
+          'Escalate or review material disagreement before canonical promotion.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-SUFF-MISSING-PAGE-NON-MATERIAL',
+        'Missing page proven non-material for the current task',
+        'SOURCE_COMPLETENESS',
+        ['PDF', 'MISSING_PAGE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Persist the source gap even when the current conclusion may proceed.',
+          'Disclose the gap and mark it non-material only for the scoped current purpose.',
+          'Do not erase or globally clear the missing page.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/taskEvidenceSufficiency.test.ts']
+      ),
+      caseSpec(
+        'CURR-SUFF-MISSING-TRANSACTION-MATERIAL',
+        'Missing transaction pages material to population completeness',
+        'SOURCE_COMPLETENESS',
+        ['PDF', 'TRANSACTION_POPULATION', 'MISSING_PAGE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Classify broken transaction continuity as material for a complete-population task.',
+          'Block the affected population-dependent conclusion.',
+          'Do not block unrelated conclusions that remain independently supported.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/taskEvidenceSufficiency.test.ts']
+      ),
+      caseSpec(
+        'CURR-SUFF-MISSING-PAGE-UNKNOWN',
+        'Missing page with unknown materiality',
+        'SOURCE_COMPLETENESS',
+        ['PDF', 'MISSING_PAGE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Classify unknown impact as review required rather than complete or sufficient.',
+          'Apply fail-safe scope to current conclusions until the missing-page impact is established.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/sufficiencyClarificationCoordinator.test.ts']
+      ),
+      caseSpec(
+        'CURR-MIXED-SOURCE-BATCH',
+        'Mixed source batch with independent coordinate families',
+        'MIXED_SOURCE',
+        ['SPREADSHEET', 'PDF', 'IMAGE', 'CSV'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY'],
+        [
+          'Preserve the correct coordinate family for every source rather than flattening provenance.',
+          'Mixed-source conclusions must retain all material parent evidence references.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['server/tests/universalSourceEvidenceContract.test.ts']
+      ),
+      caseSpec(
+        'CURR-MIXED-SPREADSHEET-RECEIPT',
+        'Spreadsheet plus receipt mixed conclusion',
+        'MIXED_SOURCE',
+        ['SPREADSHEET', 'IMAGE', 'RECEIPT'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'A mixed conclusion must reverse-trace to the exact spreadsheet cell/range and receipt OCR region.',
+          'A correct spreadsheet value cannot mask contradictory receipt evidence.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['server/tests/spreadsheetSourceToPixelLineage.test.ts', 'server/tests/ocrParserEvidence.test.ts']
+      ),
+      caseSpec(
+        'CURR-PBC-INSUFFICIENT-RESPONSE',
+        'PBC response received but evidence remains insufficient',
+        'PBC_CLARIFICATION',
+        ['PBC_RESPONSE', 'EVIDENCE_REFERENCE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'A customer/CPA response is evidence, not automatic clearance.',
+          'Response state becomes RESPONSE_RECEIVED and requires a new P1-009 decision.',
+          'If any affected conclusion remains blocked/review-required, the request remains unresolved and follow-up is required.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/sufficiencyClarificationCoordinator.test.ts', 'server/tests/sufficiencyClarificationRoutes.test.ts']
+      ),
+      caseSpec(
+        'CURR-PBC-RESOLVES-AFTER-REEVALUATION',
+        'PBC response resolves only after allowed re-evaluation',
+        'PBC_CLARIFICATION',
+        ['PBC_RESPONSE', 'EVIDENCE_REFERENCE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Link the response to the same task/workspace/engagement and affected conclusions.',
+          'Resolve only after a later P1-009 re-evaluation marks every affected conclusion ALLOWED.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/sufficiencyClarificationCoordinator.test.ts', 'server/tests/sufficiencyClarificationRoutes.test.ts']
+      ),
+      caseSpec(
+        'CURR-EVIDENCE-DUPLICATE-NEAR-DUPLICATE',
+        'Duplicate and near-duplicate evidence discrimination',
+        'EVIDENCE_INTEGRITY',
+        ['PDF', 'IMAGE', 'DUPLICATE_EVIDENCE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY'],
+        [
+          'Exact duplicates must not be double-counted as independent corroboration.',
+          'Near-duplicates with materially changed content must remain distinguishable and traceable.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED'
+      ),
+      caseSpec(
+        'CURR-ISOLATION-BULK-MIXED-CLIENT',
+        'Bulk mixed-client upload isolation',
+        'CLIENT_ISOLATION',
+        ['BULK_UPLOAD', 'MULTI_CLIENT'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'PRODUCT_TRUTH'],
+        [
+          'Evidence must remain bound to the correct workspace/engagement/client.',
+          'No fact, provenance reference, clarification or rendered value may cross client boundaries.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED'
+      ),
+      caseSpec(
+        'CURR-SEMANTIC-LONG-DOCUMENT',
+        'Long-document semantic/context extraction',
+        'SEMANTIC_CONTEXT',
+        ['PDF', 'LONG_DOCUMENT', 'NARRATIVE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING'],
+        [
+          'Preserve entity, author/speaker, section, footnote and narrative intent where material.',
+          'Do not substitute accounting keyword matching for document-level semantic context.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED'
+      ),
+      caseSpec(
+        'CURR-PRODUCT-SOURCE-TO-DASHBOARD',
+        'Real source-to-dashboard click-through',
+        'PRODUCT_RENDERING',
+        ['SPREADSHEET', 'IMAGE', 'BROWSER_RENDER'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Verify the actual browser-rendered value rather than a backend-only adapter object.',
+          'Click-through provenance must reverse-trace the rendered value to original customer evidence coordinates.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['docs/launch/evidence/2026-09-16_SPREADSHEET_SOURCE_TO_PIXEL_LINEAGE_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-DELIVERABLE-FINAL-LINEAGE',
+        'Final report/export evidence lineage',
+        'DELIVERABLE_LINEAGE',
+        ['PDF_EXPORT', 'XLSX_EXPORT', 'REPORT'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'DELIVERABLE_TRUTH'],
+        [
+          'Final exported/report values must match canonical results and remain grounded in original evidence.',
+          'Material report statements must retain enough lineage to reverse-trace through derivations to source coordinates.'
+        ],
+        'PHYSICAL_FIXTURE_REQUIRED',
+        ['src/adapters/presentationAdapters.test.ts']
+      )
+    ];
+  }
+
+  public getFiveDimensionCurriculumCases(): FiveDimensionCurriculumCase[] {
+    return this.fiveDimensionCurriculum.map(c => ({
+      ...c,
+      sourceKinds: [...c.sourceKinds],
+      targetDimensions: [...c.targetDimensions],
+      expectedSafeguards: [...c.expectedSafeguards],
+      validationRefs: [...c.validationRefs]
+    }));
+  }
+
+  public getFiveDimensionCurriculumCoverage(): FiveDimensionCurriculumCoverage {
+    const byFamily: Record<string, number> = {};
+    const targetDimensionCounts: Record<FiveDimensionName, number> = {
+      SOURCE_COVERAGE: 0,
+      SEMANTIC_UNDERSTANDING: 0,
+      ACCOUNTING_ACCURACY: 0,
+      PRODUCT_TRUTH: 0,
+      DELIVERABLE_TRUTH: 0
+    };
+    for (const c of this.fiveDimensionCurriculum) {
+      byFamily[c.family] = (byFamily[c.family] || 0) + 1;
+      for (const dimension of c.targetDimensions) targetDimensionCounts[dimension] += 1;
+    }
+    return {
+      totalCases: this.fiveDimensionCurriculum.length,
+      contractReadyCases: this.fiveDimensionCurriculum.filter(c => c.fixtureStatus === 'CONTRACT_READY').length,
+      physicalFixturePendingCases: this.fiveDimensionCurriculum.filter(c => c.fixtureStatus === 'PHYSICAL_FIXTURE_REQUIRED').length,
+      autonomousEligibleCases: this.fiveDimensionCurriculum.filter(c => c.autonomousEligible).length,
+      byFamily,
+      targetDimensionCounts
+    };
   }
 
   /**

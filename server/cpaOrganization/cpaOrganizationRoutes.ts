@@ -1282,6 +1282,8 @@ export function createCPAOrganizationRouter(): Router {
       const recentEvents = observatoryEventLedger.getEvents({ limit: 50 });
       const latestFiveDimensionEvaluation = academyMinervaLab.getLatestFiveDimensionEvaluation();
       const fiveDimensionHistory = academyMinervaLab.getFiveDimensionHistory();
+      const fiveDimensionCurriculum = academyMinervaLab.getFiveDimensionCurriculumCases();
+      const fiveDimensionCurriculumCoverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 
       const stateObj = {
         heartbeat: heartbeatState,
@@ -1303,6 +1305,8 @@ export function createCPAOrganizationRouter(): Router {
         },
         latestFiveDimensionEvaluation,
         fiveDimensionHistory,
+        fiveDimensionCurriculum,
+        fiveDimensionCurriculumCoverage,
         currentEngagement,
         agents: annotatedAgents,
         activePathways,
