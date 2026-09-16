@@ -1,5 +1,5 @@
 name: Eve P2 LEDGER Trial Balance Runtime One Shot
-# rerun: temporary compatibility diagnostic
+# rerun: continuation initialization order fixed
 
 on:
   push:
@@ -36,6 +36,7 @@ jobs:
       - name: Apply bounded LEDGER and worker integration
         run: |
           python3 scripts/eve-p2-ledger-trial-balance-runtime-fix1.py
+          python3 scripts/eve-p2-ledger-trial-balance-runtime-fix2.py
           python3 scripts/eve-p2-ledger-trial-balance-runtime-apply.py
           git diff --check
 
@@ -82,7 +83,6 @@ jobs:
 
       - name: Specialist retry and B2 execution regressions
         run: |
-          python3 scripts/eve-p2-ledger-trial-balance-runtime-debug.py
           npx tsx server/tests/academySpecialistRetry.test.ts
           npx tsx server/tests/phasePackageB2RealAgentExecution.test.ts
 
@@ -145,8 +145,7 @@ jobs:
 
       - name: Commit tested runtime integration and remove one-shot machinery
         run: |
-          git checkout -- server/tests/academySpecialistRetry.test.ts
-          rm -f scripts/eve-p2-ledger-trial-balance-runtime-apply.py scripts/eve-p2-ledger-trial-balance-runtime-fix1.py scripts/eve-p2-ledger-trial-balance-runtime-debug.py .github/workflows/eve-p2-ledger-trial-balance-runtime-one-shot.yml
+          rm -f scripts/eve-p2-ledger-trial-balance-runtime-apply.py scripts/eve-p2-ledger-trial-balance-runtime-fix1.py scripts/eve-p2-ledger-trial-balance-runtime-fix2.py scripts/eve-p2-ledger-trial-balance-runtime-debug.py .github/workflows/eve-p2-ledger-trial-balance-runtime-one-shot.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
