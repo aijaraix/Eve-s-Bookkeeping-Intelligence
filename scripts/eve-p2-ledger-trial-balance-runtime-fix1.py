@@ -5,7 +5,7 @@ marker="insert_helper=r'''"
 start=t.index(marker)
 end=t.index("'''", start+len(marker))+3
 block=t[start:end]
-fixed=block.replace('\\\\n','\n')
+fixed=block.replace('\\n','\n')
 if fixed==block:
     raise SystemExit('TRIAL_BALANCE_CONTINUATION_NEWLINE_FIX_NOT_APPLIED')
 p.write_text(t[:start]+fixed+t[end:])
