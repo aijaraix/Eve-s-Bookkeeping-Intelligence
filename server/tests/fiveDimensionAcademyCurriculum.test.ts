@@ -8,8 +8,8 @@ const coverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 assert.equal(cases.length, 20);
 assert.equal(new Set(cases.map(c => c.caseId)).size, 20);
 assert.equal(coverage.totalCases, 20);
-assert.equal(coverage.contractReadyCases, 17);
-assert.equal(coverage.physicalFixturePendingCases, 3);
+assert.equal(coverage.contractReadyCases, 18);
+assert.equal(coverage.physicalFixturePendingCases, 2);
 assert.equal(coverage.autonomousEligibleCases, 0, 'new curriculum cases must not silently enter autonomous scheduling');
 
 const requiredIds = [
@@ -98,6 +98,10 @@ assert.equal(find('CURR-ISOLATION-BULK-MIXED-CLIENT').fixtureStatus, 'CONTRACT_R
 assert.deepEqual(find('CURR-ISOLATION-BULK-MIXED-CLIENT').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
 assert.ok(find('CURR-ISOLATION-BULK-MIXED-CLIENT').expectedSafeguards.join(' ').includes('clarification and rendered value'));
 assert.ok(find('CURR-ISOLATION-BULK-MIXED-CLIENT').validationRefs.includes('server/tests/clientIsolationFiveDimensionAcceptance.test.ts'));
+assert.equal(find('CURR-SEMANTIC-LONG-DOCUMENT').fixtureStatus, 'CONTRACT_READY');
+assert.deepEqual(find('CURR-SEMANTIC-LONG-DOCUMENT').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING']);
+assert.ok(find('CURR-SEMANTIC-LONG-DOCUMENT').expectedSafeguards.join(' ').includes('Impossible cross-entity'));
+assert.ok(find('CURR-SEMANTIC-LONG-DOCUMENT').validationRefs.includes('server/tests/longDocumentSemanticCurriculumAcceptance.test.ts'));
 assert.ok(find('CURR-PRODUCT-SOURCE-TO-DASHBOARD').expectedSafeguards.join(' ').includes('actual browser-rendered value'));
 assert.ok(find('CURR-DELIVERABLE-FINAL-LINEAGE').expectedSafeguards.join(' ').includes('reverse-trace'));
 

@@ -550,9 +550,13 @@ export class AcademyMinervaLab {
         ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING'],
         [
           'Preserve entity, author/speaker, section, footnote and narrative intent where material.',
-          'Do not substitute accounting keyword matching for document-level semantic context.'
+          'Continuation pages must inherit context only from a physically traceable prior anchor within the same section.',
+          'New sections reset prior attribution/context unless the new section explicitly establishes its own entity, period and intent.',
+          'Do not substitute accounting keyword matching for document-level semantic context; identical terms across entities, periods and intents remain distinct.',
+          'Impossible cross-entity or cross-period context combinations must return no evidence rather than borrow a nearby keyword match.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED'
+        'CONTRACT_READY',
+        ['server/tests/longDocumentSemanticContext.test.ts', 'server/tests/longDocumentSemanticRuntimeWiring.test.ts', 'server/tests/longDocumentSemanticCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_LONG_DOCUMENT_SEMANTIC_CONTEXT_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-PRODUCT-SOURCE-TO-DASHBOARD',

@@ -20,6 +20,7 @@ import {
 import { SpreadsheetParser } from '../../src/lib/parser/spreadsheetParser.js';
 import { OCRParser } from '../../src/lib/parser/ocrParser.js';
 import { applySelectivePdfOcr, shouldUsePdfOcrFallback, shouldUseSelectivePdfOcr } from '../../src/lib/parser/pdfOcrFallback.js';
+import { buildLongDocumentSemanticContext } from '../cpaOrganization/longDocumentSemanticContextEngine.js';
 
 export function applyPrimaryStatementAuthority(
   candidates: StatementFactCandidate[],
@@ -59,6 +60,7 @@ export interface HybridExtractionResult {
   processingDurationMs: number;
   pageManifests?: any[];
   sourceBlocks?: any[];
+  semanticContextReview?: any;
   error?: string;
 }
 
@@ -159,6 +161,10 @@ export class HybridExtractionOrchestrator {
       }
 
       const physicalPagesTotal = parsedDoc.pageManifests?.length || parsedDoc.metadata.pages || 1;
+      const semanticContextReview = !isSpreadsheet && physicalPagesTotal >= 8
+        ? buildLongDocumentSemanticContext({ doc: parsedDoc, sourceSha256: params.documentHash })
+        : undefined;
+      if (semanticContextReview) (parsedDoc as any).semanticContextReview = semanticContextReview;
       console.log(`[HybridExtractionOrchestrator] Deterministic Physical Page Inventory: ${physicalPagesTotal} pages identified.`);
       updateProgress('Preparing Documents', 15);
 
@@ -588,7 +594,8 @@ export class HybridExtractionOrchestrator {
         accountingValidations,
         processingDurationMs: durationMs,
         pageManifests: parsedDoc.pageManifests || [],
-        sourceBlocks: parsedDoc.sourceBlocks || []
+        sourceBlocks: parsedDoc.sourceBlocks || [],
+        semanticContextReview
       };
 
     } catch (err: any) {
