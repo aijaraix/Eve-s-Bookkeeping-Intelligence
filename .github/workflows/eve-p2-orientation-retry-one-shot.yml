@@ -72,8 +72,8 @@ jobs:
       - name: Local OCR routing and quality regression
         run: npx tsx server/tests/localOcrRouting.test.ts
 
-      - name: OCR fail-closed parser ordering regression
-        run: npx tsx server/tests/ocrFailClosedParserContract.test.ts
+      - name: OCR fail-closed quality gate regression
+        run: npx tsx server/tests/ocrFailClosedQualityGate.test.ts
 
       - name: OCR parser evidence regression
         run: npx tsx server/tests/ocrParserEvidence.test.ts
