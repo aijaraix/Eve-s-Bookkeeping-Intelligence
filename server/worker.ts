@@ -9,7 +9,7 @@ import { AnyDocParser } from "../src/lib/parser/anydocParser.js";
 import { SpreadsheetParser } from "../src/lib/parser/spreadsheetParser.js";
 import { OCRParser } from "../src/lib/parser/ocrParser.js";
 import { selectParserPath } from "../src/lib/parser/parserSelection.js";
-import { shouldUsePdfOcrFallback } from "../src/lib/parser/pdfOcrFallback.js";
+import { applySelectivePdfOcr, shouldUsePdfOcrFallback, shouldUseSelectivePdfOcr } from "../src/lib/parser/pdfOcrFallback.js";
 import {
   ForensicEntityResolver,
   LocaleAwareNumberParser,
@@ -461,6 +461,7 @@ async function executeWorkerExtraction(job: WorkerJob) {
     let parsedDoc: any;
     const parserPath = selectParserPath(inspection);
     let ocrUsed = parserPath === "OCR";
+    let selectiveOcrPageCount = 0;
     if (parserPath === "SPREADSHEET") {
       parsedDoc = await spreadsheetParser.parse(fileInput, inspection);
     } else if (parserPath === "OCR") {
@@ -478,6 +479,14 @@ async function executeWorkerExtraction(job: WorkerJob) {
         });
         ocrUsed = true;
         job.warnings = Array.from(new Set([...(job.warnings || []), "IMAGE_ONLY_PDF_OCR_FALLBACK_USED"]));
+      } else if (shouldUseSelectivePdfOcr(parsedDoc, inspection)) {
+        job.status = "OCR";
+        job.currentStage = "Native PDF retained; OCR only pages without native text...";
+        const selective = await applySelectivePdfOcr({ nativeDoc: parsedDoc, fileInput, inspection, ocrParser });
+        parsedDoc = selective.document;
+        selectiveOcrPageCount = selective.ocrPageNumbers.length;
+        ocrUsed = selectiveOcrPageCount > 0;
+        job.warnings = Array.from(new Set([...(job.warnings || []), `MIXED_PDF_SELECTIVE_OCR_USED:PAGES=${selective.ocrPageNumbers.join(',')}`]));
       }
     }
 
@@ -504,7 +513,7 @@ async function executeWorkerExtraction(job: WorkerJob) {
     if (ocrUsed || inspection.needsOCR || inspection.isMultimodalImage) {
       job.status = "OCR";
       job.currentStage = "Performing selective OCR on visual pages...";
-      job.counters.ocrPagesCount = pagesCount;
+      job.counters.ocrPagesCount = selectiveOcrPageCount || pagesCount;
     }
 
     // LAYER 5: FINANCIAL SEMANTIC CLASSIFICATION

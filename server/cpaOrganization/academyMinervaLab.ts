@@ -327,17 +327,19 @@ export class AcademyMinervaLab {
       ),
       caseSpec(
         'CURR-OCR-IMAGE-ONLY-PDF',
-        'Image-only PDF requiring page-aware OCR',
+        'Page-aware PDF OCR including image-only and mixed native/scanned documents',
         'IMAGE_OCR',
-        ['PDF', 'IMAGE_ONLY_PDF'],
+        ['PDF', 'IMAGE_ONLY_PDF', 'MIXED_NATIVE_SCANNED_PDF'],
         ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY'],
         [
-          'Detect that native text is absent and route pages through the local OCR path.',
-          'Preserve exact PDF page plus OCR region coordinates for every promoted observation.',
-          'Do not silently treat missing OCR output as a complete source.'
+          'Detect image-only PDFs and route pages through the local OCR path without inventing native text.',
+          'For mixed PDFs, preserve native-text pages and OCR only pages whose native-text inventory is absent.',
+          'Preserve the original PDF SHA and physical page number for both native-text and OCR observations.',
+          'Allow bounded orientation retry only on an individually selected scanned PDF page and remap OCR coordinates to original PDF page space.',
+          'Do not silently treat missing or low-quality OCR output as a complete source; the affected scanned page must fail closed.'
         ],
-        'PHYSICAL_FIXTURE_REQUIRED',
-        ['server/tests/ocrParserEvidence.test.ts', 'server/tests/universalSourceEvidenceContract.test.ts']
+        'CONTRACT_READY',
+        ['services/local_ocr/test_pdf_rasterization.py', 'server/tests/pdfOcrFallback.test.ts', 'server/tests/mixedPdfSelectiveOcr.test.ts', 'server/tests/mixedPdfSelectiveOcrFailClosed.test.ts', 'server/tests/pdfOcrIntegrationWiring.test.ts', 'server/tests/imageOnlyPdfCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_MIXED_PDF_SELECTIVE_OCR_ACCEPTANCE.md']
       ),
       caseSpec(
         'CURR-OCR-LOW-QUALITY-SCAN',

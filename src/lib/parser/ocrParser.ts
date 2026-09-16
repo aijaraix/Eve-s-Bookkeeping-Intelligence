@@ -35,12 +35,16 @@ export class OCRParser {
     const isPdf = mimeType.toLowerCase().includes("pdf") || originalName.toLowerCase().endsWith(".pdf") || String(inspection?.detectedType || '').toLowerCase() === 'pdf';
     const sourceArtifactId = `${isPdf ? 'artifact-pdf' : 'artifact-image'}-${sourceSha256.slice(0, 24)}`;
     const docId = `doc-ocr-${sourceSha256.slice(0, 16)}-${Date.now()}`;
+    const requestedPdfPageNumbers = isPdf && Array.isArray(inspection?.ocrPageNumbers)
+      ? Array.from(new Set(inspection.ocrPageNumbers.map(Number).filter((n: number) => Number.isInteger(n) && n > 0))).sort((a: number, b: number) => a - b)
+      : undefined;
 
     const result: LocalOcrCompositeResult = await this.client.recognize({
       filename: originalName,
       mimeType,
       buffer,
       sourceSha256,
+      pdfPageNumbers: requestedPdfPageNumbers,
     });
 
     const sourceValueProvenance: SourceValueProvenance[] = [];
@@ -180,6 +184,7 @@ export class OCRParser {
         ocrAverageConfidence: averageConfidence,
         ocrRegions: ocrLines.length,
         ocrRotationDegrees: Number(result.appliedRotationDegrees || 0),
+        ocrRequestedPdfPageNumbers: requestedPdfPageNumbers || [],
       },
       raw_text: text,
       markdown: text,

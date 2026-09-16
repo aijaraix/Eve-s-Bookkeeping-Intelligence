@@ -8,8 +8,8 @@ const coverage = academyMinervaLab.getFiveDimensionCurriculumCoverage();
 assert.equal(cases.length, 20);
 assert.equal(new Set(cases.map(c => c.caseId)).size, 20);
 assert.equal(coverage.totalCases, 20);
-assert.equal(coverage.contractReadyCases, 12);
-assert.equal(coverage.physicalFixturePendingCases, 8);
+assert.equal(coverage.contractReadyCases, 13);
+assert.equal(coverage.physicalFixturePendingCases, 7);
 assert.equal(coverage.autonomousEligibleCases, 0, 'new curriculum cases must not silently enter autonomous scheduling');
 
 const requiredIds = [
@@ -53,6 +53,10 @@ assert.deepEqual(find('CURR-OCR-RECEIPT-PHOTO').targetDimensions, ['SOURCE_COVER
 assert.equal(find('CURR-OCR-SCANNED-INVOICE').fixtureStatus, 'CONTRACT_READY');
 assert.deepEqual(find('CURR-OCR-SCANNED-INVOICE').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH']);
 assert.ok(find('CURR-OCR-SCANNED-INVOICE').expectedSafeguards.join(' ').includes('payment remains BLOCKED'));
+assert.equal(find('CURR-OCR-IMAGE-ONLY-PDF').fixtureStatus, 'CONTRACT_READY');
+assert.deepEqual(find('CURR-OCR-IMAGE-ONLY-PDF').targetDimensions, ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY']);
+assert.ok(find('CURR-OCR-IMAGE-ONLY-PDF').expectedSafeguards.join(' ').includes('mixed PDFs'));
+assert.ok(find('CURR-OCR-IMAGE-ONLY-PDF').validationRefs.includes('server/tests/mixedPdfSelectiveOcr.test.ts'));
 assert.equal(find('CURR-SUFF-MISSING-PAGE-NON-MATERIAL').fixtureStatus, 'CONTRACT_READY');
 assert.ok(find('CURR-SUFF-MISSING-PAGE-NON-MATERIAL').expectedSafeguards.join(' ').includes('Persist the source gap'));
 assert.ok(find('CURR-SUFF-MISSING-TRANSACTION-MATERIAL').expectedSafeguards.join(' ').includes('Block the affected'));

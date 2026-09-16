@@ -19,7 +19,7 @@ import {
 } from '../failClosedGuards.js';
 import { SpreadsheetParser } from '../../src/lib/parser/spreadsheetParser.js';
 import { OCRParser } from '../../src/lib/parser/ocrParser.js';
-import { shouldUsePdfOcrFallback } from '../../src/lib/parser/pdfOcrFallback.js';
+import { applySelectivePdfOcr, shouldUsePdfOcrFallback, shouldUseSelectivePdfOcr } from '../../src/lib/parser/pdfOcrFallback.js';
 
 export function applyPrimaryStatementAuthority(
   candidates: StatementFactCandidate[],
@@ -108,7 +108,8 @@ export class HybridExtractionOrchestrator {
         mimeType
       });
 
-      if (!isSpreadsheet && shouldUsePdfOcrFallback(parsedDoc, { detectedType: 'pdf', mimeType })) {
+      const pdfInspection = { detectedType: 'pdf', mimeType, needsOCR: false, isMultimodalImage: false };
+      if (!isSpreadsheet && shouldUsePdfOcrFallback(parsedDoc, pdfInspection)) {
         parsedDoc = await this.ocrParser.parse({
           filename: params.originalFilename,
           originalName: params.originalFilename,
@@ -116,12 +117,24 @@ export class HybridExtractionOrchestrator {
           size: fileBuffer.length,
           mimeType
         }, {
-          detectedType: 'pdf',
-          mimeType,
+          ...pdfInspection,
           needsOCR: true,
-          isMultimodalImage: false,
           requiresParser: 'OCRParser'
         });
+      } else if (!isSpreadsheet && shouldUseSelectivePdfOcr(parsedDoc, pdfInspection)) {
+        const selective = await applySelectivePdfOcr({
+          nativeDoc: parsedDoc,
+          fileInput: {
+            filename: params.originalFilename,
+            originalName: params.originalFilename,
+            buffer: fileBuffer,
+            size: fileBuffer.length,
+            mimeType
+          },
+          inspection: pdfInspection,
+          ocrParser: this.ocrParser,
+        });
+        parsedDoc = selective.document;
       }
 
       if (isSpreadsheet) {

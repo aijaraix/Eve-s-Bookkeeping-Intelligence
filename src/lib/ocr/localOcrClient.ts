@@ -69,6 +69,7 @@ export interface LocalOcrInput {
   mimeType: string;
   buffer: Buffer;
   sourceSha256: string;
+  pdfPageNumbers?: number[];
 }
 
 export interface LocalOcrClientOptions {
@@ -245,6 +246,7 @@ export class LocalOcrClient {
           dataBase64: input.buffer.toString('base64'),
           sourceSha256: input.sourceSha256,
           rotationDegrees,
+          pdfPageNumbers: input.pdfPageNumbers,
         }),
         signal: controller.signal,
       });
@@ -377,7 +379,10 @@ export class LocalOcrClient {
     let finalQualityReasons = this.finalQualityReasons(chosenQuality);
 
     const isDirectImage = input.mimeType.toLowerCase().startsWith('image/') || /\.(?:png|jpe?g|webp|tiff?|bmp)$/i.test(input.filename);
-    if (finalQualityReasons.length > 0 && this.orientationRetryEnabled && isDirectImage && this.orientationRetryAngles.length > 0) {
+    const isSingleSelectedPdfPage = (input.mimeType.toLowerCase().includes('pdf') || /\.pdf$/i.test(input.filename)) &&
+      Array.isArray(input.pdfPageNumbers) && input.pdfPageNumbers.length === 1;
+    const isRotatableSource = isDirectImage || isSingleSelectedPdfPage;
+    if (finalQualityReasons.length > 0 && this.orientationRetryEnabled && isRotatableSource && this.orientationRetryAngles.length > 0) {
       routingDecision.orientationRetryInvoked = true;
       reasons.push('ORIENTATION_RETRY_AFTER_INSUFFICIENT_QUALITY');
       const passingCandidates: Array<{ result: LocalOcrEngineResult; quality: OcrQualityAssessment; rotationDegrees: number }> = [];

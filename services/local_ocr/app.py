@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from PIL import Image
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 ENGINE = os.getenv("OCR_ENGINE", "paddle").strip().lower()
 MAX_INPUT_BYTES = int(os.getenv("OCR_MAX_INPUT_BYTES", str(25 * 1024 * 1024)))
 CPU_THREADS = max(1, int(os.getenv("OCR_CPU_THREADS", "2")))
@@ -28,6 +28,7 @@ class OcrRequest(BaseModel):
     dataBase64: str = Field(min_length=1)
     sourceSha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
     rotationDegrees: int = Field(default=0)
+    pdfPageNumbers: list[int] | None = Field(default=None)
 
 
 def package_version(name: str) -> str:
@@ -172,7 +173,28 @@ def remap_result_to_original(
     return mapped
 
 
-def render_pdf_pages(pdf_path: str, output_dir: str) -> list[dict[str, Any]]:
+def normalize_pdf_page_numbers(page_numbers: list[int] | None, page_count: int) -> list[int]:
+    if page_numbers is None:
+        if page_count > MAX_PDF_PAGES:
+            raise HTTPException(status_code=413, detail=f"PDF_PAGE_LIMIT_EXCEEDED:{page_count}>{MAX_PDF_PAGES}")
+        return list(range(1, page_count + 1))
+    if not page_numbers:
+        raise HTTPException(status_code=422, detail="PDF_PAGE_SELECTION_EMPTY")
+    selected: list[int] = []
+    seen: set[int] = set()
+    for raw in page_numbers:
+        page_number = int(raw)
+        if page_number < 1 or page_number > page_count:
+            raise HTTPException(status_code=422, detail=f"PDF_PAGE_SELECTION_OUT_OF_RANGE:{page_number}:{page_count}")
+        if page_number not in seen:
+            seen.add(page_number)
+            selected.append(page_number)
+    if len(selected) > MAX_PDF_PAGES:
+        raise HTTPException(status_code=413, detail=f"PDF_PAGE_LIMIT_EXCEEDED:{len(selected)}>{MAX_PDF_PAGES}")
+    return sorted(selected)
+
+
+def render_pdf_pages(pdf_path: str, output_dir: str, page_numbers: list[int] | None = None) -> list[dict[str, Any]]:
     import pymupdf
 
     doc = pymupdf.open(pdf_path)
@@ -182,16 +204,16 @@ def render_pdf_pages(pdf_path: str, output_dir: str) -> list[dict[str, Any]]:
         page_count = len(doc)
         if page_count < 1:
             raise HTTPException(status_code=422, detail="PDF_HAS_NO_PAGES")
-        if page_count > MAX_PDF_PAGES:
-            raise HTTPException(status_code=413, detail=f"PDF_PAGE_LIMIT_EXCEEDED:{page_count}>{MAX_PDF_PAGES}")
+        selected = normalize_pdf_page_numbers(page_numbers, page_count)
         matrix = pymupdf.Matrix(PDF_RENDER_DPI / 72.0, PDF_RENDER_DPI / 72.0)
         rendered: list[dict[str, Any]] = []
-        for index, page in enumerate(doc, start=1):
+        for page_number in selected:
+            page = doc[page_number - 1]
             pix = page.get_pixmap(matrix=matrix, alpha=False)
-            page_path = os.path.join(output_dir, f"page-{index:04d}.png")
+            page_path = os.path.join(output_dir, f"page-{page_number:04d}.png")
             pix.save(page_path)
             rendered.append({
-                "pageNumber": index,
+                "pageNumber": page_number,
                 "path": page_path,
                 "width": int(pix.width),
                 "height": int(pix.height),
@@ -202,7 +224,6 @@ def render_pdf_pages(pdf_path: str, output_dir: str) -> list[dict[str, Any]]:
         return rendered
     finally:
         doc.close()
-
 
 def get_paddle_model() -> Any:
     global _model
@@ -380,8 +401,11 @@ def recognize(req: OcrRequest) -> dict[str, Any]:
     payload, digest = decode_request(req)
     source_kind, suffix = ensure_supported_source(req, payload)
     rotation_degrees = normalize_rotation_degrees(req.rotationDegrees)
-    if source_kind == "pdf" and rotation_degrees != 0:
-        raise HTTPException(status_code=422, detail="OCR_ROTATION_RETRY_IMAGE_ONLY")
+    selected_pdf_pages = list(dict.fromkeys(req.pdfPageNumbers or []))
+    if source_kind == "pdf" and rotation_degrees != 0 and len(selected_pdf_pages) != 1:
+        raise HTTPException(status_code=422, detail="OCR_ROTATION_RETRY_PDF_REQUIRES_SINGLE_SELECTED_PAGE")
+    if source_kind != "pdf" and selected_pdf_pages:
+        raise HTTPException(status_code=422, detail="OCR_PDF_PAGE_SELECTION_REQUIRES_PDF")
     started = time.perf_counter()
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
         fh.write(payload)
@@ -389,16 +413,32 @@ def recognize(req: OcrRequest) -> dict[str, Any]:
     try:
         if source_kind == "pdf":
             with tempfile.TemporaryDirectory(prefix="eve-ocr-pdf-") as pages_dir:
-                rasterized = render_pdf_pages(path, pages_dir)
+                rasterized = render_pdf_pages(path, pages_dir, selected_pdf_pages or None)
                 combined_pages: list[dict[str, Any]] = []
                 combined_warnings: list[str] = ["PDF_RASTERIZED_FOR_OCR"]
+                if selected_pdf_pages:
+                    combined_warnings.append("PDF_SELECTIVE_PAGES_FOR_OCR:" + ",".join(str(n) for n in sorted(selected_pdf_pages)))
                 engine_metadata: dict[str, Any] | None = None
                 for page_meta in rasterized:
-                    page_out = ocr_single_image(
-                        page_meta["path"],
-                        page_meta["width"],
-                        page_meta["height"],
-                    )
+                    if rotation_degrees:
+                        with Image.open(page_meta["path"]) as source_image:
+                            original_width, original_height = source_image.size
+                            with tempfile.TemporaryDirectory(prefix="eve-ocr-pdf-rotate-") as rotation_dir:
+                                working = source_image.convert("RGB").rotate(
+                                    rotation_degrees,
+                                    expand=True,
+                                    fillcolor=(255, 255, 255),
+                                )
+                                working_path = os.path.join(rotation_dir, f"rotation-{rotation_degrees}.png")
+                                working.save(working_path, "PNG", optimize=True)
+                                page_out = ocr_single_image(working_path, working.width, working.height)
+                        page_out = remap_result_to_original(page_out, rotation_degrees, original_width, original_height)
+                    else:
+                        page_out = ocr_single_image(
+                            page_meta["path"],
+                            page_meta["width"],
+                            page_meta["height"],
+                        )
                     if engine_metadata is None:
                         engine_metadata = {k: v for k, v in page_out.items() if k not in {"pages", "warnings"}}
                     combined_warnings.extend(page_out.get("warnings") or [])
@@ -410,10 +450,17 @@ def recognize(req: OcrRequest) -> dict[str, Any]:
                         normalized_page["sourcePageWidthPoints"] = page_meta["sourcePageWidthPoints"]
                         normalized_page["sourcePageHeightPoints"] = page_meta["sourcePageHeightPoints"]
                         normalized_page["rasterDpi"] = page_meta["rasterDpi"]
+                        normalized_regions: list[dict[str, Any]] = []
+                        for region_index, region in enumerate(normalized_page.get("regions") or [], start=1):
+                            normalized_region = dict(region)
+                            normalized_region["regionId"] = f"p{page_meta['pageNumber']}-r{region_index}"
+                            normalized_regions.append(normalized_region)
+                        normalized_page["regions"] = normalized_regions
                         combined_pages.append(normalized_page)
                 out = dict(engine_metadata or {})
                 out["pages"] = combined_pages
                 out["warnings"] = list(dict.fromkeys(combined_warnings))
+                out["requestedPdfPageNumbers"] = sorted(selected_pdf_pages) if selected_pdf_pages else [p["pageNumber"] for p in rasterized]
         else:
             with Image.open(path) as image:
                 width, height = image.size
@@ -432,7 +479,7 @@ def recognize(req: OcrRequest) -> dict[str, Any]:
             out = remap_result_to_original(out, rotation_degrees, width, height)
 
         if "appliedRotationDegrees" not in out:
-            out["appliedRotationDegrees"] = 0
+            out["appliedRotationDegrees"] = rotation_degrees
         if "coordinateSpace" not in out:
             out["coordinateSpace"] = "ORIGINAL_SOURCE"
         out["sourceSha256"] = digest
