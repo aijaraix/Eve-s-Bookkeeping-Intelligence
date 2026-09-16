@@ -56,6 +56,27 @@ Key finding:
 
 Eve already has raw evidence, semantic fact, canonical fact, formula operand and render lineage infrastructure. The required work is to unify these through one source-coordinate/provenance adapter that supports PDF/image/spreadsheet/HTML/iXBRL/DOCX/CSV/email evidence without replacing the current lineage system.
 
+### EVE-P1-005 — Local OCR candidate selection
+Status: CANDIDATES LOCKED / IMPLEMENTATION PENDING
+Evidence: `docs/launch/13_LOCAL_OCR_SELECTION_STRATEGY.md`
+
+Decision:
+
+- primary local OCR: PaddleOCR
+- secondary local OCR: docTR
+- utility baseline: Tesseract/OCRmyPDF where operationally useful
+- Surya remains external reference only until license/runtime review
+- paid/cloud OCR is optional future escalation only
+- Codex is not to be used for repeated OCR benchmark loops
+
+Physical runtime constraints incorporated into the decision:
+
+- 4 vCPU
+- ~14 GiB RAM
+- no NVIDIA GPU
+
+The strategy is to integrate the two local engines behind one Eve OCR contract and let Academy accumulate the real Eve-specific benchmark over time, with the secondary engine invoked selectively for low-confidence/material cases rather than on every page.
+
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
 Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
@@ -104,8 +125,8 @@ If a patch cannot be fully tested with current tooling, record that limitation r
 ## Active next tasks
 
 1. `EVE-P1-003` — universal source-coordinate/provenance contract implementation
-2. `EVE-P1-004` — spreadsheet cell/formula lineage
-3. `EVE-P1-005` — OCR/vision architecture benchmark
+2. `EVE-P1-004` — spreadsheet cell/formula adapter into universal source-to-presentation lineage
+3. `EVE-P1-005` — integrate PaddleOCR/docTR behind normalized local OCR contract and connect regions to provenance; Academy owns continuing comparison
 4. `EVE-P1-009` — source completeness vs task evidence sufficiency model
 5. `EVE-P1-010` — clarification/PBC model
 6. `EVE-P2-001` — Academy five-dimension grading contract
