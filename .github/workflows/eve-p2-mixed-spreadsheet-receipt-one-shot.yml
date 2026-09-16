@@ -1,5 +1,5 @@
 name: Eve P2 Mixed Spreadsheet Receipt One Shot
-# rerun: regenerate accepted trial-balance fixtures for regression block
+# rerun: isolate receipt regression evidence from mixed-source acceptance receipts
 
 on:
   push:
@@ -84,7 +84,11 @@ jobs:
           npx tsx server/tests/trialBalanceDeliverableTruth.test.ts
           npx tsx server/tests/trialBalanceRuntimeIntegration.test.ts
           npx tsx server/tests/trialBalanceContinuationRuntime.test.ts
-          RECEIPT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-mixed-spreadsheet-receipt npx tsx server/tests/receiptDeliverableTruth.test.ts
+          rm -rf /tmp/eve-receipt-mixed-regression
+          mkdir -p /tmp/eve-receipt-mixed-regression
+          cp /tmp/eve-mixed-spreadsheet-receipt/receipt.png /tmp/eve-receipt-mixed-regression/receipt.png
+          cp /tmp/eve-mixed-spreadsheet-receipt/source-region.json /tmp/eve-receipt-mixed-regression/source-region.json
+          RECEIPT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-receipt-mixed-regression npx tsx server/tests/receiptDeliverableTruth.test.ts
 
       - name: Bank and invoice regressions
         run: |
