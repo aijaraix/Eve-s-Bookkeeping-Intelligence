@@ -64,7 +64,7 @@ jobs:
           npx tsx server/tests/pdfOcrFallback.test.ts
           rm -rf "$MIXED_PDF_OCR_ACCEPTANCE_DIR"
           mkdir -p "$MIXED_PDF_OCR_ACCEPTANCE_DIR"
-          npx tsx server/tests/generateMixedPdfSelectiveFixture.ts
+          python3 scripts/academy/generate_mixed_pdf_selective_fixture.py
           npx tsx server/tests/mixedPdfSelectiveOcr.test.ts
           npx tsx server/tests/mixedPdfSelectiveOcrFailClosed.test.ts
 
