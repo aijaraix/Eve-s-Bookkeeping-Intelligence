@@ -71,9 +71,16 @@ const result = await runAcademyOcrCurriculumFixture(fixture(caseName, filePath))
 console.log(JSON.stringify({
   caseId: result.caseId,
   sourceSha256: result.sourceSha256,
-  selectedEngine: result.ocr.engine,
-  routingDecision: result.ocr.routingDecision,
-  attempts: result.ocr.attempts.map(a => ({
+  selectedEngine: result.ocr?.engine || result.qualityFailure?.selectedEngine || null,
+  routingDecision: result.ocr?.routingDecision || null,
+  qualityFailure: result.qualityFailure ? {
+    reasons: result.qualityFailure.reasons,
+    selectedEngine: result.qualityFailure.selectedEngine,
+    averageConfidence: result.qualityFailure.averageConfidence,
+    materialMinimumConfidence: result.qualityFailure.materialMinimumConfidence,
+    regionCount: result.qualityFailure.regionCount,
+  } : null,
+  attempts: (result.ocr?.attempts || result.qualityFailure?.attempts || []).map(a => ({
     engine: a.engine,
     selected: a.selected,
     score: a.score,

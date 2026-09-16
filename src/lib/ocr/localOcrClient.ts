@@ -77,12 +77,32 @@ export interface LocalOcrClientOptions {
   fetchImpl?: typeof fetch;
 }
 
-interface OcrQuality {
+export interface OcrQualityAssessment {
   score: number;
   averageConfidence: number;
   materialMinimumConfidence: number | null;
   regionCount: number;
   materialRegionCount: number;
+}
+
+export interface LocalOcrQualityFailureDiagnostics {
+  selectedEngine: OcrEngineName;
+  reasons: string[];
+  quality: OcrQualityAssessment;
+  attempts: LocalOcrAttempt[];
+  routingDecision: LocalOcrRoutingDecision;
+  selectedResult: LocalOcrEngineResult;
+}
+
+export class LocalOcrInsufficientQualityError extends Error {
+  public readonly code = 'LOCAL_OCR_INSUFFICIENT_QUALITY';
+  public readonly diagnostics: LocalOcrQualityFailureDiagnostics;
+
+  constructor(diagnostics: LocalOcrQualityFailureDiagnostics) {
+    super(`LOCAL_OCR_INSUFFICIENT_QUALITY:${diagnostics.reasons.join(',')}`);
+    this.name = 'LocalOcrInsufficientQualityError';
+    this.diagnostics = diagnostics;
+  }
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -114,7 +134,7 @@ function likelyMaterialRegion(text: string): boolean {
   return /[$€£¥₹]|\b(?:USD|EUR|GBP|JPY|CHF|CAD|AUD)\b/i.test(t) || /\d[\d,.]*\d/.test(t) || /\b(?:total|tax|subtotal|balance|asset|liabilit|equity|revenue|income|expense|cash|amount|date)\b/i.test(t);
 }
 
-export function assessOcrQuality(result: LocalOcrEngineResult): OcrQuality {
+export function assessOcrQuality(result: LocalOcrEngineResult): OcrQualityAssessment {
   const regions = flattenRegions(result).filter(region => String(region.text || '').trim().length > 0);
   if (!regions.length) {
     return { score: 0, averageConfidence: 0, materialMinimumConfidence: null, regionCount: 0, materialRegionCount: 0 };
@@ -216,7 +236,7 @@ export class LocalOcrClient {
     }
   }
 
-  private fallbackReasons(primary: LocalOcrEngineResult, quality: OcrQuality): string[] {
+  private fallbackReasons(primary: LocalOcrEngineResult, quality: OcrQualityAssessment): string[] {
     const reasons: string[] = [];
     if (quality.regionCount === 0) reasons.push('PRIMARY_NO_TEXT_REGIONS');
     if (quality.averageConfidence < this.primaryAverageConfidenceFloor) {
@@ -229,6 +249,18 @@ export class LocalOcrClient {
     return reasons;
   }
 
+  private finalQualityReasons(quality: OcrQualityAssessment): string[] {
+    const reasons: string[] = [];
+    if (quality.regionCount === 0) reasons.push('SELECTED_NO_TEXT_REGIONS');
+    if (quality.averageConfidence < this.primaryAverageConfidenceFloor) {
+      reasons.push(`SELECTED_AVERAGE_CONFIDENCE_BELOW_${this.primaryAverageConfidenceFloor}`);
+    }
+    if (quality.materialMinimumConfidence !== null && quality.materialMinimumConfidence < this.materialConfidenceFloor) {
+      reasons.push(`SELECTED_MATERIAL_CONFIDENCE_BELOW_${this.materialConfidenceFloor}`);
+    }
+    return reasons;
+  }
+
   public async recognize(input: LocalOcrInput): Promise<LocalOcrCompositeResult> {
     if (!this.primaryUrl && !this.fallbackUrl) {
       throw new Error('LOCAL_OCR_UNAVAILABLE: configure EVE_OCR_PADDLE_URL and/or EVE_OCR_DOCTR_URL');
@@ -236,7 +268,7 @@ export class LocalOcrClient {
 
     const attempts: LocalOcrAttempt[] = [];
     let primary: LocalOcrEngineResult | undefined;
-    let primaryQuality: OcrQuality | undefined;
+    let primaryQuality: OcrQualityAssessment | undefined;
     let primaryError: string | undefined;
 
     if (this.primaryUrl) {
@@ -266,7 +298,7 @@ export class LocalOcrClient {
     if (this.forceFallbackEvaluation && primary && this.fallbackUrl) reasons.push('FORCED_DUAL_ENGINE_EVALUATION');
     const shouldInvokeFallback = Boolean(this.fallbackUrl) && (this.forceFallbackEvaluation || !primary || reasons.length > 0);
     let fallback: LocalOcrEngineResult | undefined;
-    let fallbackQuality: OcrQuality | undefined;
+    let fallbackQuality: OcrQualityAssessment | undefined;
 
     if (shouldInvokeFallback) {
       try {
@@ -306,15 +338,27 @@ export class LocalOcrClient {
 
     for (const attempt of attempts) attempt.selected = attempt.result === selected;
     const chosenQuality = assessOcrQuality(selected);
+    const routingDecision: LocalOcrRoutingDecision = {
+      selectedEngine: selected.engine,
+      fallbackInvoked: shouldInvokeFallback,
+      reasons,
+      primaryScore: primaryQuality?.score ?? null,
+      fallbackScore: fallbackQuality?.score ?? null,
+    };
+    const finalQualityReasons = this.finalQualityReasons(chosenQuality);
+    if (finalQualityReasons.length > 0) {
+      throw new LocalOcrInsufficientQualityError({
+        selectedEngine: selected.engine,
+        reasons: finalQualityReasons,
+        quality: chosenQuality,
+        attempts,
+        routingDecision,
+        selectedResult: selected,
+      });
+    }
     return {
       ...selected,
-      routingDecision: {
-        selectedEngine: selected.engine,
-        fallbackInvoked: shouldInvokeFallback,
-        reasons,
-        primaryScore: primaryQuality?.score ?? null,
-        fallbackScore: fallbackQuality?.score ?? null,
-      },
+      routingDecision,
       attempts,
       warnings: [
         ...(selected.warnings || []),

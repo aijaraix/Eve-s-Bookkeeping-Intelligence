@@ -91,4 +91,34 @@ const base = {
   );
 }
 
+{
+  let fallbackCalls = 0;
+  const fetchImpl = async (url: any) => {
+    const fallback = String(url).includes('doctr');
+    if (fallback) fallbackCalls++;
+    const confidence = fallback ? 0.80 : 0.65;
+    return new Response(JSON.stringify({
+      ...base,
+      engine: fallback ? 'doctr' : 'paddleocr',
+      model: fallback ? 'doctr-test' : 'paddle-test',
+      pages: [{ ...base.pages[0], regions: [{ ...base.pages[0].regions[0], text: fallback ? 'GARBLED 523' : 'BAD OCR 523', confidence }] }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const client = new LocalOcrClient({
+    primaryUrl: 'http://paddle', fallbackUrl: 'http://doctr', fetchImpl: fetchImpl as typeof fetch,
+    primaryAverageConfidenceFloor: 0.90, materialConfidenceFloor: 0.85,
+  });
+  await assert.rejects(
+    () => client.recognize({ filename: 'rotated-receipt.png', mimeType: 'image/png', buffer, sourceSha256 }),
+    (error: any) => {
+      assert.equal(error?.code, 'LOCAL_OCR_INSUFFICIENT_QUALITY');
+      assert.ok(error?.diagnostics?.reasons?.some((r: string) => r.includes('SELECTED_AVERAGE_CONFIDENCE')));
+      assert.equal(error?.diagnostics?.selectedEngine, 'doctr');
+      assert.equal(error?.diagnostics?.attempts?.length, 2);
+      return true;
+    },
+  );
+  assert.equal(fallbackCalls, 1);
+}
+
 console.log('LOCAL_OCR_ROUTING_TESTS=PASS');

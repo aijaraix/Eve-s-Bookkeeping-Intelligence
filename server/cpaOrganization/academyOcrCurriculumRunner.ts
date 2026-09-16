@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import {
   LocalOcrClient,
+  LocalOcrInsufficientQualityError,
   type LocalOcrAttempt,
   type LocalOcrClientOptions,
   type LocalOcrCompositeResult,
@@ -59,10 +60,20 @@ export interface AcademyOcrDualEngineComparison {
   differences: AcademyOcrEngineTextDifference[];
 }
 
+export interface AcademyOcrQualityFailure {
+  reasons: string[];
+  selectedEngine: string;
+  averageConfidence: number;
+  materialMinimumConfidence: number | null;
+  regionCount: number;
+  attempts: LocalOcrAttempt[];
+}
+
 export interface AcademyOcrCurriculumRunResult {
   caseId: string;
   sourceSha256: string;
-  ocr: LocalOcrCompositeResult;
+  ocr: LocalOcrCompositeResult | null;
+  qualityFailure: AcademyOcrQualityFailure | null;
   dualEngineComparison: AcademyOcrDualEngineComparison;
   fiveDimensionEvaluation: FiveDimensionEvaluationReport;
 }
@@ -102,6 +113,24 @@ function isMaterialDifference(a: string, b: string): boolean {
   return /[$€£¥₹]|\d|\b(?:TOTAL|SUBTOTAL|TAX|INVOICE|RECEIPT|DATE|AMOUNT|BALANCE|CURRENCY)\b/i.test(joined);
 }
 
+function comparisonTokens(result: LocalOcrEngineResult): string[] {
+  return regions(result)
+    .flatMap(region => String(region.text || '').normalize('NFKC').toUpperCase().match(/[A-Z0-9$€£¥₹#:/.-]+/g) || [])
+    .filter(Boolean);
+}
+
+function multisetDifference(left: string[], right: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const token of right) counts.set(token, (counts.get(token) || 0) + 1);
+  const diff: string[] = [];
+  for (const token of left) {
+    const remaining = counts.get(token) || 0;
+    if (remaining > 0) counts.set(token, remaining - 1);
+    else diff.push(token);
+  }
+  return diff;
+}
+
 function compareAttempts(attempts: LocalOcrAttempt[]): AcademyOcrDualEngineComparison {
   const primary = attempts.find(a => a.engine === 'paddleocr' && a.result)?.result;
   const fallback = attempts.find(a => a.engine === 'doctr' && a.result)?.result;
@@ -115,21 +144,20 @@ function compareAttempts(attempts: LocalOcrAttempt[]): AcademyOcrDualEngineCompa
       differences: [],
     };
   }
-  const p = regions(primary);
-  const f = regions(fallback);
-  const max = Math.max(p.length, f.length);
+  const primaryTokens = comparisonTokens(primary);
+  const fallbackTokens = comparisonTokens(fallback);
+  const primaryOnly = multisetDifference(primaryTokens, fallbackTokens);
+  const fallbackOnly = multisetDifference(fallbackTokens, primaryTokens);
   const differences: AcademyOcrEngineTextDifference[] = [];
-  for (let i = 0; i < max; i += 1) {
-    const primaryText = String(p[i]?.text || '');
-    const fallbackText = String(f[i]?.text || '');
-    if (normalizeText(primaryText) !== normalizeText(fallbackText)) {
-      differences.push({
-        regionIndex: i,
-        primaryText,
-        fallbackText,
-        material: isMaterialDifference(primaryText, fallbackText),
-      });
-    }
+  if (primaryOnly.length > 0 || fallbackOnly.length > 0) {
+    const primaryText = primaryOnly.join(' ');
+    const fallbackText = fallbackOnly.join(' ');
+    differences.push({
+      regionIndex: -1,
+      primaryText,
+      fallbackText,
+      material: isMaterialDifference(primaryText, fallbackText),
+    });
   }
   return {
     compared: true,
@@ -227,14 +255,89 @@ export async function runAcademyOcrCurriculumFixture(
     ...clientOptions,
     forceFallbackEvaluation: true,
   });
-  const ocr = await client.recognize({
-    filename: fixture.filename,
-    mimeType: fixture.mimeType,
-    buffer: fixture.buffer,
-    sourceSha256,
-  });
+
+  let ocr: LocalOcrCompositeResult;
+  try {
+    ocr = await client.recognize({
+      filename: fixture.filename,
+      mimeType: fixture.mimeType,
+      buffer: fixture.buffer,
+      sourceSha256,
+    });
+  } catch (error) {
+    if (!(error instanceof LocalOcrInsufficientQualityError)) throw error;
+    const d = error.diagnostics;
+    const dualEngineComparison = compareAttempts(d.attempts);
+    const evidenceRefs = d.attempts
+      .filter(attempt => attempt.result)
+      .map(attempt => `ocr-attempt:${attempt.engine}:${sourceSha256}`);
+    const fiveDimensionEvaluation = academyMinervaLab.evaluateFiveDimensions({
+      caseId: fixture.caseId,
+      executionId: `ocr-fixture-${sourceSha256.slice(0, 12)}`,
+      dimensions: {
+        SOURCE_COVERAGE: { checks: [{
+          checkId: 'ocr-final-quality-gate',
+          label: 'At least one OCR engine produces evidence above the final acceptance floor',
+          outcome: 'FAIL',
+          evidenceRefs,
+          details: [
+            `Selected engine=${d.selectedEngine}; averageConfidence=${d.quality.averageConfidence.toFixed(4)}; materialMinimumConfidence=${d.quality.materialMinimumConfidence == null ? 'n/a' : d.quality.materialMinimumConfidence.toFixed(4)}; reasons=${d.reasons.join(',')}`,
+          ],
+        }] },
+        SEMANTIC_UNDERSTANDING: { checks: [{
+          checkId: 'semantic-blocked-by-ocr-quality', label: 'Semantic interpretation after acceptable OCR evidence', outcome: 'NOT_TESTED',
+          details: ['OCR evidence failed the final quality gate; semantic assertions are not promoted from an unusable source transcription.'],
+        }] },
+        ACCOUNTING_ACCURACY: { checks: [{
+          checkId: 'accounting-blocked-by-ocr-quality', label: 'Accounting assertions after acceptable OCR evidence', outcome: 'NOT_TESTED',
+          details: ['OCR evidence failed the final quality gate; accounting assertions are not promoted from an unusable source transcription.'],
+        }] },
+        PRODUCT_TRUTH: { checks: [{
+          checkId: 'product-truth-browser-not-exercised', label: 'Actual Eve browser rendering and click-through provenance', outcome: 'NOT_TESTED',
+          details: [fixture.productTruthNotTestedReason],
+        }] },
+        DELIVERABLE_TRUTH: { checks: [{
+          checkId: 'deliverable-truth-export-not-exercised', label: 'Final report/export truth and reverse lineage', outcome: 'NOT_TESTED',
+          details: [fixture.deliverableTruthNotTestedReason],
+        }] },
+      },
+    });
+    return {
+      caseId: fixture.caseId,
+      sourceSha256,
+      ocr: null,
+      qualityFailure: {
+        reasons: [...d.reasons],
+        selectedEngine: d.selectedEngine,
+        averageConfidence: d.quality.averageConfidence,
+        materialMinimumConfidence: d.quality.materialMinimumConfidence,
+        regionCount: d.quality.regionCount,
+        attempts: d.attempts,
+      },
+      dualEngineComparison,
+      fiveDimensionEvaluation,
+    };
+  }
+
   const dualEngineComparison = compareAttempts(ocr.attempts);
-  const semanticChecks = fixture.semanticAssertions.map(assertion => assertionCheck(ocr, assertion));
+  const disagreementEvidence = ocr.attempts
+    .filter(attempt => attempt.result)
+    .map(attempt => `ocr-attempt:${attempt.engine}:${sourceSha256}`);
+  const semanticChecks: FiveDimensionCheck[] = [{
+    checkId: 'ocr-material-dual-engine-agreement',
+    label: 'Dual-engine OCR has no unresolved material semantic disagreement',
+    outcome: !dualEngineComparison.compared
+      ? 'NOT_TESTED'
+      : dualEngineComparison.materialDifferenceDetected
+        ? 'FAIL'
+        : 'PASS',
+    evidenceRefs: dualEngineComparison.compared ? disagreementEvidence : [],
+    details: !dualEngineComparison.compared
+      ? ['Both local OCR engine outputs were not available for comparison.']
+      : dualEngineComparison.materialDifferenceDetected
+        ? [`Material dual-engine disagreement requires adjudication before semantic promotion: ${dualEngineComparison.differences.map(d => `primary=[${d.primaryText}] fallback=[${d.fallbackText}]`).join(' | ')}`]
+        : ['No material token-level disagreement detected between PaddleOCR and docTR.'],
+  }, ...fixture.semanticAssertions.map(assertion => assertionCheck(ocr, assertion))];
   const accountingChecks = fixture.accountingAssertions.map(assertion => assertionCheck(ocr, assertion));
   if (fixture.reconciliation) accountingChecks.push(reconciliationCheck(ocr, fixture.reconciliation));
 
@@ -268,6 +371,7 @@ export async function runAcademyOcrCurriculumFixture(
     caseId: fixture.caseId,
     sourceSha256,
     ocr,
+    qualityFailure: null,
     dualEngineComparison,
     fiveDimensionEvaluation,
   };

@@ -61,6 +61,7 @@ assert.equal(receiptRun.ocr.routingDecision.fallbackInvoked, true);
 assert.ok(receiptRun.ocr.routingDecision.reasons.includes('FORCED_DUAL_ENGINE_EVALUATION'));
 assert.equal(receiptRun.dualEngineComparison.compared, true);
 assert.equal(receiptRun.dualEngineComparison.detected, false);
+assert.equal(receiptRun.qualityFailure, null);
 assert.equal(receiptRun.fiveDimensionEvaluation.dimensions.SOURCE_COVERAGE.status, 'PASS');
 assert.equal(receiptRun.fiveDimensionEvaluation.dimensions.SEMANTIC_UNDERSTANDING.status, 'PASS');
 assert.equal(receiptRun.fiveDimensionEvaluation.dimensions.ACCOUNTING_ACCURACY.status, 'PASS');
@@ -99,6 +100,7 @@ const invoiceRun = await runAcademyOcrCurriculumFixture(invoiceFixture, {
 assert.equal(invoiceRun.ocr.engine, 'paddleocr', 'existing score policy still selects higher-confidence primary');
 assert.equal(invoiceRun.dualEngineComparison.detected, true);
 assert.equal(invoiceRun.dualEngineComparison.materialDifferenceDetected, true);
+assert.equal(invoiceRun.qualityFailure, null);
 assert.ok(invoiceRun.dualEngineComparison.differences.some(d => d.primaryText.includes('INV0ICE') && d.fallbackText.includes('INVOICE')));
 assert.equal(invoiceRun.fiveDimensionEvaluation.dimensions.SOURCE_COVERAGE.status, 'PASS');
 assert.equal(invoiceRun.fiveDimensionEvaluation.dimensions.SEMANTIC_UNDERSTANDING.status, 'FAIL', 'ground-truth semantic mismatch must fail independently');
@@ -124,5 +126,44 @@ const defaultRun = await defaultClient.recognize({ filename: 'default.png', mime
 assert.equal(defaultCalls, 1);
 assert.equal(defaultRun.routingDecision.fallbackInvoked, false);
 assert.ok(!defaultRun.routingDecision.reasons.includes('FORCED_DUAL_ENGINE_EVALUATION'));
+
+
+// Punctuation and line segmentation differences are not material semantic disagreement.
+const segmentationPrimary = ['EVE TEST MARKET', 'OFFICE SUPPLIES $24.50', 'SALES TAX $3.48', 'TOTAL $53.23'];
+const segmentationFallback = ['EVE TEST MARKET', 'OFFICE', 'SUPPLIES $24.50', 'SALES, TAX $3.48', 'TOTAL $53.23'];
+const segmentationFixture: AcademyOcrCurriculumFixture = {
+  ...receiptFixture,
+  caseId: 'CURR-OCR-SEGMENTATION-NORMALIZATION',
+  semanticAssertions: [{ checkId: 'merchant', label: 'Merchant', expectedText: 'EVE TEST MARKET' }],
+  accountingAssertions: [{ checkId: 'total', label: 'Total', expectedText: 'TOTAL $53.23' }],
+  reconciliation: undefined,
+};
+const segmentationRun = await runAcademyOcrCurriculumFixture(segmentationFixture, {
+  primaryUrl: 'http://paddle', fallbackUrl: 'http://doctr', fetchImpl: fetchFor(segmentationPrimary, segmentationFallback, 0.99, 0.95) as any,
+});
+assert.equal(segmentationRun.dualEngineComparison.detected, false);
+assert.equal(segmentationRun.fiveDimensionEvaluation.dimensions.SEMANTIC_UNDERSTANDING.status, 'PASS');
+
+// When both engines are below the final quality floor, Academy records a Source Coverage failure and does not promote downstream assertions.
+const poorPrimary = ['FP 50', 'DAT//069/2026', '0 523'];
+const poorFallback = ['-', 'I', 'A - I'];
+const poorRun = await runAcademyOcrCurriculumFixture({
+  ...receiptFixture,
+  caseId: 'CURR-OCR-ROTATED-SKEWED',
+}, {
+  primaryUrl: 'http://paddle', fallbackUrl: 'http://doctr', fetchImpl: fetchFor(poorPrimary, poorFallback, 0.68, 0.82) as any,
+  primaryAverageConfidenceFloor: 0.90,
+  materialConfidenceFloor: 0.85,
+});
+assert.equal(poorRun.ocr, null);
+assert.ok(poorRun.qualityFailure);
+assert.equal(poorRun.qualityFailure?.selectedEngine, 'doctr');
+assert.ok(poorRun.qualityFailure?.reasons.some(r => r.includes('SELECTED_AVERAGE_CONFIDENCE')));
+assert.equal(poorRun.fiveDimensionEvaluation.dimensions.SOURCE_COVERAGE.status, 'FAIL');
+assert.equal(poorRun.fiveDimensionEvaluation.dimensions.SEMANTIC_UNDERSTANDING.status, 'NOT_TESTED');
+assert.equal(poorRun.fiveDimensionEvaluation.dimensions.ACCOUNTING_ACCURACY.status, 'NOT_TESTED');
+assert.equal(poorRun.fiveDimensionEvaluation.dimensions.PRODUCT_TRUTH.status, 'NOT_TESTED');
+assert.equal(poorRun.fiveDimensionEvaluation.dimensions.DELIVERABLE_TRUTH.status, 'NOT_TESTED');
+assert.equal(poorRun.fiveDimensionEvaluation.overallStatus, 'FIVE_DIMENSION_FAIL');
 
 console.log('ACADEMY_OCR_CURRICULUM_RUNNER_TESTS=PASS');
