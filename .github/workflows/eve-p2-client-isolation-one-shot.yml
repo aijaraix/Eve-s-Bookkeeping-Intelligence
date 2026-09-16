@@ -34,6 +34,7 @@ jobs:
       - name: Apply bounded bulk-client isolation patch
         run: |
           python3 scripts/eve-p2-client-isolation-apply.py
+          python3 scripts/eve-p2-client-isolation-fix1.py
           git diff --check
 
       - name: Install dependencies
@@ -91,7 +92,7 @@ jobs:
 
       - name: Commit tested bulk-client isolation closure and remove one-shot machinery
         run: |
-          rm -f scripts/eve-p2-client-isolation-apply.py .github/workflows/eve-p2-client-isolation-one-shot.yml
+          rm -f scripts/eve-p2-client-isolation-apply.py scripts/eve-p2-client-isolation-fix1.py .github/workflows/eve-p2-client-isolation-one-shot.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
