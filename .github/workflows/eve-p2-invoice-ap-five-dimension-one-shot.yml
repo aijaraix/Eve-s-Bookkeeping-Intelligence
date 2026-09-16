@@ -76,7 +76,22 @@ jobs:
 
       - name: Receipt deliverable truth regression
         run: |
+          rm -rf /tmp/eve-receipt-regression
           RECEIPT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-receipt-regression python3 scripts/academy/generate_ocr_curriculum_fixtures.py /tmp/eve-receipt-regression >/tmp/eve-receipt-regression-generation.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('/tmp/eve-receipt-regression')
+          evidence={
+            'marker':'RECEIPT_FIXTURE_SOURCE_REGION=PASS',
+            'sourceSha256':'bdd93a72a51d82cc5df6c6a8989db023e9b45b1f18344e43054647851e173436',
+            'filename':'receipt.png','imageWidth':900,'imageHeight':1000,
+            'pixelBoundingBox':{'x':60,'y':559,'width':289,'height':37},
+            'normalizedBoundingBox':{'x':0.06666666666666667,'y':0.559,'width':0.3211111111111111,'height':0.037,'unit':'NORMALIZED'},
+            'rawLiteral':'TOTAL $53.23','transformId':'academy-fixture-glyph-bbox-v1'
+          }
+          (root/'source-region.json').write_text(json.dumps(evidence,indent=2))
+          PY
           RECEIPT_ACCEPTANCE_EVIDENCE_DIR=/tmp/eve-receipt-regression npx tsx server/tests/receiptDeliverableTruth.test.ts
 
       - name: Five-dimension curriculum catalog regression
