@@ -131,6 +131,54 @@ The OCR services are physically running now, but active production application c
 
 PR #31 intentionally remains draft so service availability and application release remain separate control points.
 
+### EVE-P1-009 — Source completeness vs task evidence sufficiency
+Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / PRODUCTION APP ACTIVATION PENDING
+Draft PR: #31
+Evidence: `docs/launch/evidence/2026-09-16_TASK_EVIDENCE_SUFFICIENCY_ACCEPTANCE.md` on the feature branch
+
+Implemented decision states:
+
+Source completeness:
+
+- `SOURCE_COMPLETE`
+- `SOURCE_GAP_NON_MATERIAL_FOR_CURRENT_PURPOSE`
+- `SOURCE_GAP_MATERIAL_FOR_CURRENT_PURPOSE`
+- `SOURCE_GAP_UNKNOWN_MATERIALITY`
+
+Task evidence sufficiency:
+
+- `SUFFICIENT_FOR_CURRENT_PURPOSE`
+- `INSUFFICIENT_FOR_CURRENT_PURPOSE`
+- `REVIEW_REQUIRED_TO_DETERMINE_MATERIALITY`
+
+Accepted behavior:
+
+- a known source gap is never erased merely because work can proceed
+- a gap demonstrated irrelevant to the current task can be disclosed without blocking a supported conclusion
+- broken transaction continuity / failed reconciliation blocks the affected population-dependent conclusion
+- a missing required evidence capability fails closed for the affected conclusion
+- unknown gap impact scope applies fail-safe to every current conclusion until scope is established
+- mixed tasks block only affected conclusions rather than freezing unrelated supported work
+- a requested document with no saved completeness record becomes an unknown-impact gap rather than being silently treated as complete
+- decisions persist with evidence references and a decision hash under runtime storage
+
+Operational internal CPA API candidate now includes:
+
+- `POST /api/cpa/evidence-sufficiency/evaluate`
+- `GET /api/cpa/evidence-sufficiency/decisions`
+- `GET /api/cpa/evidence-sufficiency/decisions/:decisionId`
+
+The evaluation route consumes existing `deepDocumentIntelligence` completeness records and unresolved evidence. Evaluation/readback requires authenticated internal-operator authority.
+
+Physical CI markers:
+
+- `TASK_EVIDENCE_SUFFICIENCY_TESTS=PASS`
+- `TASK_EVIDENCE_SUFFICIENCY_ROUTES_TESTS=PASS`
+- core run `35050184183`: PASS through production build
+- operational API run `35050681084`: PASS through route/auth tests, prior evidence/OCR regressions and production build
+
+P1-009 deliberately does not create another completeness system or another clarification queue. It sits between existing source completeness/custody evidence and the existing `professionalClarificationEngine` that P1-010 will extend/link.
+
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
 Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
@@ -155,13 +203,15 @@ Final canonical asset selection/export is still being populated by the Canva wor
 
 ## Source-control / runtime safety
 
-Current OCR/evidence application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work.
+Current evidence/OCR/sufficiency application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work.
 
 Pfizer / Company 1 was not rerun or altered.
 
 Hermes was not replaced and no second Academy scheduler was created.
 
 The two OCR services were added side-by-side and do not replace any existing Eve service.
+
+A transient accidental `noop` helper file created while updating the feature-branch metadata was immediately removed before this checkpoint. It never touched `main` or production runtime.
 
 ## No-Codex engineering pattern established
 
@@ -177,23 +227,22 @@ For bounded work we can now:
 
 ## Active next tasks
 
-1. `EVE-P1-009` — implement source completeness vs task evidence sufficiency model
-2. `EVE-P1-010` — implement clarification/PBC contracts and auditable resolution chain
-3. `EVE-P2-001` — expand Academy into five-dimension grading: source coverage, semantic understanding, accounting accuracy, product truth, deliverable truth
-4. extend Academy curriculum to receipts, invoices, scans, missing pages, mixed batches and ambiguity cases
-5. controlled review/release plan for draft PR #31 after the next evidence-foundation tasks are integrated or explicitly split
-6. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
-7. `EVE-P4-001` — owner live operational read-model integration audit
-8. `EVE-P5-001` — remove development/internal language from customer-facing routes
-9. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
-10. `EVE-P6-003` — website structural implementation using locked brand tokens
+1. `EVE-P1-010` — integrate clarification/PBC contracts with P1-009 decisions, gap IDs, affected conclusions and source evidence; extend the existing `professionalClarificationEngine`, do not create a parallel queue
+2. `EVE-P2-001` — expand Academy into five-dimension grading: source coverage, semantic understanding, accounting accuracy, product truth, deliverable truth
+3. extend Academy curriculum to receipts, invoices, scans, missing pages, mixed batches and ambiguity cases
+4. controlled review/release plan for draft PR #31 after the next evidence-foundation task is integrated or explicitly split
+5. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
+6. `EVE-P4-001` — owner live operational read-model integration audit
+7. `EVE-P5-001` — remove development/internal language from customer-facing routes
+8. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
+9. `EVE-P6-003` — website structural implementation using locked brand tokens
 
 ## Immediate blockers not requiring Codex
 
 - final canonical Canva asset population/export for full public-site visual fidelity
 - owner pricing/plan decisions before publishing commercial pricing
 - payment-processor selection/authorization before automated checkout
-- production application OCR activation is deliberately held behind PR #31 release control, not blocked by Codex
+- production application OCR/evidence/sufficiency activation is deliberately held behind PR #31 release control, not blocked by Codex
 
 ## Codex status
 
