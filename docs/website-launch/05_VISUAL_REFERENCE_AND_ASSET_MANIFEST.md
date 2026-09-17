@@ -19,23 +19,23 @@ Precedence:
 Owner-supplied original ZIP SHA-256:
 `9108adfee017f2b4eea73b9db9d7f83ecaa7cd3f6acc675ce9175a67a7a55ff0`
 
-Repository-friendly web asset bundle:
-`docs/website-launch/assets/eve-bookkeeping-web-assets.zip`
+The build-ready text/vector assets from that pack are now checked into:
 
-Expected bundle SHA-256:
-`09338a05dffb782a2ecc73fc7b8bc0d8e92300766f3d37c714e3c6211f0b6b80`
+`public/brand/`
 
-The bundle contains:
-- primary horizontal SVG + PNG logo;
-- reversed horizontal SVG + PNG logo;
-- primary/reversed circular E emblem;
-- app mark;
-- favicon SVG;
-- PNG icon family;
-- exact CSS/JSON design tokens;
-- asset manifest + README.
+Included in-repo implementation assets:
+- `public/brand/eve-logo-primary.svg`
+- `public/brand/eve-logo-reversed.svg`
+- `public/brand/eve-emblem-primary.svg`
+- `public/brand/eve-emblem-reversed.svg`
+- `public/brand/eve-app-mark.svg`
+- `public/brand/favicon.svg`
+- `public/brand/eve-brand-tokens.css`
+- `public/brand/brand-tokens.json`
+- `public/brand/ASSET_MANIFEST.json`
+- `public/brand/README.md`
 
-The original large brand-board PNG is intentionally represented separately by the compressed visual reference below rather than duplicated inside the web bundle.
+The owner's original ZIP also contains PNG icon/logo variants and the large raster brand-board reference. Attach that ZIP to the Work/Codex session when possible if those binary variants are useful.
 
 Canonical tokens:
 - Midnight Navy `#0B2D4D`
@@ -47,30 +47,24 @@ Canonical tokens:
 - Display: Playfair Display
 - UI/body: Inter
 
-## 3. Owner-supplied visual references saved for implementation
+## 3. Owner-supplied visual reference labels
 
-These are compressed visual references, not production page images. Production must be semantic/responsive HTML/CSS/components.
+The owner supplied page images corresponding to these labels during this preparation:
 
-- `reference/home-concept.jpg`
-  - SHA-256 `e1686f0f672f953b458b82d172b7770950499d5ed02e651df0aa99bf716ab763`
-- `reference/product-concept.jpg`
-  - SHA-256 `ab093a02befe42eaba13782af8391a9c0ff4ab45228fae3c396e1cd7783321be`
-- `reference/for-businesses-concept.jpg`
-  - SHA-256 `019722351ab80573ba0a6ad5ca257026536ff64119e3cc8747ca49bfa98b3fde`
-- `reference/for-cpa-firms-concept.jpg`
-  - SHA-256 `2aa9671c5e407380e67c05949083adaee3c425fb8b849ae72876175b2359fed0`
-- `reference/pricing-concept.jpg`
-  - SHA-256 `e4f1808c963fa3767e2a98703f6e80203ccc8bcb4041cbc6849c83320f4987c4`
-- `reference/how-it-works-primary-concept.jpg`
-  - SHA-256 `9ae0674c6bdba114a9fed7ad0860af0c1821473b5fa2d8f1929fefd2ee5be784`
-- `reference/how-it-works-alt-mobile-concept.jpg`
-  - SHA-256 `30c0821cde72f6ff592178755eed33e01a19358079c80a87f1c3334aef7a00d8`
-- `reference/learning-academy-desktop-concept.jpg`
-  - SHA-256 `13adf4d57e42c10d1ac2fa9d6d4467cd057945bfe00446744aae7c8a6157ba7c`
-- `reference/learning-academy-mobile-concept.jpg`
-  - SHA-256 `3a8604bbdb98c60c7c5b7f8094372c6260726632e851b852186730e7c3f395b8`
-- `reference/brand-board-concept.jpg`
-  - SHA-256 `e7a5c20a0455dde36a30340e850f19700559bac8b5a06b4009c014834ef7b8d8`
+- `home-concept`
+- `product-concept`
+- `for-businesses-concept`
+- `for-cpa-firms-concept`
+- `pricing-concept`
+- `how-it-works-primary-concept`
+- `how-it-works-alt-mobile-concept`
+- `learning-academy-desktop-concept`
+- `learning-academy-mobile-concept`
+- `brand-board-concept`
+
+These images are not required for semantic/content completeness because the repo contains the canonical page specification. For maximum visual fidelity, attach the original screenshots to the Work/Codex run or inspect the connected Canva originals.
+
+See `docs/website-launch/reference/README.md` for the usage rule.
 
 The two phone screenshots are **visual context only**, not canonical mobile layouts. Engineering must implement purpose-built responsive layouts at 360/390px.
 
@@ -123,8 +117,6 @@ No Pfizer or other real-customer data.
 ## 7. Engineering acceptance
 
 Do not call design implementation complete until:
-- the asset bundle hash matches;
-- required reference images are present;
 - shared tokens/logo assets are used consistently;
 - all required repo-defined sections are implemented even if absent from Canva;
 - desktop/mobile layouts are physically browser-tested;
