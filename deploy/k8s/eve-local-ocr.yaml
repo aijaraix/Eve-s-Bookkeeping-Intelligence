@@ -1,0 +1,147 @@
+# Eve local OCR runtime — current single-node k3s deployment contract.
+#
+# Images are built from services/local_ocr/Dockerfile.paddle and Dockerfile.doctr,
+# imported into the node's k3s/containerd image store, and therefore use
+# imagePullPolicy: Never. For a multi-node or externally managed deployment,
+# publish equivalent immutable images to an approved registry and update the
+# image references without changing the HTTP contract.
+#
+# Services are ClusterIP only. Do not expose them through public ingress.
+# Model caches persist on the Eve node so pod replacement does not redownload
+# PaddleOCR/docTR weights.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eve-ocr-paddle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eve-ocr-paddle
+  template:
+    metadata:
+      labels:
+        app: eve-ocr-paddle
+    spec:
+      containers:
+        - name: ocr
+          image: docker.io/library/eve-ocr-paddle:p1-005
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8765
+          env:
+            - name: OCR_ENGINE
+              value: paddle
+            - name: OCR_CPU_THREADS
+              value: "2"
+            - name: PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK
+              value: "True"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.paddlex
+      volumes:
+        - name: model-cache
+          hostPath:
+            path: /opt/eve-ocr-models/paddle
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eve-ocr-paddle
+spec:
+  type: ClusterIP
+  selector:
+    app: eve-ocr-paddle
+  ports:
+    - name: http
+      port: 8765
+      targetPort: 8765
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eve-ocr-doctr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eve-ocr-doctr
+  template:
+    metadata:
+      labels:
+        app: eve-ocr-doctr
+    spec:
+      containers:
+        - name: ocr
+          image: docker.io/library/eve-ocr-doctr:p1-005
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8765
+          env:
+            - name: OCR_ENGINE
+              value: doctr
+            - name: OCR_CPU_THREADS
+              value: "2"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache/doctr
+      volumes:
+        - name: model-cache
+          hostPath:
+            path: /opt/eve-ocr-models/doctr
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eve-ocr-doctr
+spec:
+  type: ClusterIP
+  selector:
+    app: eve-ocr-doctr
+  ports:
+    - name: http
+      port: 8765
+      targetPort: 8765

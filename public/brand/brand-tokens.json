@@ -1,0 +1,28 @@
+{
+  "brand": "Eve's Bookkeeping",
+  "descriptor": "Bookkeeping Intelligence",
+  "taglines": [
+    "Clear numbers. Brighter tomorrows.",
+    "More than bookkeeping. A clearer future."
+  ],
+  "colors": {
+    "midnight_navy": "#0B2D4D",
+    "eve_blue": "#2563EB",
+    "teal": "#14B8A6",
+    "slate": "#64748B",
+    "light_gray": "#E5E7EB",
+    "white": "#FFFFFF"
+  },
+  "typography": {
+    "display": {
+      "family": "Playfair Display",
+      "recommended_weights": [400, 500, 600, 700],
+      "italic": true
+    },
+    "ui_body": {
+      "family": "Inter",
+      "recommended_weights": [400, 500, 600, 700]
+    }
+  },
+  "logo_note": "Vector reconstruction from the approved brand board. Review geometry at large size before treating as trademark master."
+}

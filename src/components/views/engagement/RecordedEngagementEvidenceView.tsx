@@ -1,5 +1,12 @@
 import React from 'react';
 import { actionAttributes } from '../../../academy/uiActionRegistry';
+import { InvoiceApReviewPanel } from './InvoiceApReviewPanel';
+import { BankStatementCompletenessPanel } from './BankStatementCompletenessPanel';
+import { TrialBalanceReviewPanel } from './TrialBalanceReviewPanel';
+import { MixedSourceReconciliationPanel } from './MixedSourceReconciliationPanel';
+import { MixedSourceBatchPanel } from './MixedSourceBatchPanel';
+import { DuplicateEvidenceIntegrityPanel } from './DuplicateEvidenceIntegrityPanel';
+import { ClientIsolationPanel } from './ClientIsolationPanel';
 const readable = (value: any): string => value === null || value === undefined ? 'Not recorded' : typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value);
 export const RecordedEngagementEvidenceView: React.FC<{detail: any; period: string; findingsOnly?: boolean}> = ({detail,period,findingsOnly}) => {
   if (!detail) return <p className="p-6">No current engagement evidence is available.</p>;
@@ -16,6 +23,13 @@ export const RecordedEngagementEvidenceView: React.FC<{detail: any; period: stri
       </article>)}
       {!(detail.findings?.length || continuation?.structuredUncertainties?.length) && <p>No findings returned. This is not a clearance or completeness opinion.</p>}
     </> : <>
+      <ClientIsolationPanel review={detail.clientIsolationReview} />
+      <DuplicateEvidenceIntegrityPanel review={detail.duplicateEvidenceReview} />
+      <MixedSourceBatchPanel review={detail.mixedSourceBatchReview} />
+      <MixedSourceReconciliationPanel review={detail.mixedSourceReview} />
+      <TrialBalanceReviewPanel review={detail.trialBalanceReview} />
+      <BankStatementCompletenessPanel review={detail.bankStatementCompleteness} />
+      <InvoiceApReviewPanel invoices={Array.isArray(detail.apInvoices) ? detail.apInvoices : []} />
       <section className="border rounded-xl p-4 space-y-2"><h2 className="font-semibold">Original documents</h2>{(detail.documents || []).map((doc:any) => <div key={doc.id} className="space-y-1"><p>{readable(doc.originalName || doc.filename || doc.name)} · {readable(doc.id)}</p><p className="break-all">SHA-256: {readable(doc.sha256)}</p>{doc.id && detail.workspaceId && <a className="text-indigo-700 underline" {...actionAttributes('evidence.source.download', doc.id)} href={`/api/documents/${encodeURIComponent(doc.id)}/download?workspaceId=${encodeURIComponent(detail.workspaceId)}`}>Download original source</a>}</div>)}</section>
       <section className="border rounded-xl p-4 space-y-2"><h2 className="font-semibold">Recorded continuation</h2><p>{readable(continuation?.continuationId)} · Job: {readable(continuation?.jobId)} · Attempt: {readable(continuation?.jobAttempt)}</p><p>Review state: {readable(continuation?.status)}</p></section>
       <section className="space-y-3"><h2 className="font-semibold">Specialist records</h2>{(continuation?.specialistSummary?.jobs || []).map((job:any,index:number) => <article key={job.agentExecutionId || index} className="border rounded-xl p-4 space-y-2"><h3>{readable(job.agentId)} · {readable(job.agentExecutionId)}</h3><p>Recorded mechanism: {readable(job.executionMechanism)}; model state: {readable(job.modelCallStatus)}.</p><p>Recorded proof label: {readable(job.proofLevel)}. File integrity and current model availability require separate verification.</p><p className="break-all">Artifact: {readable(job.persistedArtifactPath)}</p></article>)}</section>

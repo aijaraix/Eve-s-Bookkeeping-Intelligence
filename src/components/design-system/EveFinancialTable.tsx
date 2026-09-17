@@ -187,7 +187,17 @@ export const EveFinancialTable: React.FC<EveFinancialTableProps> = ({
                                 provenanceStatus: line.verificationStatus,
                                 sourceDocName: line.sourceDocName,
                                 sourcePage: line.sourcePage,
-                                sourceRawValue: val ?? undefined
+                                sourceRawValue: val ?? undefined,
+                                sourceText: line.sourceText,
+                                sourceType: line.sourceType,
+                                sourceProvenanceId: line.sourceProvenanceId,
+                                sourceCoordinate: line.sourceCoordinate,
+                                sourceCoordinates: line.sourceCoordinates,
+                                sourceLocationLabel: line.sourceLocationLabel,
+                                sourceFormula: line.sourceFormula,
+                                sourceConfidence: line.sourceConfidence,
+                                sourceExtractionMethod: line.sourceExtractionMethod,
+                                sourceExtractionVersion: line.sourceExtractionVersion
                               });
                             }
                           }}
@@ -198,7 +208,7 @@ export const EveFinancialTable: React.FC<EveFinancialTableProps> = ({
                                 'inline-block px-1.5 py-0.5 rounded transition-colors',
                                 isClickable && 'hover:bg-indigo-50 hover:text-indigo-700 hover:underline'
                               )}
-                              title={isClickable ? 'Click to inspect source proof in SEC filing' : undefined}
+                              title={isClickable ? 'Click to inspect source evidence' : undefined}
                             >
                               {formatted}
                             </span>
@@ -264,8 +274,20 @@ export const EveFinancialTable: React.FC<EveFinancialTableProps> = ({
                                   canonicalMetric: line.canonicalMetric,
                                   currency: line.currency || currency,
                                   scale: line.scale || scale,
+                                  provenanceStatus: line.verificationStatus,
                                   sourceDocName: line.sourceDocName,
-                                  sourcePage: line.sourcePage
+                                  sourcePage: line.sourcePage,
+                                  sourceRawValue: line.sourceRawValue,
+                                  sourceText: line.sourceText,
+                                  sourceType: line.sourceType,
+                                  sourceProvenanceId: line.sourceProvenanceId,
+                                  sourceCoordinate: line.sourceCoordinate,
+                                  sourceCoordinates: line.sourceCoordinates,
+                                  sourceLocationLabel: line.sourceLocationLabel,
+                                  sourceFormula: line.sourceFormula,
+                                  sourceConfidence: line.sourceConfidence,
+                                  sourceExtractionMethod: line.sourceExtractionMethod,
+                                  sourceExtractionVersion: line.sourceExtractionVersion
                                 });
                               }}
                               className="text-slate-300 hover:text-indigo-600 p-0.5 rounded cursor-pointer"

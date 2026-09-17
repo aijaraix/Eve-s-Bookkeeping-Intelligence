@@ -8,6 +8,8 @@ import { FileRouter } from "../src/lib/parser/router.js";
 import { AnyDocParser } from "../src/lib/parser/anydocParser.js";
 import { SpreadsheetParser } from "../src/lib/parser/spreadsheetParser.js";
 import { OCRParser } from "../src/lib/parser/ocrParser.js";
+import { selectParserPath } from "../src/lib/parser/parserSelection.js";
+import { applySelectivePdfOcr, shouldUsePdfOcrFallback, shouldUseSelectivePdfOcr } from "../src/lib/parser/pdfOcrFallback.js";
 import {
   ForensicEntityResolver,
   LocaleAwareNumberParser,
@@ -20,6 +22,7 @@ import { CanonicalFactResolver } from "./canonicalFactResolver.js";
 import { assertRealDocumentHash } from "./failClosedGuards.js";
 import { ExtractedFact } from "../src/types.js";
 import { DocumentPurposeClassifier, DocumentClassificationResult } from "./cpaOrganization/documentClassificationEngine.js";
+import { qualifyParsedTrialBalanceDocument } from "./cpaOrganization/trialBalanceRuntimeAdapter.js";
 
 const app = express();
 const WORKER_PORT = Number(process.env.WORKER_PORT || process.env.PORT || 4000);
@@ -456,12 +459,41 @@ async function executeWorkerExtraction(job: WorkerJob) {
     job.progress = 25;
 
     let parsedDoc: any;
-    const ext = inspection.detectedType.toLowerCase();
-
-    if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+    const parserPath = selectParserPath(inspection);
+    let ocrUsed = parserPath === "OCR";
+    let selectiveOcrPageCount = 0;
+    if (parserPath === "SPREADSHEET") {
       parsedDoc = await spreadsheetParser.parse(fileInput, inspection);
+    } else if (parserPath === "OCR") {
+      parsedDoc = await ocrParser.parse(fileInput, inspection);
     } else {
       parsedDoc = await anyDocParser.parse(fileInput, inspection);
+      if (shouldUsePdfOcrFallback(parsedDoc, inspection)) {
+        job.status = "OCR";
+        job.currentStage = "Native PDF text unavailable; rasterizing pages for local OCR...";
+        parsedDoc = await ocrParser.parse(fileInput, {
+          ...inspection,
+          detectedType: "pdf",
+          needsOCR: true,
+          requiresParser: "OCRParser",
+        });
+        ocrUsed = true;
+        job.warnings = Array.from(new Set([...(job.warnings || []), "IMAGE_ONLY_PDF_OCR_FALLBACK_USED"]));
+      } else if (shouldUseSelectivePdfOcr(parsedDoc, inspection)) {
+        job.status = "OCR";
+        job.currentStage = "Native PDF retained; OCR only pages without native text...";
+        const selective = await applySelectivePdfOcr({ nativeDoc: parsedDoc, fileInput, inspection, ocrParser });
+        parsedDoc = selective.document;
+        selectiveOcrPageCount = selective.ocrPageNumbers.length;
+        ocrUsed = selectiveOcrPageCount > 0;
+        job.warnings = Array.from(new Set([...(job.warnings || []), `MIXED_PDF_SELECTIVE_OCR_USED:PAGES=${selective.ocrPageNumbers.join(',')}`]));
+      }
+    }
+
+    if (parserPath === "SPREADSHEET") {
+      const trialBalanceRuntime = qualifyParsedTrialBalanceDocument({ doc: parsedDoc, currency: job.functionalCurrency, expectedSourceSha256: job.documentHash, sourceFilePath: job.filePath, filename: job.documentTitle, mimeType: job.mimeType });
+      (job.results as any).trialBalanceQualification = trialBalanceRuntime.qualification;
+      if (trialBalanceRuntime.review) (job.results as any).trialBalanceReview = trialBalanceRuntime.review;
     }
 
     const pagesCount = parsedDoc.page_count || parsedDoc.pages?.length || 1;
@@ -478,10 +510,10 @@ async function executeWorkerExtraction(job: WorkerJob) {
     job.counters.tablesExtracted = extractedTables.length;
 
     // LAYER 4: SELECTIVE OCR CHECK
-    if (inspection.needsOCR || inspection.isMultimodalImage) {
+    if (ocrUsed || inspection.needsOCR || inspection.isMultimodalImage) {
       job.status = "OCR";
       job.currentStage = "Performing selective OCR on visual pages...";
-      job.counters.ocrPagesCount = pagesCount;
+      job.counters.ocrPagesCount = selectiveOcrPageCount || pagesCount;
     }
 
     // LAYER 5: FINANCIAL SEMANTIC CLASSIFICATION
@@ -575,16 +607,20 @@ async function executeWorkerExtraction(job: WorkerJob) {
     );
 
     job.counters.evidenceConfirmed = facts.filter((f) => f.confidence && f.confidence > 0.8).length;
+    const trialBalanceReview = (job.results as any).trialBalanceReview;
     job.counters.accountingGatesPassed = [
       (validationRes.balanceSheetIdentity?.status as any) === "BALANCED",
       (validationRes.incomeStatementIdentity?.status as any) === "BALANCED",
       (validationRes.cashFlowRollForward?.status as any) === "BALANCED",
+      trialBalanceReview?.status === "BALANCED",
       ...(validationRes.plausibilityDiagnostics?.map((p) => p.passed) || [])
     ].filter(Boolean).length;
     job.results.validationResults = validationRes;
 
     // COMPLETE JOB
-    const hasFailures = (validationRes.overallStatus as any) === "FAILED" || (validationRes as any).hasCriticalFailures;
+    const trialBalanceRequiresReview = Boolean(trialBalanceReview && trialBalanceReview.promotionState !== "READY_FOR_AUTHORIZED_REVIEW");
+    if (trialBalanceRequiresReview) job.warnings = Array.from(new Set([...(job.warnings || []), `TRIAL_BALANCE_${trialBalanceReview.status}:${trialBalanceReview.variance}`]));
+    const hasFailures = (validationRes.overallStatus as any) === "FAILED" || (validationRes as any).hasCriticalFailures || trialBalanceRequiresReview;
     job.status = hasFailures ? "COMPLETE_REVIEW_REQUIRED" : "COMPLETE";
     job.currentStage = "Deterministic extraction and accounting reconciliation completed";
     job.progress = 100;
@@ -603,6 +639,8 @@ async function executeWorkerExtraction(job: WorkerJob) {
 
 function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): ExtractedFact[] {
   const extractedFacts: ExtractedFact[] = [];
+  const parserProvenanceById = new Map<string, any>((Array.isArray(parsedDoc.sourceValueProvenance) ? parsedDoc.sourceValueProvenance : []).map((p: any) => [p.provenanceId, p]));
+  const ocrLines: any[] = Array.isArray(parsedDoc.ocrLines) ? parsedDoc.ocrLines : [];
   const fullText = (parsedDoc.raw_text || parsedDoc.markdown || "") + "\n" + (parsedDoc.sections?.map((s: any) => s.text).join("\n") || "");
   
   // Detect document scale
@@ -722,6 +760,12 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
                 // Determine whether scale should be multiplied
                 const finalValue = Math.abs(parsedNum) < 1000000 ? parsedNum * scale : parsedNum;
                 const factId = `fct-${pattern.metric}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                const valueEvidence = table.rowEvidence?.[rIdx]?.[cIdx];
+                const labelEvidence = table.rowEvidence?.[rIdx]?.[0];
+                const sourceCoordinates = [labelEvidence?.coordinate, valueEvidence?.coordinate].filter(Boolean);
+                const sourceProvenanceIds = [labelEvidence?.provenanceId, valueEvidence?.provenanceId].filter(Boolean);
+                const sourceProvenanceRecords = sourceProvenanceIds.map((id: string) => parserProvenanceById.get(id)).filter(Boolean);
+                const universalProvenanceId = `prov-fact-${factId}`;
 
                 extractedFacts.push({
                   id: factId,
@@ -743,6 +787,36 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
                   pageNumber: 1,
                   confidence: 0.99,
                   verificationStatus: "CANONICAL_SELECTED",
+                  sourceProvenanceId: valueEvidence?.provenanceId,
+                  sourceProvenanceIds,
+                  sourceCoordinate: valueEvidence?.coordinate,
+                  sourceCoordinates,
+                  provenanceCoordinates: sourceCoordinates,
+                  sourceProvenanceRecords,
+                  universalProvenance: {
+                    provenanceId: universalProvenanceId,
+                    workspaceId: job.workspaceId,
+                    entityId: undefined,
+                    period: defaultPeriod,
+                    currency: job.functionalCurrency,
+                    lineageKind: "CANONICAL_FACT",
+                    materiality: "MATERIAL",
+                    coordinates: [],
+                    parentProvenanceIds: sourceProvenanceIds,
+                    rawLiteral: cellValStr,
+                    normalizedValue: finalValue,
+                    transformationSteps: [{
+                      stepId: `step-map-${factId}`,
+                      operation: "MAP",
+                      inputProvenanceIds: sourceProvenanceIds,
+                      inputLiteral: cellValStr,
+                      outputValue: finalValue,
+                      engine: "EveSpreadsheetFactExtractor",
+                      engineVersion: "1"
+                    }],
+                    verificationState: "VERIFIED",
+                    presentationUsages: []
+                  },
                   provenance: {
                     documentId: job.documentId,
                     documentTitle: job.documentTitle,
@@ -750,7 +824,17 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
                     sourceText: `${rawLabel}: ${cellValStr} (${sheetName})`,
                     tableName: sheetName,
                     rowLabel: rawLabel,
-                    columnLabel: table.headers?.[cIdx] || "Value"
+                    columnLabel: table.headers?.[cIdx] || "Value",
+                    sourceProvenanceId: valueEvidence?.provenanceId,
+                    sourceProvenanceIds,
+                    sourceCoordinate: valueEvidence?.coordinate,
+                    provenanceCoordinates: sourceCoordinates,
+                    sourceArtifactId: valueEvidence?.coordinate?.sourceArtifactId,
+                    sourceSha256: valueEvidence?.coordinate?.sourceSha256,
+                    sheetName: valueEvidence?.coordinate?.sheetName || sheetName,
+                    cellAddress: valueEvidence?.coordinate?.cellAddress,
+                    formula: valueEvidence?.coordinate?.formula,
+                    numberFormat: valueEvidence?.coordinate?.numberFormat
                   }
                 });
                 break;
@@ -780,8 +864,16 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
             else if (/m|million/i.test(rawVal) && num < 1000000) num *= 1000000;
             else if (num < 1000000) num *= scale;
 
+            const normalizedLine = line.trim();
+            const ocrEvidence = ocrLines.find((entry: any) => String(entry?.text || '').trim() === normalizedLine);
+            const sourceCoordinates = ocrEvidence?.coordinate ? [ocrEvidence.coordinate] : [];
+            const sourceProvenanceIds = ocrEvidence?.provenanceId ? [ocrEvidence.provenanceId] : [];
+            const sourceProvenanceRecords = sourceProvenanceIds.map((id: string) => parserProvenanceById.get(id)).filter(Boolean);
+            const factId = `fct-${pattern.metric}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+            const factConfidence = ocrEvidence ? Math.min(0.95, Number(ocrEvidence.confidence) || 0) : 0.95;
+
             extractedFacts.push({
-              id: `fct-${pattern.metric}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              id: factId,
               workspaceId: job.workspaceId,
               documentId: job.documentId,
               factType: pattern.factType,
@@ -797,14 +889,52 @@ function extractDeterministicFactsFromDocument(parsedDoc: any, job: WorkerJob): 
               reportingPeriod: defaultPeriod,
               periodStart: defaultPeriodStart,
               periodEnd: defaultPeriodEnd,
-              pageNumber: 1,
-              confidence: 0.95,
+              pageNumber: ocrEvidence?.pageNumber || 1,
+              confidence: factConfidence,
               verificationStatus: "CANONICAL_SELECTED",
+              sourceProvenanceId: ocrEvidence?.provenanceId,
+              sourceProvenanceIds,
+              sourceCoordinate: ocrEvidence?.coordinate,
+              sourceCoordinates,
+              provenanceCoordinates: sourceCoordinates,
+              sourceProvenanceRecords,
+              universalProvenance: sourceProvenanceIds.length ? {
+                provenanceId: `prov-fact-${factId}`,
+                workspaceId: job.workspaceId,
+                period: defaultPeriod,
+                currency: job.functionalCurrency,
+                lineageKind: "CANONICAL_FACT",
+                materiality: "MATERIAL",
+                coordinates: [],
+                parentProvenanceIds: sourceProvenanceIds,
+                rawLiteral: rawVal,
+                normalizedValue: num,
+                transformationSteps: [{
+                  stepId: `step-map-${factId}`,
+                  operation: "MAP",
+                  inputProvenanceIds: sourceProvenanceIds,
+                  inputLiteral: rawVal,
+                  outputValue: num,
+                  engine: "EveDeterministicFactExtractor",
+                  engineVersion: "1"
+                }],
+                verificationState: factConfidence >= 0.90 ? "VERIFIED" : "REVIEW_REQUIRED",
+                presentationUsages: []
+              } : undefined,
               provenance: {
                 documentId: job.documentId,
                 documentTitle: job.documentTitle,
-                pageNumber: 1,
-                sourceText: line.trim()
+                pageNumber: ocrEvidence?.pageNumber || 1,
+                sourceText: line.trim(),
+                sourceProvenanceId: ocrEvidence?.provenanceId,
+                sourceProvenanceIds,
+                sourceCoordinate: ocrEvidence?.coordinate,
+                provenanceCoordinates: sourceCoordinates,
+                sourceArtifactId: ocrEvidence?.coordinate?.sourceArtifactId,
+                sourceSha256: ocrEvidence?.coordinate?.sourceSha256,
+                ocrEngine: ocrEvidence?.coordinate?.extractionMethod,
+                ocrEngineVersion: ocrEvidence?.coordinate?.extractionVersion,
+                ocrConfidence: ocrEvidence?.confidence
               }
             });
             break;

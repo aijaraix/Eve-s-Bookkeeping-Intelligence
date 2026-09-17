@@ -18,6 +18,9 @@ import {
   isConfirmedEvidenceStatus
 } from '../failClosedGuards.js';
 import { SpreadsheetParser } from '../../src/lib/parser/spreadsheetParser.js';
+import { OCRParser } from '../../src/lib/parser/ocrParser.js';
+import { applySelectivePdfOcr, shouldUsePdfOcrFallback, shouldUseSelectivePdfOcr } from '../../src/lib/parser/pdfOcrFallback.js';
+import { buildLongDocumentSemanticContext } from '../cpaOrganization/longDocumentSemanticContextEngine.js';
 
 export function applyPrimaryStatementAuthority(
   candidates: StatementFactCandidate[],
@@ -57,11 +60,13 @@ export interface HybridExtractionResult {
   processingDurationMs: number;
   pageManifests?: any[];
   sourceBlocks?: any[];
+  semanticContextReview?: any;
   error?: string;
 }
 
 export class HybridExtractionOrchestrator {
   private parser: AnyDocParser = new AnyDocParser();
+  private ocrParser: OCRParser = new OCRParser();
 
   /**
    * Execute Hybrid PDF Processing pipeline:
@@ -105,6 +110,35 @@ export class HybridExtractionOrchestrator {
         mimeType
       });
 
+      const pdfInspection = { detectedType: 'pdf', mimeType, needsOCR: false, isMultimodalImage: false };
+      if (!isSpreadsheet && shouldUsePdfOcrFallback(parsedDoc, pdfInspection)) {
+        parsedDoc = await this.ocrParser.parse({
+          filename: params.originalFilename,
+          originalName: params.originalFilename,
+          buffer: fileBuffer,
+          size: fileBuffer.length,
+          mimeType
+        }, {
+          ...pdfInspection,
+          needsOCR: true,
+          requiresParser: 'OCRParser'
+        });
+      } else if (!isSpreadsheet && shouldUseSelectivePdfOcr(parsedDoc, pdfInspection)) {
+        const selective = await applySelectivePdfOcr({
+          nativeDoc: parsedDoc,
+          fileInput: {
+            filename: params.originalFilename,
+            originalName: params.originalFilename,
+            buffer: fileBuffer,
+            size: fileBuffer.length,
+            mimeType
+          },
+          inspection: pdfInspection,
+          ocrParser: this.ocrParser,
+        });
+        parsedDoc = selective.document;
+      }
+
       if (isSpreadsheet) {
         try {
           const sheetParser = new SpreadsheetParser();
@@ -127,6 +161,10 @@ export class HybridExtractionOrchestrator {
       }
 
       const physicalPagesTotal = parsedDoc.pageManifests?.length || parsedDoc.metadata.pages || 1;
+      const semanticContextReview = !isSpreadsheet && physicalPagesTotal >= 8
+        ? buildLongDocumentSemanticContext({ doc: parsedDoc, sourceSha256: params.documentHash })
+        : undefined;
+      if (semanticContextReview) (parsedDoc as any).semanticContextReview = semanticContextReview;
       console.log(`[HybridExtractionOrchestrator] Deterministic Physical Page Inventory: ${physicalPagesTotal} pages identified.`);
       updateProgress('Preparing Documents', 15);
 
@@ -556,7 +594,8 @@ export class HybridExtractionOrchestrator {
         accountingValidations,
         processingDurationMs: durationMs,
         pageManifests: parsedDoc.pageManifests || [],
-        sourceBlocks: parsedDoc.sourceBlocks || []
+        sourceBlocks: parsedDoc.sourceBlocks || [],
+        semanticContextReview
       };
 
     } catch (err: any) {

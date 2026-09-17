@@ -12,6 +12,8 @@ export interface BankExtractionResult {
 
 const DATE_RE = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}|[A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})\b/;
 const AMOUNT_RE = /\(?-?\$?-?\d{1,3}(?:,\d{3})*(?:\.\d{2})\)?|\(?-?\d+(?:\.\d{2})\)?/;
+const SUMMARY_BEGIN_RE = /(?:beginning balance|starting balance|previous balance|opening balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i;
+const SUMMARY_END_RE = /(?:ending balance|new balance|closing balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i;
 
 function parseMoney(raw: string | undefined | null): number | null {
   if (!raw) return null;
@@ -35,7 +37,6 @@ function rowLooksLikeTransaction(cells: string[]): boolean {
 function extractFromTables(doc: CanonicalDocumentModel): Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> {
   const rows: Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> = [];
   const tables = doc.tables || [];
-
   tables.forEach((table) => {
     const header = (table.headers || []).map((h) => String(h).toLowerCase());
     const dateIdx = header.findIndex((h) => h.includes("date") || h.includes("posted"));
@@ -44,20 +45,15 @@ function extractFromTables(doc: CanonicalDocumentModel): Array<{ date: string; d
     const balanceIdx = header.findIndex((h) => h.includes("balance") || h.includes("running"));
     const debitIdx = header.findIndex((h) => h.includes("debit") || h.includes("withdrawal"));
     const creditIdx = header.findIndex((h) => h.includes("credit") || h.includes("deposit"));
-
     (table.rows || []).forEach((row) => {
       const cells = (row || []).map((c) => String(c ?? "").trim());
       if (!rowLooksLikeTransaction(cells) && dateIdx < 0) return;
-
       const dateCell = dateIdx >= 0 ? cells[dateIdx] : cells.find((c) => DATE_RE.test(c)) || "";
       const dateMatch = dateCell.match(DATE_RE);
       if (!dateMatch) return;
-
-      const description =
-        descIdx >= 0
-          ? cells[descIdx]
-          : cells.find((c, i) => i !== dateIdx && /[A-Za-z]{3,}/.test(c) && parseMoney(c) == null) || cells.slice(1, 3).join(" ");
-
+      const description = descIdx >= 0
+        ? cells[descIdx]
+        : cells.find((c, i) => i !== dateIdx && /[A-Za-z]{3,}/.test(c) && parseMoney(c) == null) || cells.slice(1, 3).join(" ");
       let amount: number | null = null;
       if (debitIdx >= 0 || creditIdx >= 0) {
         const debit = debitIdx >= 0 ? parseMoney(cells[debitIdx]) : null;
@@ -71,63 +67,57 @@ function extractFromTables(doc: CanonicalDocumentModel): Array<{ date: string; d
         amount = moneyCells.length > 0 ? moneyCells[0] : null;
       }
       if (amount == null) return;
-
       const balance = balanceIdx >= 0 ? parseMoney(cells[balanceIdx]) ?? undefined : undefined;
       const source = cells.join(" | ");
       const amountToken = Number.isInteger(amount) ? String(Math.abs(amount)) : Math.abs(amount).toFixed(2);
-      if (!amountAppearsInSourceBlock(amountToken, source) && !amountAppearsInSourceBlock(String(amount), source)) {
-        return;
-      }
-
-      rows.push({
-        date: dateMatch[1],
-        description: description || "Transaction",
-        amount,
-        balance,
-        source,
-        page: table.pageNumber || 1
-      });
+      if (!amountAppearsInSourceBlock(amountToken, source) && !amountAppearsInSourceBlock(String(amount), source)) return;
+      rows.push({ date: dateMatch[1], description: description || "Transaction", amount, balance, source, page: table.pageNumber || 1 });
     });
   });
-
   return rows;
 }
 
 function extractFromTextLines(doc: CanonicalDocumentModel): Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> {
   const rows: Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> = [];
-  const lines = `${doc?.markdown || ""}\n${(doc?.sections || []).map((s) => s?.text || "").join("\n")}`.split(/\n/);
-
-  lines.forEach((line, idx) => {
-    const dateMatch = line.match(DATE_RE);
-    if (!dateMatch) return;
-    const amounts = line.match(new RegExp(AMOUNT_RE.source, "g")) || [];
-    if (amounts.length === 0) return;
-    const parsedAmounts = amounts.map(parseMoney).filter((v): v is number => v != null);
-    if (parsedAmounts.length === 0) return;
-
-    const amount = parsedAmounts[0];
-    const balance = parsedAmounts.length > 1 ? parsedAmounts[parsedAmounts.length - 1] : undefined;
-    const description = line.replace(DATE_RE, "").replace(AMOUNT_RE, "").replace(/\s+/g, " ").trim() || "Transaction";
-
-    if (!amountAppearsInSourceBlock(amounts[0], line)) return;
-
-    rows.push({
-      date: dateMatch[1],
-      description,
-      amount,
-      balance,
-      source: line.trim(),
-      page: 1
-    });
-  });
-
+  const pages = Array.isArray(doc.pages) && doc.pages.length
+    ? doc.pages.map(p => ({ page: Number(p.page_number) || 1, text: String(p.text || '') }))
+    : [{ page: 1, text: `${doc?.markdown || ""}\n${(doc?.sections || []).map((s) => s?.text || "").join("\n")}` }];
+  for (const page of pages) {
+    for (const rawLine of page.text.split(/\n/)) {
+      const line = rawLine.trim();
+      const dateMatch = line.match(DATE_RE);
+      if (!dateMatch || /statement\s+period/i.test(line)) continue;
+      // Critical: remove the date before scanning monetary tokens. Otherwise a date
+      // fragment such as "09" can become the transaction amount.
+      const withoutDate = line.replace(dateMatch[0], ' ').trim();
+      const amounts = withoutDate.match(new RegExp(AMOUNT_RE.source, "g")) || [];
+      const parsedAmounts = amounts.map(parseMoney).filter((v): v is number => v != null);
+      if (!parsedAmounts.length) continue;
+      const amount = parsedAmounts[0];
+      const balance = parsedAmounts.length > 1 ? parsedAmounts[parsedAmounts.length - 1] : undefined;
+      const description = withoutDate.replace(new RegExp(AMOUNT_RE.source, "g"), " ").replace(/\s+/g, " ").trim() || "Transaction";
+      if (!amountAppearsInSourceBlock(amounts[0], line)) continue;
+      rows.push({ date: dateMatch[1], description, amount, balance, source: line, page: page.page });
+    }
+  }
   return rows;
 }
 
-function parseSummaryAmount(text: string, regex: RegExp): number | null {
-  const m = text.match(regex);
-  if (!m || !m[1]) return null;
-  return parseMoney(m[1]);
+function findSummaryEvidence(doc: CanonicalDocumentModel, regex: RegExp): { value: number; source: string; page: number } | null {
+  const pages = Array.isArray(doc.pages) && doc.pages.length
+    ? doc.pages.map(p => ({ page: Number(p.page_number) || 1, text: String(p.text || '') }))
+    : [{ page: 1, text: String(doc.markdown || doc.raw_text || '') }];
+  for (const page of pages) {
+    const match = page.text.match(regex);
+    const value = parseMoney(match?.[1]);
+    if (match && value != null) return { value, source: match[0], page: page.page };
+  }
+  return null;
+}
+
+function detectExplicitCurrency(text: string): string | undefined {
+  const match = text.match(/\b(?:CURRENCY|ACCOUNT\s+CURRENCY)\s*[:\-]?\s*(USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|SEK|NOK|DKK)\b/i);
+  return match?.[1]?.toUpperCase();
 }
 
 export function extractBankStatementFromDocument(params: {
@@ -139,37 +129,25 @@ export function extractBankStatementFromDocument(params: {
 }): BankExtractionResult {
   const { doc, workspaceId, documentId, filename } = params;
   const text = `${doc.markdown || ""} ${(doc.sections || []).map((s) => s.text).join(" ")}`;
-
   const tableRows = extractFromTables(doc);
   const textRows = tableRows.length > 0 ? [] : extractFromTextLines(doc);
   const extractedRows = tableRows.length > 0 ? tableRows : textRows;
-
   if (extractedRows.length === 0) {
-    return {
-      success: false,
-      transactions: [],
-      facts: [],
-      error: `Bank statement parse missed: no dated transactions with amounts found in ${filename}. Refusing fixture fallback.`
-    };
+    return { success: false, transactions: [], facts: [], error: `Bank statement parse missed: no dated transactions with amounts found in ${filename}. Refusing fixture fallback.` };
   }
 
-  const beginningBalance = parseSummaryAmount(
-    text,
-    /(?:beginning balance|starting balance|previous balance|opening balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i
-  );
-  const endingBalance = parseSummaryAmount(
-    text,
-    /(?:ending balance|new balance|closing balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i
-  );
-
+  const beginningEvidence = findSummaryEvidence(doc, SUMMARY_BEGIN_RE);
+  const endingEvidence = findSummaryEvidence(doc, SUMMARY_END_RE);
+  const beginningBalance = beginningEvidence?.value ?? null;
+  const endingBalance = endingEvidence?.value ?? null;
   const deposits = extractedRows.filter((r) => r.amount > 0).reduce((s, r) => s + r.amount, 0);
   const withdrawals = extractedRows.filter((r) => r.amount < 0).reduce((s, r) => s + Math.abs(r.amount), 0);
   const lastBalance = [...extractedRows].reverse().find((r) => r.balance != null)?.balance;
   const firstBalance = extractedRows.find((r) => r.balance != null)?.balance;
-
-  const currency = params.currency || doc.metadata?.currency || "USD";
+  const explicitCurrency = params.currency || doc.metadata?.currency || detectExplicitCurrency(text);
   const resolvedBegin = beginningBalance ?? (firstBalance != null && extractedRows[0] ? firstBalance - extractedRows[0].amount : null);
   const resolvedEnd = endingBalance ?? lastBalance ?? null;
+  const calculatedEnd = resolvedBegin != null ? Math.round((resolvedBegin + deposits - withdrawals) * 100) / 100 : undefined;
 
   const transactions: BankTransaction[] = extractedRows.map((r, i) => ({
     id: `TXN-${documentId}-${i + 1}`,
@@ -179,12 +157,15 @@ export function extractBankStatementFromDocument(params: {
     postingDate: r.date,
     description: r.description,
     rawDescription: r.source,
+    sourceBlock: r.source,
     amount: r.amount,
+    balance: r.balance,
+    currency: explicitCurrency,
     transactionType: r.amount >= 0 ? "deposit" : "withdrawal",
     counterparty: r.description,
     category: "Extracted Bank Transaction",
     sourcePage: r.page,
-    confidence: 0,
+    page: r.page,
     reconciled: false
   }));
 
@@ -195,20 +176,20 @@ export function extractBankStatementFromDocument(params: {
     maskedAccountNumber: "",
     periodStart: extractedRows[0]?.date || "",
     periodEnd: extractedRows[extractedRows.length - 1]?.date || "",
-    currency,
-    beginningBalance: resolvedBegin ?? 0,
+    currency: explicitCurrency,
+    beginningBalance: resolvedBegin ?? undefined,
     totalDeposits: deposits,
     totalWithdrawals: withdrawals,
     totalChecks: 0,
     totalFees: 0,
-    endingBalance: resolvedEnd ?? 0,
-    averageBalance: 0,
+    endingBalance: resolvedEnd ?? undefined,
+    averageBalance: undefined,
     depositCount: extractedRows.filter((r) => r.amount > 0).length,
     withdrawalCount: extractedRows.filter((r) => r.amount < 0).length,
     transactionCount: extractedRows.length,
-    calculatedEndingBalance: resolvedBegin != null ? Math.round((resolvedBegin + deposits - withdrawals) * 100) / 100 : 0,
-    reconciliationPassed: resolvedBegin != null && resolvedEnd != null
-      ? Math.abs(resolvedBegin + deposits - withdrawals - resolvedEnd) < 0.05
+    calculatedEndingBalance: calculatedEnd,
+    reconciliationPassed: resolvedBegin != null && resolvedEnd != null && calculatedEnd != null
+      ? Math.abs(calculatedEnd - resolvedEnd) < 0.05
       : false
   };
 
@@ -216,9 +197,7 @@ export function extractBankStatementFromDocument(params: {
   const pushFact = (label: string, value: number | null, source: string, page: number, factType: string) => {
     if (value == null || !source) return;
     const token = Number.isInteger(value) ? String(Math.abs(value)) : Math.abs(value).toFixed(2);
-    if (!amountAppearsInSourceBlock(token, source) && !amountAppearsInSourceBlock(String(value), source)) {
-      return;
-    }
+    if (!amountAppearsInSourceBlock(token, source) && !amountAppearsInSourceBlock(String(value), source)) return;
     facts.push({
       id: `FCT-BANK-${documentId}-${factType}`,
       workspaceId,
@@ -232,31 +211,18 @@ export function extractBankStatementFromDocument(params: {
       valueOriginal: String(value),
       valueFunctional: String(value),
       normalizedValue: value,
-      currencyOriginal: currency,
-      functionalCurrency: currency,
-      currency,
+      currencyOriginal: explicitCurrency,
+      functionalCurrency: explicitCurrency,
+      currency: explicitCurrency,
       unitScale: "Units",
-      exchangeRate: "1.0000",
+      exchangeRate: explicitCurrency ? "1.0000" : undefined,
       pageNumber: page,
       sourceText: source,
       status: "pending_review",
       extractionMethod: "BANK_STATEMENT_NATIVE_PARSE"
     } as ExtractedFact);
   };
-
-  if (beginningBalance != null) {
-    const src = text.match(/(?:beginning balance|starting balance|previous balance|opening balance)[\s:$]*-?\$?[\d,]+\.\d{2}/i)?.[0] || "";
-    pushFact("Beginning Balance", beginningBalance, src, 1, "cash");
-  }
-  if (endingBalance != null) {
-    const src = text.match(/(?:ending balance|new balance|closing balance)[\s:$]*-?\$?[\d,]+\.\d{2}/i)?.[0] || "";
-    pushFact("Ending Balance", endingBalance, src, 1, "cash");
-  }
-
-  return {
-    success: true,
-    summary,
-    transactions,
-    facts
-  };
+  if (beginningEvidence) pushFact("Beginning Balance", beginningBalance, beginningEvidence.source, beginningEvidence.page, "bank_beginning_balance");
+  if (endingEvidence) pushFact("Ending Balance", endingBalance, endingEvidence.source, endingEvidence.page, "bank_ending_balance");
+  return { success: true, summary, transactions, facts };
 }

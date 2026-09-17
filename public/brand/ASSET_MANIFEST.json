@@ -1,0 +1,21 @@
+{
+  "status": "PRODUCTION_STARTER_PACK",
+  "source_reference": "owner-supplied approved brand board",
+  "assets": [
+    {"name":"eve-logo-primary","path":"/brand/eve-logo-primary.svg","format":"SVG","use":"light backgrounds"},
+    {"name":"eve-logo-reversed","path":"/brand/eve-logo-reversed.svg","format":"SVG","use":"dark backgrounds"},
+    {"name":"eve-emblem-primary","path":"/brand/eve-emblem-primary.svg","format":"SVG","use":"avatar/emblem"},
+    {"name":"eve-emblem-reversed","path":"/brand/eve-emblem-reversed.svg","format":"SVG","use":"dark-background avatar/emblem"},
+    {"name":"eve-app-mark","path":"/brand/eve-app-mark.svg","format":"SVG","use":"app/PWA"},
+    {"name":"favicon","path":"/brand/favicon.svg","format":"SVG","use":"browser favicon"},
+    {"name":"tokens-css","path":"/brand/eve-brand-tokens.css","format":"CSS","use":"website tokens"},
+    {"name":"tokens-json","path":"/brand/brand-tokens.json","format":"JSON","use":"tooling/design tokens"}
+  ],
+  "owner_original_zip_sha256": "9108adfee017f2b4eea73b9db9d7f83ecaa7cd3f6acc675ce9175a67a7a55ff0",
+  "missing_for_full_website_pack": [
+    "clean text-free desktop/mobile hero photography",
+    "standalone synthetic product UI screenshots",
+    "clean mountain CTA desktop/mobile images",
+    "page-specific 1200x630 OG/social cards"
+  ]
+}

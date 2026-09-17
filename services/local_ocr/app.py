@@ -1,0 +1,497 @@
+import base64
+import hashlib
+import importlib.metadata
+import os
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from PIL import Image
+
+APP_VERSION = "1.3.0"
+ENGINE = os.getenv("OCR_ENGINE", "paddle").strip().lower()
+MAX_INPUT_BYTES = int(os.getenv("OCR_MAX_INPUT_BYTES", str(25 * 1024 * 1024)))
+CPU_THREADS = max(1, int(os.getenv("OCR_CPU_THREADS", "2")))
+PDF_RENDER_DPI = max(72, min(300, int(os.getenv("OCR_PDF_RENDER_DPI", "160"))))
+MAX_PDF_PAGES = max(1, int(os.getenv("OCR_MAX_PDF_PAGES", "50")))
+
+app = FastAPI(title="Eve Local OCR", version=APP_VERSION)
+_model: Any = None
+
+
+class OcrRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    mimeType: str = Field(default="application/octet-stream", max_length=128)
+    dataBase64: str = Field(min_length=1)
+    sourceSha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
+    rotationDegrees: int = Field(default=0)
+    pdfPageNumbers: list[int] | None = Field(default=None)
+
+
+def package_version(name: str) -> str:
+    try:
+        return importlib.metadata.version(name)
+    except Exception:
+        return "unknown"
+
+
+def clamp01(value: Any) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except Exception:
+        return 0.0
+
+
+def normalize_bbox(x0: float, y0: float, x1: float, y1: float, width: int, height: int) -> dict[str, Any]:
+    if width <= 0 or height <= 0:
+        raise ValueError("Invalid image dimensions")
+    x0n = max(0.0, min(1.0, x0 / width))
+    y0n = max(0.0, min(1.0, y0 / height))
+    x1n = max(0.0, min(1.0, x1 / width))
+    y1n = max(0.0, min(1.0, y1 / height))
+    return {
+        "x": x0n,
+        "y": y0n,
+        "width": max(0.0, x1n - x0n),
+        "height": max(0.0, y1n - y0n),
+        "unit": "NORMALIZED",
+    }
+
+
+def decode_request(req: OcrRequest) -> tuple[bytes, str]:
+    try:
+        payload = base64.b64decode(req.dataBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="INVALID_BASE64") from exc
+    if not payload:
+        raise HTTPException(status_code=400, detail="EMPTY_INPUT")
+    if len(payload) > MAX_INPUT_BYTES:
+        raise HTTPException(status_code=413, detail="OCR_INPUT_TOO_LARGE")
+    digest = hashlib.sha256(payload).hexdigest()
+    if req.sourceSha256 and digest.lower() != req.sourceSha256.lower():
+        raise HTTPException(status_code=409, detail="SOURCE_HASH_MISMATCH")
+    return payload, digest
+
+
+def ensure_supported_source(req: OcrRequest, payload: bytes) -> tuple[str, str]:
+    suffix = Path(req.filename).suffix.lower() or ".bin"
+    mime = req.mimeType.lower()
+    if mime == "application/pdf" or suffix == ".pdf":
+        return "pdf", ".pdf"
+    if mime.startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}:
+        return "image", suffix
+    raise HTTPException(status_code=415, detail="LOCAL_OCR_UNSUPPORTED_SOURCE_TYPE")
+
+
+
+def normalize_rotation_degrees(value: int | None) -> int:
+    degrees = int(value or 0)
+    if degrees not in {0, 90, 180, 270}:
+        raise HTTPException(status_code=422, detail=f"OCR_ROTATION_UNSUPPORTED:{degrees}")
+    return degrees
+
+
+def inverse_rotate_normalized_point(x: float, y: float, rotation_degrees: int) -> tuple[float, float]:
+    """Map a point from the rotated OCR working copy back into original-source normalized space."""
+    x = clamp01(x)
+    y = clamp01(y)
+    degrees = normalize_rotation_degrees(rotation_degrees)
+    if degrees == 90:
+        return clamp01(1.0 - y), clamp01(x)
+    if degrees == 180:
+        return clamp01(1.0 - x), clamp01(1.0 - y)
+    if degrees == 270:
+        return clamp01(y), clamp01(1.0 - x)
+    return x, y
+
+
+def remap_bbox_to_original(box: dict[str, Any], rotation_degrees: int) -> dict[str, Any]:
+    x0 = clamp01(box.get("x"))
+    y0 = clamp01(box.get("y"))
+    x1 = clamp01(x0 + clamp01(box.get("width")))
+    y1 = clamp01(y0 + clamp01(box.get("height")))
+    points = [
+        inverse_rotate_normalized_point(x0, y0, rotation_degrees),
+        inverse_rotate_normalized_point(x1, y0, rotation_degrees),
+        inverse_rotate_normalized_point(x1, y1, rotation_degrees),
+        inverse_rotate_normalized_point(x0, y1, rotation_degrees),
+    ]
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    return {
+        "x": left,
+        "y": top,
+        "width": max(0.0, right - left),
+        "height": max(0.0, bottom - top),
+        "unit": "NORMALIZED",
+    }
+
+
+def remap_result_to_original(
+    result: dict[str, Any],
+    rotation_degrees: int,
+    original_width: int,
+    original_height: int,
+) -> dict[str, Any]:
+    degrees = normalize_rotation_degrees(rotation_degrees)
+    mapped = dict(result)
+    mapped_pages: list[dict[str, Any]] = []
+    for page in result.get("pages") or []:
+        mapped_page = dict(page)
+        mapped_page["workingImageWidth"] = int(page.get("width") or 0)
+        mapped_page["workingImageHeight"] = int(page.get("height") or 0)
+        mapped_page["width"] = int(original_width)
+        mapped_page["height"] = int(original_height)
+        mapped_regions: list[dict[str, Any]] = []
+        for region in page.get("regions") or []:
+            mapped_region = dict(region)
+            box = region.get("boundingBox") or {}
+            mapped_region["boundingBox"] = remap_bbox_to_original(box, degrees)
+            polygon = region.get("polygon") or []
+            if polygon:
+                mapped_region["polygon"] = [
+                    list(inverse_rotate_normalized_point(float(point[0]), float(point[1]), degrees))
+                    for point in polygon
+                    if isinstance(point, (list, tuple)) and len(point) >= 2
+                ]
+            mapped_regions.append(mapped_region)
+        mapped_page["regions"] = mapped_regions
+        mapped_pages.append(mapped_page)
+    mapped["pages"] = mapped_pages
+    mapped["appliedRotationDegrees"] = degrees
+    mapped["coordinateSpace"] = "ORIGINAL_SOURCE"
+    warnings = list(mapped.get("warnings") or [])
+    if degrees:
+        warnings.append(f"OCR_ORIENTATION_WORKING_COPY:{degrees}")
+        warnings.append("OCR_COORDINATES_REMAPPED_TO_ORIGINAL_SOURCE")
+    mapped["warnings"] = list(dict.fromkeys(warnings))
+    return mapped
+
+
+def normalize_pdf_page_numbers(page_numbers: list[int] | None, page_count: int) -> list[int]:
+    if page_numbers is None:
+        if page_count > MAX_PDF_PAGES:
+            raise HTTPException(status_code=413, detail=f"PDF_PAGE_LIMIT_EXCEEDED:{page_count}>{MAX_PDF_PAGES}")
+        return list(range(1, page_count + 1))
+    if not page_numbers:
+        raise HTTPException(status_code=422, detail="PDF_PAGE_SELECTION_EMPTY")
+    selected: list[int] = []
+    seen: set[int] = set()
+    for raw in page_numbers:
+        page_number = int(raw)
+        if page_number < 1 or page_number > page_count:
+            raise HTTPException(status_code=422, detail=f"PDF_PAGE_SELECTION_OUT_OF_RANGE:{page_number}:{page_count}")
+        if page_number not in seen:
+            seen.add(page_number)
+            selected.append(page_number)
+    if len(selected) > MAX_PDF_PAGES:
+        raise HTTPException(status_code=413, detail=f"PDF_PAGE_LIMIT_EXCEEDED:{len(selected)}>{MAX_PDF_PAGES}")
+    return sorted(selected)
+
+
+def render_pdf_pages(pdf_path: str, output_dir: str, page_numbers: list[int] | None = None) -> list[dict[str, Any]]:
+    import pymupdf
+
+    doc = pymupdf.open(pdf_path)
+    try:
+        if doc.needs_pass:
+            raise HTTPException(status_code=422, detail="PDF_PASSWORD_REQUIRED")
+        page_count = len(doc)
+        if page_count < 1:
+            raise HTTPException(status_code=422, detail="PDF_HAS_NO_PAGES")
+        selected = normalize_pdf_page_numbers(page_numbers, page_count)
+        matrix = pymupdf.Matrix(PDF_RENDER_DPI / 72.0, PDF_RENDER_DPI / 72.0)
+        rendered: list[dict[str, Any]] = []
+        for page_number in selected:
+            page = doc[page_number - 1]
+            pix = page.get_pixmap(matrix=matrix, alpha=False)
+            page_path = os.path.join(output_dir, f"page-{page_number:04d}.png")
+            pix.save(page_path)
+            rendered.append({
+                "pageNumber": page_number,
+                "path": page_path,
+                "width": int(pix.width),
+                "height": int(pix.height),
+                "sourcePageWidthPoints": float(page.rect.width),
+                "sourcePageHeightPoints": float(page.rect.height),
+                "rasterDpi": PDF_RENDER_DPI,
+            })
+        return rendered
+    finally:
+        doc.close()
+
+def get_paddle_model() -> Any:
+    global _model
+    if _model is not None:
+        return _model
+    from paddleocr import PaddleOCR
+
+    det_name = os.getenv("PADDLE_OCR_DET_MODEL") or None
+    rec_name = os.getenv("PADDLE_OCR_REC_MODEL") or None
+    kwargs: dict[str, Any] = {
+        "lang": os.getenv("PADDLE_OCR_LANG", "en"),
+        "device": "cpu",
+        "engine": "paddle_static",
+        # Physically required on Eve's current CPU host; default oneDNN/PIR path failed.
+        "enable_mkldnn": False,
+        "cpu_threads": CPU_THREADS,
+        "use_doc_orientation_classify": False,
+        "use_doc_unwarping": False,
+        "use_textline_orientation": False,
+    }
+    if det_name:
+        kwargs["text_detection_model_name"] = det_name
+    if rec_name:
+        kwargs["text_recognition_model_name"] = rec_name
+    _model = PaddleOCR(**kwargs)
+    return _model
+
+
+def paddle_ocr(path: str, image_width: int, image_height: int) -> dict[str, Any]:
+    model = get_paddle_model()
+    raw_results = list(model.predict(path))
+    pages: list[dict[str, Any]] = []
+    for page_idx, result in enumerate(raw_results, start=1):
+        payload = getattr(result, "json", None)
+        if callable(payload):
+            payload = payload()
+        if not isinstance(payload, dict):
+            try:
+                payload = dict(result)
+            except Exception:
+                payload = {}
+        res = payload.get("res", payload)
+        texts = list(res.get("rec_texts") or [])
+        scores = list(res.get("rec_scores") or [])
+        boxes = list(res.get("rec_boxes") or [])
+        polys = list(res.get("rec_polys") or res.get("dt_polys") or [])
+        regions: list[dict[str, Any]] = []
+        for idx, text in enumerate(texts):
+            if not str(text).strip():
+                continue
+            if idx < len(boxes) and len(boxes[idx]) >= 4:
+                x0, y0, x1, y1 = [float(v) for v in boxes[idx][:4]]
+            elif idx < len(polys) and polys[idx]:
+                xs = [float(p[0]) for p in polys[idx]]
+                ys = [float(p[1]) for p in polys[idx]]
+                x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+            else:
+                continue
+            polygon = []
+            if idx < len(polys) and polys[idx]:
+                polygon = [[float(p[0]) / image_width, float(p[1]) / image_height] for p in polys[idx]]
+            regions.append(
+                {
+                    "regionId": f"p{page_idx}-r{idx + 1}",
+                    "text": str(text),
+                    "confidence": clamp01(scores[idx] if idx < len(scores) else 0.0),
+                    "boundingBox": normalize_bbox(x0, y0, x1, y1, image_width, image_height),
+                    "polygon": polygon,
+                }
+            )
+        pages.append(
+            {
+                "pageNumber": int(res.get("page_index") or (page_idx - 1)) + 1,
+                "width": image_width,
+                "height": image_height,
+                "regions": regions,
+            }
+        )
+    return {
+        "engine": "paddleocr",
+        "engineVersion": package_version("paddleocr"),
+        "model": os.getenv("PADDLE_OCR_MODEL_LABEL", "PP-OCRv6-medium"),
+        "pages": pages,
+        "warnings": [],
+    }
+
+
+def get_doctr_model() -> Any:
+    global _model
+    if _model is not None:
+        return _model
+    from doctr.models import ocr_predictor
+
+    _model = ocr_predictor(pretrained=True, assume_straight_pages=True)
+    return _model
+
+
+def doctr_ocr(path: str) -> dict[str, Any]:
+    from doctr.io import DocumentFile
+
+    model = get_doctr_model()
+    result = model(DocumentFile.from_images(path)).export()
+    pages: list[dict[str, Any]] = []
+    for page_idx, page in enumerate(result.get("pages") or [], start=1):
+        dims = page.get("dimensions") or (0, 0)
+        height, width = int(dims[0] or 0), int(dims[1] or 0)
+        regions: list[dict[str, Any]] = []
+        region_idx = 0
+        for block in page.get("blocks") or []:
+            for line in block.get("lines") or []:
+                words = line.get("words") or []
+                if not words:
+                    continue
+                region_idx += 1
+                text = " ".join(str(w.get("value") or "") for w in words).strip()
+                confidences = [clamp01(w.get("confidence")) for w in words if w.get("confidence") is not None]
+                confidence = sum(confidences) / len(confidences) if confidences else 0.0
+                geometry = line.get("geometry")
+                if geometry and len(geometry) == 2:
+                    (x0, y0), (x1, y1) = geometry
+                    bbox = {
+                        "x": clamp01(x0),
+                        "y": clamp01(y0),
+                        "width": max(0.0, clamp01(x1) - clamp01(x0)),
+                        "height": max(0.0, clamp01(y1) - clamp01(y0)),
+                        "unit": "NORMALIZED",
+                    }
+                else:
+                    # A line without geometry is not usable as source-to-pixel evidence.
+                    continue
+                regions.append(
+                    {
+                        "regionId": f"p{page_idx}-r{region_idx}",
+                        "text": text,
+                        "confidence": confidence,
+                        "boundingBox": bbox,
+                        "polygon": [],
+                    }
+                )
+        pages.append({"pageNumber": page_idx, "width": width, "height": height, "regions": regions})
+    return {
+        "engine": "doctr",
+        "engineVersion": package_version("python-doctr"),
+        "model": os.getenv("DOCTR_OCR_MODEL_LABEL", "fast_base+crnn_vgg16_bn"),
+        "pages": pages,
+        "warnings": [],
+    }
+
+
+def ocr_single_image(path: str, width: int, height: int) -> dict[str, Any]:
+    if ENGINE == "paddle":
+        return paddle_ocr(path, width, height)
+    if ENGINE == "doctr":
+        return doctr_ocr(path)
+    raise HTTPException(status_code=500, detail=f"UNSUPPORTED_OCR_ENGINE:{ENGINE}")
+
+
+@app.get("/health")
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "service": "eve-local-ocr",
+        "version": APP_VERSION,
+        "engine": ENGINE,
+        "modelLoaded": _model is not None,
+        "cpuThreads": CPU_THREADS,
+        "pdfRenderDpi": PDF_RENDER_DPI,
+        "maxPdfPages": MAX_PDF_PAGES,
+        "supportedSourceKinds": ["image", "pdf"],
+    }
+
+
+@app.post("/v1/ocr")
+def recognize(req: OcrRequest) -> dict[str, Any]:
+    payload, digest = decode_request(req)
+    source_kind, suffix = ensure_supported_source(req, payload)
+    rotation_degrees = normalize_rotation_degrees(req.rotationDegrees)
+    selected_pdf_pages = list(dict.fromkeys(req.pdfPageNumbers or []))
+    if source_kind == "pdf" and rotation_degrees != 0 and len(selected_pdf_pages) != 1:
+        raise HTTPException(status_code=422, detail="OCR_ROTATION_RETRY_PDF_REQUIRES_SINGLE_SELECTED_PAGE")
+    if source_kind != "pdf" and selected_pdf_pages:
+        raise HTTPException(status_code=422, detail="OCR_PDF_PAGE_SELECTION_REQUIRES_PDF")
+    started = time.perf_counter()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
+        fh.write(payload)
+        path = fh.name
+    try:
+        if source_kind == "pdf":
+            with tempfile.TemporaryDirectory(prefix="eve-ocr-pdf-") as pages_dir:
+                rasterized = render_pdf_pages(path, pages_dir, selected_pdf_pages or None)
+                combined_pages: list[dict[str, Any]] = []
+                combined_warnings: list[str] = ["PDF_RASTERIZED_FOR_OCR"]
+                if selected_pdf_pages:
+                    combined_warnings.append("PDF_SELECTIVE_PAGES_FOR_OCR:" + ",".join(str(n) for n in sorted(selected_pdf_pages)))
+                engine_metadata: dict[str, Any] | None = None
+                for page_meta in rasterized:
+                    if rotation_degrees:
+                        with Image.open(page_meta["path"]) as source_image:
+                            original_width, original_height = source_image.size
+                            with tempfile.TemporaryDirectory(prefix="eve-ocr-pdf-rotate-") as rotation_dir:
+                                working = source_image.convert("RGB").rotate(
+                                    rotation_degrees,
+                                    expand=True,
+                                    fillcolor=(255, 255, 255),
+                                )
+                                working_path = os.path.join(rotation_dir, f"rotation-{rotation_degrees}.png")
+                                working.save(working_path, "PNG", optimize=True)
+                                page_out = ocr_single_image(working_path, working.width, working.height)
+                        page_out = remap_result_to_original(page_out, rotation_degrees, original_width, original_height)
+                    else:
+                        page_out = ocr_single_image(
+                            page_meta["path"],
+                            page_meta["width"],
+                            page_meta["height"],
+                        )
+                    if engine_metadata is None:
+                        engine_metadata = {k: v for k, v in page_out.items() if k not in {"pages", "warnings"}}
+                    combined_warnings.extend(page_out.get("warnings") or [])
+                    for page_payload in page_out.get("pages") or []:
+                        normalized_page = dict(page_payload)
+                        normalized_page["pageNumber"] = page_meta["pageNumber"]
+                        normalized_page["width"] = page_meta["width"]
+                        normalized_page["height"] = page_meta["height"]
+                        normalized_page["sourcePageWidthPoints"] = page_meta["sourcePageWidthPoints"]
+                        normalized_page["sourcePageHeightPoints"] = page_meta["sourcePageHeightPoints"]
+                        normalized_page["rasterDpi"] = page_meta["rasterDpi"]
+                        normalized_regions: list[dict[str, Any]] = []
+                        for region_index, region in enumerate(normalized_page.get("regions") or [], start=1):
+                            normalized_region = dict(region)
+                            normalized_region["regionId"] = f"p{page_meta['pageNumber']}-r{region_index}"
+                            normalized_regions.append(normalized_region)
+                        normalized_page["regions"] = normalized_regions
+                        combined_pages.append(normalized_page)
+                out = dict(engine_metadata or {})
+                out["pages"] = combined_pages
+                out["warnings"] = list(dict.fromkeys(combined_warnings))
+                out["requestedPdfPageNumbers"] = sorted(selected_pdf_pages) if selected_pdf_pages else [p["pageNumber"] for p in rasterized]
+        else:
+            with Image.open(path) as image:
+                width, height = image.size
+                if rotation_degrees:
+                    with tempfile.TemporaryDirectory(prefix="eve-ocr-rotate-") as rotation_dir:
+                        working = image.convert("RGB").rotate(
+                            rotation_degrees,
+                            expand=True,
+                            fillcolor=(255, 255, 255),
+                        )
+                        rotated_path = os.path.join(rotation_dir, f"rotation-{rotation_degrees}.png")
+                        working.save(rotated_path, "PNG", optimize=True)
+                        out = ocr_single_image(rotated_path, working.width, working.height)
+                else:
+                    out = ocr_single_image(path, width, height)
+            out = remap_result_to_original(out, rotation_degrees, width, height)
+
+        if "appliedRotationDegrees" not in out:
+            out["appliedRotationDegrees"] = rotation_degrees
+        if "coordinateSpace" not in out:
+            out["coordinateSpace"] = "ORIGINAL_SOURCE"
+        out["sourceSha256"] = digest
+        out["elapsedMs"] = int((time.perf_counter() - started) * 1000)
+        out["serviceVersion"] = APP_VERSION
+        return out
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"OCR_ENGINE_FAILURE:{type(exc).__name__}:{exc}") from exc
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass

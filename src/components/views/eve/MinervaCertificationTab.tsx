@@ -50,13 +50,13 @@ export const MinervaCertificationTab: React.FC = () => {
           </div>
           <div>
             <div className="text-sm font-bold text-white font-sans flex items-center gap-2">
-              <span>Minerva Live Examination & Certification Suite</span>
+              <span>Minerva Technical Examination & Evidence Grading</span>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-800/60">
-                CERTIFIED 100%
+                CASE-SCOPED EVIDENCE
               </span>
             </div>
             <div className="text-xs font-mono text-slate-400 mt-0.5">
-              Two-sided evaluation: Sealed ground truth strictly separated from solver prompt context
+              Two-sided internal technical evaluation with sealed ground truth separated from solver context — not a CPA opinion or statutory professional certification
             </div>
           </div>
         </div>
@@ -80,7 +80,7 @@ export const MinervaCertificationTab: React.FC = () => {
                 <span>Company Reconstruction Test (Examiner Score: {(reconstructionReport.overallReconstructionScore * 100).toFixed(1)}%)</span>
               </EveCardTitle>
               <span className="text-xs font-mono text-emerald-400 font-bold">
-                {reconstructionReport.examinerCertification}
+                Internal technical result: {reconstructionReport.overallReconstructionScore === 1 ? 'PASSED' : 'REVIEW REQUIRED'}
               </span>
             </div>
           </EveCardHeader>
@@ -124,7 +124,7 @@ export const MinervaCertificationTab: React.FC = () => {
                 <span>12-Question Document Understanding Questionnaire (Scored: {(questionnaireReport.overallAccuracyRate * 100).toFixed(0)}%)</span>
               </EveCardTitle>
               <span className="text-xs font-mono text-emerald-400 font-bold">
-                Certified Complete (12 / 12 Correct with Evidence)
+                {questionnaireReport.items?.length || 0} examiner-scored questions
               </span>
             </div>
           </EveCardHeader>
