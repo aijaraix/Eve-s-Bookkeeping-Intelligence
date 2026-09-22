@@ -44,16 +44,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   return (
     <header
       className={cn(
-        'h-14 bg-white border-b border-slate-200 px-5 flex items-center justify-between gap-4 select-none shrink-0 z-10',
+        'h-14 bg-white border-b border-slate-200 px-3 lg:px-5 flex items-center justify-between gap-2 lg:gap-4 select-none shrink-0 z-10 min-w-0',
         className
       )}
     >
       {/* Left: Context Quick Selectors */}
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex min-w-0 items-center gap-2 text-xs">
         {/* Client & Period Pills */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg border border-slate-200/80 font-medium text-slate-800">
           <Building2 className="w-3.5 h-3.5 text-slate-500" />
-          <span className="truncate max-w-[140px] sm:max-w-[180px] font-semibold">
+          <span className="truncate max-w-[110px] lg:max-w-[180px] font-semibold">
             {activeClientName || 'No Engagement Selected'}
           </span>
           <span className="text-slate-300">|</span>
@@ -79,7 +79,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       </div>
 
       {/* Center: Search / Command Trigger */}
-      <div className="flex-1 max-w-md hidden sm:block">
+      <div className="flex-1 max-w-md hidden lg:block min-w-0">
         <button
           type="button"
           onClick={onOpenCommand}
@@ -96,7 +96,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       </div>
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {/* Quick Upload Button */}
         {onOpenUpload && (
           <button
@@ -106,7 +106,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer transition-colors"
           >
             <UploadCloud className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Intake / Upload</span>
+            <span className="hidden xl:inline">Intake / Upload</span>
           </button>
         )}
 
@@ -124,7 +124,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             title="Toggle Eve Audit Copilot Workbench"
           >
             <Bot className="w-3.5 h-3.5 text-indigo-600" />
-            <span className="hidden sm:inline">Copilot</span>
+            <span className="hidden xl:inline">Copilot</span>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           </button>
         )}

@@ -285,7 +285,11 @@ export class DiagnosticsEngine {
     const metricGroupMap: Record<string, ExtractedFact[]> = {};
 
     wsFacts.forEach(f => {
-      const metricKey = `${f.canonicalMetric || f.canonical_metric || (f as any).normalized_label}_${f.reportingPeriod || (f as any).reporting_period || 'FY2025'}`;
+      const metric = String(f.canonicalMetric || f.canonical_metric || (f as any).normalized_label || '')
+        .toLowerCase().replace(/[^a-z0-9]/g, '');
+      const period = String(f.reportingPeriod || (f as any).reporting_period || 'FY2025')
+        .toLowerCase().replace(/[^a-z0-9]/g, '');
+      const metricKey = `${metric}_${period}`;
       if (!metricGroupMap[metricKey]) metricGroupMap[metricKey] = [];
       metricGroupMap[metricKey].push(f);
     });
@@ -309,6 +313,10 @@ export class DiagnosticsEngine {
               page_number: f.pageNumber || f.source_page || 1,
               context: f.sourceText || f.labelOriginal,
               confidence: f.confidence || 0.95,
+              source_sha256: (f as any).sourceSha256 || (f as any).source_sha256 || null,
+              source_block_ids: (f as any).sourceBlockIds || ((f as any).sourceBlockId ? [(f as any).sourceBlockId] : []),
+              source_provenance_ids: (f as any).sourceProvenanceIds || ((f as any).sourceProvenanceId ? [(f as any).sourceProvenanceId] : []),
+              source_coordinate: (f as any).sourceCoordinate || null,
               authority_rank: i + 1
             })),
             classification: "reported_vs_underlying",

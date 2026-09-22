@@ -62,6 +62,7 @@ export interface EvidenceCrossCheckResult {
   evidenceStatus: 'CONFIRMED' | 'VISUALLY_CONFIRMED' | 'PARTIAL' | 'UNCONFIRMED' | 'CONFLICTED';
   matchedSourceText?: string;
   matchedPageNumber?: number;
+  matchedSourceBlock?: any;
   confidenceScore: number;
   notes?: string;
 }

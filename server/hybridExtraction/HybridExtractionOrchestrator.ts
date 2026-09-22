@@ -18,6 +18,26 @@ import {
   isConfirmedEvidenceStatus
 } from '../failClosedGuards.js';
 import { SpreadsheetParser } from '../../src/lib/parser/spreadsheetParser.js';
+import { OCRParser } from '../../src/lib/parser/ocrParser.js';
+import { applySelectivePdfOcr, shouldUsePdfOcrFallback, shouldUseSelectivePdfOcr } from '../../src/lib/parser/pdfOcrFallback.js';
+import { buildLongDocumentSemanticContext } from '../cpaOrganization/longDocumentSemanticContextEngine.js';
+import { mimeTypeForSource, routeSupportedSource } from '../sourceFormatRouting.js';
+
+export function bindParsedDocumentIdentity(parsedDoc: any, documentId: string): any {
+  if (!parsedDoc || !documentId) return parsedDoc;
+  parsedDoc.document_id = documentId;
+  parsedDoc.sourceBlocks = (parsedDoc.sourceBlocks || []).map((block: any) => {
+    const parserDocumentId = String(block?.document_id || '');
+    return {
+      ...block,
+      document_id: documentId,
+      source_block_id: parserDocumentId && typeof block?.source_block_id === 'string'
+        ? block.source_block_id.replace(parserDocumentId, documentId)
+        : block?.source_block_id
+    };
+  });
+  return parsedDoc;
+}
 
 export function applyPrimaryStatementAuthority(
   candidates: StatementFactCandidate[],
@@ -30,7 +50,8 @@ export function applyPrimaryStatementAuthority(
   const authoritativeCurrency = String(statement?.currency || documentMapCurrency || fallbackCurrency || '').trim().toUpperCase();
   const authoritativeScope = statement?.scope ||
     (statementType.startsWith('CONSOLIDATED_') ? 'CONSOLIDATED' :
-      (statementType.startsWith('PARENT_COMPANY_') ? 'STANDALONE' : undefined));
+      (statementType.startsWith('PARENT_COMPANY_') ? 'STANDALONE' :
+        ((statement?.reportingEntity || documentIssuer) ? 'ENTITY_AS_PRESENTED' : undefined)));
   const authoritativeEntity = statement?.reportingEntity || documentIssuer;
 
   return candidates.map(candidate => ({
@@ -39,6 +60,63 @@ export function applyPrimaryStatementAuthority(
     ...(authoritativeScope ? { reportingScope: authoritativeScope } : {}),
     ...(!candidate.reportingEntity && authoritativeEntity ? { reportingEntity: authoritativeEntity } : {})
   }));
+}
+
+/**
+ * Recover a small set of primary-statement totals from deterministic native
+ * tables when a bounded model response omits a statement that is still
+ * physically present in the same filing. These remain candidates: the normal
+ * evidence cross-check, normalization, canonical resolution and accounting
+ * gates still decide whether they can be promoted.
+ */
+export function extractComplementaryPrimaryStatementCandidates(
+  parsedDoc: any,
+  defaults: { period: string; currency: string; reportingEntity?: string }
+): StatementFactCandidate[] {
+  const documentText = String(parsedDoc?.raw_text || parsedDoc?.markdown || '');
+  const latestPlausibleYear = new Date().getUTCFullYear() + 1;
+  const detectedYears = [...documentText.matchAll(/(?<!\d)(20\d{2})(?!\d)/g)]
+    .map(match => Number(match[1]))
+    .filter(year => year <= latestPlausibleYear);
+  const resolvedPeriod = String(defaults.period || '').trim() || (detectedYears.length ? `FY ${Math.max(...detectedYears)}` : '');
+  const documentScale = /\bin millions\b|\(in millions\)/i.test(documentText) ? 'millions'
+    : (/\bin thousands\b|\(in thousands\)/i.test(documentText) ? 'thousands' : undefined);
+  const patterns = [
+    { metric: 'totalAssets', label: 'Total assets', statementType: 'CONSOLIDATED_BALANCE_SHEET', regex: /^total assets$/i },
+    { metric: 'totalLiabilities', label: 'Total liabilities', statementType: 'CONSOLIDATED_BALANCE_SHEET', regex: /^total liabilities$/i },
+    { metric: 'totalEquity', label: 'Total shareholders equity', statementType: 'CONSOLIDATED_BALANCE_SHEET', regex: /^total (?:shareholders|stockholders)[’'\u2019]? equity$/i }
+  ];
+  const candidates: StatementFactCandidate[] = [];
+  for (const table of Array.isArray(parsedDoc?.tables) ? parsedDoc.tables : []) {
+    const tableText = (table.rows || []).flat().map(String).join(' ');
+    const scale = /\bin millions\b|\(in millions\)/i.test(tableText) ? 'millions'
+      : (/\bin thousands\b|\(in thousands\)/i.test(tableText) ? 'thousands' : documentScale);
+    for (const row of Array.isArray(table?.rows) ? table.rows : []) {
+      if (!Array.isArray(row) || row.length < 2) continue;
+      const rowLabel = String(row[0] || '').replace(/\s+/g, ' ').trim();
+      const pattern = patterns.find(item => item.regex.test(rowLabel));
+      if (!pattern) continue;
+      const rawValue = row.slice(1).map(String).find(value => /^\s*\(?-?[\d,]+(?:\.\d+)?\)?\s*$/.test(value));
+      if (!rawValue) continue;
+      candidates.push({
+        metricLabel: pattern.label,
+        canonicalMetricCandidate: pattern.metric,
+        rawValue: rawValue.trim(),
+        currency: defaults.currency,
+        scale,
+        period: resolvedPeriod,
+        reportingEntity: defaults.reportingEntity,
+        reportingScope: 'CONSOLIDATED',
+        statementType: pattern.statementType,
+        physicalPage: Number(table.pageNumber || 1),
+        rowLabel,
+        isTotal: true,
+        confidence: 0.99,
+        sourceQuote: `${rowLabel} ${rawValue.trim()}`
+      });
+    }
+  }
+  return candidates;
 }
 
 export interface HybridExtractionResult {
@@ -57,11 +135,13 @@ export interface HybridExtractionResult {
   processingDurationMs: number;
   pageManifests?: any[];
   sourceBlocks?: any[];
+  semanticContextReview?: any;
   error?: string;
 }
 
 export class HybridExtractionOrchestrator {
   private parser: AnyDocParser = new AnyDocParser();
+  private ocrParser: OCRParser = new OCRParser();
 
   /**
    * Execute Hybrid PDF Processing pipeline:
@@ -73,6 +153,7 @@ export class HybridExtractionOrchestrator {
     workspaceId: string;
     filePath: string;
     originalFilename: string;
+    mimeType?: string;
     documentHash: string;
     period?: string;
     currency?: string;
@@ -91,19 +172,51 @@ export class HybridExtractionOrchestrator {
       // Step 1: Deterministic Physical Page Inventory & Source Block Extraction
       updateProgress('Preparing Documents', 10);
       const fileBuffer = fs.readFileSync(params.filePath);
-      const ext = path.extname(params.originalFilename || params.filePath || '').toLowerCase();
-      const isSpreadsheet = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv', '.ods'].includes(ext);
-      const mimeType = isSpreadsheet
-        ? (ext === '.csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        : 'application/pdf';
-
-      let parsedDoc = await this.parser.parse({
+      const sourceFormat = routeSupportedSource(params.originalFilename || params.filePath, params.mimeType || '');
+      const isSpreadsheet = sourceFormat === 'SPREADSHEET';
+      const isPdf = sourceFormat === 'PDF';
+      const isImage = sourceFormat === 'IMAGE';
+      const mimeType = mimeTypeForSource(sourceFormat, params.originalFilename || params.filePath, params.mimeType);
+      const fileInput = {
         filename: params.originalFilename,
         originalName: params.originalFilename,
         buffer: fileBuffer,
         size: fileBuffer.length,
         mimeType
-      });
+      };
+
+      let parsedDoc = isImage
+        ? await this.ocrParser.parse(fileInput, { detectedType: path.extname(params.originalFilename).slice(1), mimeType, needsOCR: true, isMultimodalImage: true, requiresParser: 'OCRParser' })
+        : await this.parser.parse(fileInput, { detectedType: path.extname(params.originalFilename).slice(1), mimeType });
+
+      const pdfInspection = { detectedType: 'pdf', mimeType, needsOCR: false, isMultimodalImage: false };
+      if (isPdf && shouldUsePdfOcrFallback(parsedDoc, pdfInspection)) {
+        parsedDoc = await this.ocrParser.parse({
+          filename: params.originalFilename,
+          originalName: params.originalFilename,
+          buffer: fileBuffer,
+          size: fileBuffer.length,
+          mimeType
+        }, {
+          ...pdfInspection,
+          needsOCR: true,
+          requiresParser: 'OCRParser'
+        });
+      } else if (isPdf && shouldUseSelectivePdfOcr(parsedDoc, pdfInspection)) {
+        const selective = await applySelectivePdfOcr({
+          nativeDoc: parsedDoc,
+          fileInput: {
+            filename: params.originalFilename,
+            originalName: params.originalFilename,
+            buffer: fileBuffer,
+            size: fileBuffer.length,
+            mimeType
+          },
+          inspection: pdfInspection,
+          ocrParser: this.ocrParser,
+        });
+        parsedDoc = selective.document;
+      }
 
       if (isSpreadsheet) {
         try {
@@ -126,7 +239,13 @@ export class HybridExtractionOrchestrator {
         }
       }
 
+      parsedDoc = bindParsedDocumentIdentity(parsedDoc, params.documentId);
+
       const physicalPagesTotal = parsedDoc.pageManifests?.length || parsedDoc.metadata.pages || 1;
+      const semanticContextReview = !isSpreadsheet && physicalPagesTotal >= 8
+        ? buildLongDocumentSemanticContext({ doc: parsedDoc, sourceSha256: params.documentHash })
+        : undefined;
+      if (semanticContextReview) (parsedDoc as any).semanticContextReview = semanticContextReview;
       console.log(`[HybridExtractionOrchestrator] Deterministic Physical Page Inventory: ${physicalPagesTotal} pages identified.`);
       updateProgress('Preparing Documents', 15);
 
@@ -192,8 +311,16 @@ export class HybridExtractionOrchestrator {
             if (!row || row.length < 2) return;
             const label = String(row[0] || '').trim();
             if (!label || !/[a-zA-Z]{3,}/.test(label)) return;
+            const sourceBlock = (parsedDoc.sourceBlocks || []).find((block: any) =>
+              String(block?.raw_text || block?.text_content || '').includes(label)
+            ) || (parsedDoc.sourceBlocks || [])[tIdx];
             for (let i = 1; i < row.length; i++) {
               const cell = String(row[i] || '').trim();
+              const columnLabel = String(table.headers?.[i] || '').trim();
+              // A spreadsheet date is commonly decoded by XLSX as its Excel serial
+              // (for example 2025-12 becomes 45992). It is context, not an
+              // accounting amount, so never select date/period columns as values.
+              if (/\b(?:date|period|month|year|quarter|as[ -]?of)\b/i.test(columnLabel)) continue;
               const numMatch = cell.match(/-?\(?\$?€?£?\s*[\d,]+(?:\.\d+)?\)?/);
               if (!numMatch) continue;
               const source = `${label} | ${row.join(' | ')}`;
@@ -201,6 +328,11 @@ export class HybridExtractionOrchestrator {
               const clean = numMatch[0].replace(/[^\d.-]/g, '');
               const parsed = parseFloat(clean.replace(/,/g, ''));
               if (Number.isNaN(parsed) || parsed === 0) continue;
+              const valueEvidence = table.rowEvidence?.[rIdx]?.[i];
+              const labelEvidence = table.rowEvidence?.[rIdx]?.[0];
+              const sourceCoordinate = valueEvidence?.coordinate;
+              const sourceProvenanceId = valueEvidence?.provenanceId;
+              const sourceBlockId = sourceBlock?.source_block_id || sourceBlock?.sourceBlockId;
               tableFacts.push({
                 id: `FCT-SHEET-${params.documentId}-${tIdx}-${rIdx}-${i}`,
                 workspaceId: params.workspaceId,
@@ -216,7 +348,18 @@ export class HybridExtractionOrchestrator {
                 functionalCurrency: params.currency || '',
                 pageNumber: table.pageNumber || tIdx + 1,
                 sourceText: source,
-                status: 'pending_review',
+                sourceBlockId,
+                sourceBlockIds: sourceBlockId ? [sourceBlockId] : [],
+                sourceSha256: sourceCoordinate?.sourceSha256 || sourceBlock?.source_sha256 || sourceBlock?.sourceSha256 || params.documentHash,
+                sourceArtifactId: sourceCoordinate?.sourceArtifactId || sourceBlock?.source_artifact_id || sourceBlock?.sourceArtifactId,
+                sourceProvenanceId,
+                sourceProvenanceIds: sourceProvenanceId ? [sourceProvenanceId] : [],
+                sourceCoordinate,
+                sourceCoordinates: [labelEvidence?.coordinate, sourceCoordinate].filter(Boolean),
+                provenanceCoordinates: [labelEvidence?.coordinate, sourceCoordinate].filter(Boolean),
+                evidenceStatus: 'CONFIRMED',
+                verificationStatus: 'VERIFIED',
+                status: 'approved',
                 extractionMethod: 'SPREADSHEET_CELL'
               } as ExtractedFact);
               break;
@@ -409,6 +552,26 @@ export class HybridExtractionOrchestrator {
         }
       }
 
+      const candidatePeriod = allExtractedCandidates
+        .map(candidate => String(candidate.period || '').trim())
+        .filter(Boolean)
+        .sort((a, b) => Math.max(...[...b.matchAll(/(?<!\d)(20\d{2})(?!\d)/g)].map(match => Number(match[1])), 0) - Math.max(...[...a.matchAll(/(?<!\d)(20\d{2})(?!\d)/g)].map(match => Number(match[1])), 0))[0];
+      const complementaryCandidates = extractComplementaryPrimaryStatementCandidates(parsedDoc, {
+        period: periodFromMap || candidatePeriod,
+        currency: currencyFromMap || params.currency || '',
+        reportingEntity: docMap.documentIssuer
+      });
+      const candidateKeys = new Set(allExtractedCandidates.map(candidate =>
+        `${String(candidate.canonicalMetricCandidate || candidate.metricLabel).toLowerCase()}|${candidate.period}|${candidate.rawValue}|${candidate.scale || 'UNRESOLVED'}`
+      ));
+      for (const candidate of complementaryCandidates) {
+        const key = `${String(candidate.canonicalMetricCandidate || candidate.metricLabel).toLowerCase()}|${candidate.period}|${candidate.rawValue}|${candidate.scale || 'UNRESOLVED'}`;
+        if (!candidateKeys.has(key)) {
+          candidateKeys.add(key);
+          allExtractedCandidates.push(candidate);
+        }
+      }
+
       // Step 4: Evidence Cross-Check against Native Text & Page Manifests
       const evTask = semanticTaskManager.createTask({
         intakeId: params.intakeId,
@@ -447,6 +610,10 @@ export class HybridExtractionOrchestrator {
       
       evidenceResults.forEach((ev, idx) => {
         const c = ev.candidate;
+        const sourceBlock = ev.matchedSourceBlock || {};
+        const sourceCoordinate = sourceBlock.source_coordinate || sourceBlock.sourceCoordinate;
+        const sourceProvenanceId = sourceBlock.source_provenance_id || sourceBlock.sourceProvenanceId;
+        const sourceBlockId = sourceBlock.source_block_id || sourceBlock.sourceBlockId;
         const normLower = (c.metricLabel || c.rowLabel || "").toLowerCase();
 
         let fType = "general";
@@ -498,6 +665,17 @@ export class HybridExtractionOrchestrator {
           reportingPeriod: c.period || periodBounds.label || periodFromMap,
           pageNumber: c.physicalPage,
           sourceText: ev.matchedSourceText || c.sourceQuote || c.rowLabel,
+          sourceBlockId,
+          sourceBlockIds: sourceBlockId ? [sourceBlockId] : [],
+          sourceSha256: sourceBlock.source_sha256 || sourceBlock.sourceSha256 || params.documentHash,
+          sourceArtifactId: sourceBlock.source_artifact_id || sourceBlock.sourceArtifactId || sourceCoordinate?.sourceArtifactId,
+          sourceProvenanceId,
+          sourceProvenanceIds: sourceProvenanceId ? [sourceProvenanceId] : [],
+          sourceCoordinate,
+          sourceCoordinates: sourceCoordinate ? [sourceCoordinate] : [],
+          provenanceCoordinates: sourceCoordinate ? [sourceCoordinate] : [],
+          sourceExtractionMethod: sourceBlock.extraction_method || sourceCoordinate?.extractionMethod,
+          sourceExtractionVersion: sourceBlock.extraction_version || sourceCoordinate?.extractionVersion,
           confidence: ev.confidenceScore,
           evidenceStatus: ev.evidenceStatus,
           verificationStatus: isConfirmedEvidenceStatus(ev.evidenceStatus) ? 'EVIDENCE_CONFIRMED' : 'REVIEW_REQUIRED',
@@ -556,7 +734,8 @@ export class HybridExtractionOrchestrator {
         accountingValidations,
         processingDurationMs: durationMs,
         pageManifests: parsedDoc.pageManifests || [],
-        sourceBlocks: parsedDoc.sourceBlocks || []
+        sourceBlocks: parsedDoc.sourceBlocks || [],
+        semanticContextReview
       };
 
     } catch (err: any) {
@@ -582,4 +761,3 @@ export class HybridExtractionOrchestrator {
 }
 
 export const hybridExtractionOrchestrator = new HybridExtractionOrchestrator();
-

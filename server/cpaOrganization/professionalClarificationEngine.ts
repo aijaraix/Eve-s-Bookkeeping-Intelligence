@@ -50,6 +50,43 @@ export type ClarificationRecipientRole =
   | 'AUDIT_MANAGER'
   | 'TECHNICAL_ACCOUNTING_DIRECTOR';
 
+export type ClarificationRequestKind =
+  | 'GENERAL_CLARIFICATION'
+  | 'PBC_EVIDENCE_REQUEST'
+  | 'INTERNAL_MATERIALITY_REVIEW'
+  | 'CPA_REVIEW';
+
+export interface ClarificationLifecycleEvent {
+  eventId: string;
+  eventType:
+    | 'CREATED'
+    | 'SUBMITTED_TO_CLIENT'
+    | 'RESPONSE_RECEIVED'
+    | 'REEVALUATED'
+    | 'RESOLVED'
+    | 'FOLLOW_UP_REQUIRED'
+    | 'WITHDRAWN';
+  at: string;
+  actor: string;
+  note?: string;
+  evidenceRefs?: string[];
+  decisionId?: string;
+}
+
+export interface SufficiencyClarificationLink {
+  sourceDecisionId: string;
+  sourceDecisionHash: string;
+  sourceTaskId: string;
+  gapIds: string[];
+  affectedConclusionIds: string[];
+  sourceEvidenceRefs: string[];
+  materialityAtCreation: 'MATERIAL' | 'UNKNOWN';
+  reevaluationDecisionIds: string[];
+  latestReevaluationDecisionId?: string;
+  resolvedGapIds?: string[];
+  unresolvedGapIds?: string[];
+}
+
 export interface ClarificationOption {
   optionKey: string;
   label: string;
@@ -64,6 +101,10 @@ export interface ProfessionalClarificationRequest {
   engagementId: string;
   createdBy: string;        // Agent or user who discovered ambiguity (e.g., 'EVE_CORE', 'QUINN_REVIEWER')
   assignedTo: ClarificationRecipientRole;
+  requestKind?: ClarificationRequestKind;
+  sufficiencyLink?: SufficiencyClarificationLink;
+  dueAt?: string;
+  submittedAt?: string;
   
   question: string;
   whyItMatters: string;
@@ -86,7 +127,12 @@ export interface ProfessionalClarificationRequest {
     selectedOption?: string;
     narrativeExplanation: string;
     supportingDocumentFilenames?: string[];
+    supportingDocumentIds?: string[];
+    evidenceRefs?: string[];
   };
+  responseEvidenceRefs?: string[];
+  followUpCount?: number;
+  lifecycleEvents?: ClarificationLifecycleEvent[];
   
   supportingDocumentIds: string[];
   resolvedBy?: string;
@@ -101,8 +147,8 @@ export class ProfessionalClarificationEngine {
   
   private requests = new Map<string, ProfessionalClarificationRequest>();
 
-  private constructor() {
-    this.storageDir = path.resolve('storage/cpa_memory/clarifications');
+  public constructor(storageDir = path.resolve('storage/cpa_memory/clarifications')) {
+    this.storageDir = storageDir;
     if (!fs.existsSync(this.storageDir)) {
       fs.mkdirSync(this.storageDir, { recursive: true });
     }
@@ -276,14 +322,163 @@ export class ProfessionalClarificationEngine {
     return this.requests.get(requestId);
   }
 
+  private appendLifecycleEvent(req: ProfessionalClarificationRequest, event: Omit<ClarificationLifecycleEvent, 'eventId' | 'at'> & { at?: string }): void {
+    req.lifecycleEvents = req.lifecycleEvents || [];
+    req.lifecycleEvents.push({
+      ...event,
+      eventId: `pcr-evt-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`,
+      at: event.at || new Date().toISOString(),
+    });
+  }
+
   public createClarificationRequest(data: Omit<ProfessionalClarificationRequest, 'requestId' | 'createdAt' | 'updatedAt'>): ProfessionalClarificationRequest {
+    const now = new Date().toISOString();
     const req: ProfessionalClarificationRequest = {
       ...data,
+      requestKind: data.requestKind || 'GENERAL_CLARIFICATION',
+      responseEvidenceRefs: data.responseEvidenceRefs || [],
+      followUpCount: data.followUpCount || 0,
+      lifecycleEvents: data.lifecycleEvents ? [...data.lifecycleEvents] : [],
       requestId: `pcr-${Date.now()}-${crypto.randomUUID().slice(0, 4)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now
     };
+    if (!req.lifecycleEvents?.length) {
+      this.appendLifecycleEvent(req, {
+        eventType: 'CREATED',
+        actor: data.createdBy,
+        note: 'Clarification request created.',
+        evidenceRefs: data.sufficiencyLink?.sourceEvidenceRefs || data.evidenceAvailable || [],
+        decisionId: data.sufficiencyLink?.sourceDecisionId,
+      });
+    }
     this.requests.set(req.requestId, req);
+    this.persistClarificationsToDisk();
+    return req;
+  }
+
+  public markSubmittedToClient(requestId: string, actor: string): ProfessionalClarificationRequest {
+    const req = this.requests.get(requestId);
+    if (!req) throw new Error(`Clarification request not found: ${requestId}`);
+    if (req.requestKind !== 'PBC_EVIDENCE_REQUEST') {
+      throw new Error('ONLY_PBC_EVIDENCE_REQUESTS_CAN_BE_SUBMITTED_TO_CLIENT');
+    }
+    req.status = 'SUBMITTED_TO_CLIENT';
+    req.submittedAt = new Date().toISOString();
+    req.updatedAt = req.submittedAt;
+    this.appendLifecycleEvent(req, {
+      eventType: 'SUBMITTED_TO_CLIENT',
+      actor,
+      note: 'PBC evidence request marked submitted to client. No transport/send action is implied by this state change.',
+      evidenceRefs: req.sufficiencyLink?.sourceEvidenceRefs || [],
+      decisionId: req.sufficiencyLink?.sourceDecisionId,
+    });
+    this.persistClarificationsToDisk();
+    return req;
+  }
+
+  public recordClarificationResponse(
+    requestId: string,
+    responsePayload: {
+      respondedBy: string;
+      selectedOption?: string;
+      narrativeExplanation: string;
+      supportingDocumentFilenames?: string[];
+      supportingDocumentIds?: string[];
+      evidenceRefs?: string[];
+    },
+    options: { resolveImmediately?: boolean } = {}
+  ): ProfessionalClarificationRequest {
+    const req = this.requests.get(requestId);
+    if (!req) throw new Error(`Clarification request not found: ${requestId}`);
+    if (req.requestKind === 'PBC_EVIDENCE_REQUEST' && req.status !== 'SUBMITTED_TO_CLIENT') {
+      throw new Error('PBC_RESPONSE_REJECTED_BEFORE_SUBMISSION');
+    }
+    if (!String(responsePayload.narrativeExplanation || '').trim()) {
+      throw new Error('CLARIFICATION_RESPONSE_NARRATIVE_REQUIRED');
+    }
+
+    const respondedAt = new Date().toISOString();
+    req.response = { ...responsePayload, respondedAt };
+    req.supportingDocumentIds = Array.from(new Set([...(req.supportingDocumentIds || []), ...(responsePayload.supportingDocumentIds || [])]));
+    req.responseEvidenceRefs = Array.from(new Set([...(req.responseEvidenceRefs || []), ...(responsePayload.evidenceRefs || []), ...(responsePayload.supportingDocumentIds || [])]));
+    req.status = options.resolveImmediately ? 'RESOLVED' : 'RESPONSE_RECEIVED';
+    req.updatedAt = respondedAt;
+    if (options.resolveImmediately) {
+      req.resolvedBy = responsePayload.respondedBy;
+      req.resolvedAt = respondedAt;
+    }
+    this.appendLifecycleEvent(req, {
+      eventType: 'RESPONSE_RECEIVED',
+      actor: responsePayload.respondedBy,
+      note: responsePayload.narrativeExplanation,
+      evidenceRefs: req.responseEvidenceRefs,
+      decisionId: req.sufficiencyLink?.sourceDecisionId,
+    });
+    if (options.resolveImmediately) {
+      this.appendLifecycleEvent(req, {
+        eventType: 'RESOLVED',
+        actor: responsePayload.respondedBy,
+        note: 'Legacy clarification response resolved immediately.',
+        evidenceRefs: req.responseEvidenceRefs,
+      });
+    }
+    this.persistClarificationsToDisk();
+    return req;
+  }
+
+  public applySufficiencyReevaluation(
+    requestId: string,
+    params: {
+      decisionId: string;
+      actor: string;
+      allAffectedConclusionsAllowed: boolean;
+      resolvedGapIds: string[];
+      unresolvedGapIds: string[];
+      note?: string;
+    }
+  ): ProfessionalClarificationRequest {
+    const req = this.requests.get(requestId);
+    if (!req) throw new Error(`Clarification request not found: ${requestId}`);
+    if (!req.sufficiencyLink) throw new Error('CLARIFICATION_NOT_LINKED_TO_SUFFICIENCY_DECISION');
+
+    req.sufficiencyLink.reevaluationDecisionIds = Array.from(new Set([...(req.sufficiencyLink.reevaluationDecisionIds || []), params.decisionId]));
+    req.sufficiencyLink.latestReevaluationDecisionId = params.decisionId;
+    req.sufficiencyLink.resolvedGapIds = [...params.resolvedGapIds];
+    req.sufficiencyLink.unresolvedGapIds = [...params.unresolvedGapIds];
+    this.appendLifecycleEvent(req, {
+      eventType: 'REEVALUATED',
+      actor: params.actor,
+      note: params.note || 'Linked P1-009 re-evaluation decision.',
+      evidenceRefs: req.responseEvidenceRefs || [],
+      decisionId: params.decisionId,
+    });
+
+    if (params.allAffectedConclusionsAllowed) {
+      const now = new Date().toISOString();
+      req.status = 'RESOLVED';
+      req.resolvedBy = params.actor;
+      req.resolvedAt = now;
+      req.updatedAt = now;
+      this.appendLifecycleEvent(req, {
+        eventType: 'RESOLVED',
+        actor: params.actor,
+        note: 'All conclusions affected by this clarification are allowed by the linked P1-009 re-evaluation.',
+        evidenceRefs: req.responseEvidenceRefs || [],
+        decisionId: params.decisionId,
+      });
+    } else {
+      req.followUpCount = (req.followUpCount || 0) + 1;
+      req.status = req.requestKind === 'PBC_EVIDENCE_REQUEST' ? 'SUBMITTED_TO_CLIENT' : 'PENDING_INTERNAL_REVIEW';
+      req.updatedAt = new Date().toISOString();
+      this.appendLifecycleEvent(req, {
+        eventType: 'FOLLOW_UP_REQUIRED',
+        actor: params.actor,
+        note: 'Linked P1-009 re-evaluation still blocks or requires review for one or more affected conclusions.',
+        evidenceRefs: req.responseEvidenceRefs || [],
+        decisionId: params.decisionId,
+      });
+    }
     this.persistClarificationsToDisk();
     return req;
   }
@@ -297,22 +492,7 @@ export class ProfessionalClarificationEngine {
       supportingDocumentFilenames?: string[];
     }
   ): ProfessionalClarificationRequest {
-    const req = this.requests.get(requestId);
-    if (!req) {
-      throw new Error(`Clarification request not found: ${requestId}`);
-    }
-
-    req.response = {
-      ...responsePayload,
-      respondedAt: new Date().toISOString()
-    };
-    req.status = 'RESOLVED';
-    req.resolvedBy = responsePayload.respondedBy;
-    req.resolvedAt = new Date().toISOString();
-    req.updatedAt = new Date().toISOString();
-
-    this.persistClarificationsToDisk();
-    return req;
+    return this.recordClarificationResponse(requestId, responsePayload, { resolveImmediately: true });
   }
 }
 

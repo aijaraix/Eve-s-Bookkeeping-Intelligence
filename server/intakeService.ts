@@ -392,7 +392,7 @@ export class IntakeService {
           currencyOriginal: (!fact.currencyOriginal || fact.currencyOriginal === 'EUR') ? wsCurr : fact.currencyOriginal,
           exchangeRate: (!fact.currencyOriginal || fact.currencyOriginal === wsCurr) ? "1.0" : fact.exchangeRate
         };
-        const existingIdx = db.facts.findIndex(f => f.id === fact.id);
+        const existingIdx = db.facts.findIndex(f => f.workspaceId === wsId && f.id === fact.id);
         if (existingIdx >= 0) {
           db.facts[existingIdx] = factCopy;
         } else {
@@ -400,6 +400,17 @@ export class IntakeService {
         }
       });
     }
+
+    // Intake-attached replay can expose both pre-promotion rows (temporarily
+    // scoped to the intake ID) and staged rows. After both paths converge on
+    // the target workspace, retain one newest canonical row per fact ID.
+    const seenFactIds = new Set<string>();
+    db.facts = db.facts.filter(fact => {
+      if (fact.workspaceId !== wsId || !fact.id) return true;
+      if (seenFactIds.has(fact.id)) return false;
+      seenFactIds.add(fact.id);
+      return true;
+    });
 
     // Run Accounting Validation Engine on promoted workspace
     try {

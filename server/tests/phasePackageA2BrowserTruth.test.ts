@@ -99,8 +99,10 @@ export async function runPhasePackageA2BrowserTruthTests(): Promise<{ passed: nu
   // Test 3: Browser network observation specifically matches POST /api/documents/upload
   {
     const matchesEndpoint =
-      simulatorSource.includes("url.includes('/api/documents/upload')") &&
-      simulatorSource.includes("req.method() === 'POST'");
+      (simulatorSource.includes("url.includes('/api/documents/upload')") ||
+        simulatorSource.includes("new URL(url).pathname === '/api/documents/upload'")) &&
+      (simulatorSource.includes("req.method() === 'POST'") ||
+        simulatorSource.includes("response.request().method() === 'POST'"));
     assertTest(
       'Test 3: Network observation specifically matches POST /api/documents/upload',
       matchesEndpoint,

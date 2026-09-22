@@ -249,6 +249,7 @@ export async function runPhasePackageB3ReportingTruthTests(): Promise<{
   const compiledArtifact = await deliverableArtifactService.compileAndRegisterDeliverable({
     engagementId: 'eng-test-finality',
     reportId: 'REP-FINALITY-001',
+    version: 'v1.0',
     clientName: 'Test Client Inc.',
     deliverableTitle: 'Interim Assurance Report',
     facts: [

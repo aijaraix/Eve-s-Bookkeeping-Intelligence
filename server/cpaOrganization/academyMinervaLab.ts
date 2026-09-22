@@ -70,13 +70,120 @@ export interface LiveEngagementValidationReport {
   score: number;
 }
 
+export type FiveDimensionName =
+  | 'SOURCE_COVERAGE'
+  | 'SEMANTIC_UNDERSTANDING'
+  | 'ACCOUNTING_ACCURACY'
+  | 'PRODUCT_TRUTH'
+  | 'DELIVERABLE_TRUTH';
+
+export type FiveDimensionCheckOutcome = 'PASS' | 'FAIL' | 'NOT_TESTED';
+export type FiveDimensionStatus = 'PASS' | 'FAIL' | 'NOT_TESTED';
+
+export interface FiveDimensionCheck {
+  checkId: string;
+  label: string;
+  outcome: FiveDimensionCheckOutcome;
+  evidenceRefs?: string[];
+  details?: string[];
+  examinerNotes?: string[];
+}
+
+export interface FiveDimensionInput { checks: FiveDimensionCheck[]; }
+
+export interface FiveDimensionEvaluationInput {
+  caseId: string;
+  executionId?: string;
+  dimensions: Record<FiveDimensionName, FiveDimensionInput>;
+}
+
+export interface FiveDimensionGrade {
+  dimension: FiveDimensionName;
+  label: string;
+  status: FiveDimensionStatus;
+  score: number | null;
+  evidenceRefs: string[];
+  testedAssertions: string[];
+  passedAssertions: string[];
+  failedAssertions: string[];
+  notTestedReason: string | null;
+  defects: string[];
+  examinerNotes: string[];
+  totalChecks: number;
+  testedChecks: number;
+  passedChecks: number;
+  failedChecks: number;
+  notTestedChecks: number;
+}
+
+export interface FiveDimensionEvaluationReport {
+  evaluationId: string;
+  caseId: string;
+  executionId?: string;
+  runAt: string;
+  overallStatus: 'FIVE_DIMENSION_PASS' | 'FIVE_DIMENSION_FAIL' | 'INCOMPLETE_DIMENSION_COVERAGE';
+  fullyTested: boolean;
+  allRequiredDimensionsPassed: boolean;
+  testedDimensionCount: number;
+  passedDimensionCount: number;
+  failedDimensionCount: number;
+  notTestedDimensionCount: number;
+  testedOnlyAverageScore: number | null;
+  dimensions: Record<FiveDimensionName, FiveDimensionGrade>;
+  testedDimensions: FiveDimensionName[];
+  passedDimensions: FiveDimensionName[];
+  failedDimensions: FiveDimensionName[];
+  notTestedDimensions: FiveDimensionName[];
+  gradingRule: string;
+}
+
+export type FiveDimensionCurriculumFamily =
+  | 'IMAGE_OCR'
+  | 'SOURCE_COMPLETENESS'
+  | 'MIXED_SOURCE'
+  | 'PBC_CLARIFICATION'
+  | 'EVIDENCE_INTEGRITY'
+  | 'CLIENT_ISOLATION'
+  | 'SEMANTIC_CONTEXT'
+  | 'PRODUCT_RENDERING'
+  | 'DELIVERABLE_LINEAGE'
+  | 'LEDGER_RECONCILIATION';
+
+export type FiveDimensionCurriculumFixtureStatus =
+  | 'CONTRACT_READY'
+  | 'PHYSICAL_FIXTURE_REQUIRED';
+
+export interface FiveDimensionCurriculumCase {
+  caseId: string;
+  title: string;
+  family: FiveDimensionCurriculumFamily;
+  sourceKinds: string[];
+  targetDimensions: FiveDimensionName[];
+  expectedSafeguards: string[];
+  fixtureStatus: FiveDimensionCurriculumFixtureStatus;
+  autonomousEligible: false;
+  validationRefs: string[];
+}
+
+export interface FiveDimensionCurriculumCoverage {
+  totalCases: number;
+  contractReadyCases: number;
+  physicalFixturePendingCases: number;
+  autonomousEligibleCases: number;
+  byFamily: Record<string, number>;
+  targetDimensionCounts: Record<FiveDimensionName, number>;
+}
+
 export class AcademyMinervaLab {
   private static instance: AcademyMinervaLab | null = null;
   private sealedCorpus: BenchmarkTestCase[] = [];
   private evaluationHistory: EvaluationReport[] = [];
+  private fiveDimensionHistory: FiveDimensionEvaluationReport[] = [];
+  private fiveDimensionCurriculum: FiveDimensionCurriculumCase[] = [];
 
   private constructor() {
     this.initializeSealedCorpus();
+    this.initializeFiveDimensionCurriculum();
   }
 
   public static getInstance(): AcademyMinervaLab {
@@ -161,6 +268,356 @@ export class AcademyMinervaLab {
         sealed: true
       }
     ];
+  }
+
+  private initializeFiveDimensionCurriculum(): void {
+    const caseSpec = (
+      caseId: string,
+      title: string,
+      family: FiveDimensionCurriculumFamily,
+      sourceKinds: string[],
+      targetDimensions: FiveDimensionName[],
+      expectedSafeguards: string[],
+      fixtureStatus: FiveDimensionCurriculumFixtureStatus,
+      validationRefs: string[] = []
+    ): FiveDimensionCurriculumCase => ({
+      caseId,
+      title,
+      family,
+      sourceKinds,
+      targetDimensions,
+      expectedSafeguards,
+      fixtureStatus,
+      autonomousEligible: false,
+      validationRefs
+    });
+
+    this.fiveDimensionCurriculum = [
+      caseSpec(
+        'CURR-OCR-RECEIPT-PHOTO',
+        'Receipt photo with exact OCR region provenance',
+        'IMAGE_OCR',
+        ['IMAGE', 'RECEIPT'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Identify merchant, transaction date, amount, tax and currency without inventing absent fields.',
+          'Preserve source SHA, image dimensions, OCR engine/version, confidence and exact bounding regions.',
+          'Promoted accounting fact must reverse-trace to the receipt region and any rendered product value.',
+          'Receipt-derived draft artifacts must retain the source SHA, provenance ID, source region and source excerpt.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/ocrParserEvidence.test.ts', 'server/tests/receiptProductTruthBrowser.test.ts', 'server/tests/receiptDeliverableTruth.test.ts', 'server/tests/receiptFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_RECEIPT_FIVE_DIMENSION_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-OCR-SCANNED-INVOICE',
+        'Scanned invoice with line-item, AP control and deliverable reconciliation',
+        'IMAGE_OCR',
+        ['IMAGE', 'INVOICE', 'ACCOUNTS_PAYABLE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Extract vendor, invoice number, invoice/due dates, bill-to, PO reference, currency, line items, subtotal, tax and total with exact evidence references.',
+          'Preserve raw multi-engine OCR disagreement and require explicit field-level adjudication rather than silently preferring a label.',
+          'Reconcile quantity × unit price, line-item sum to subtotal, and subtotal plus tax to total due.',
+          'Treat an invoice-stated PO reference as a reference only; absent independent PO, receiving and approval evidence, three-way match remains NOT_TESTABLE and payment remains BLOCKED.',
+          'Never infer payment, approval, debit-account classification or ledger posting from invoice content alone.',
+          'Actual product AP review and every exported draft must preserve AP state plus original source lineage.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/invoiceApInterpretationEngine.test.ts', 'server/tests/invoiceApProductTruthBrowser.test.ts', 'server/tests/invoiceApDeliverableTruth.test.ts', 'server/tests/invoiceApFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_INVOICE_AP_FIVE_DIMENSION_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-OCR-IMAGE-ONLY-PDF',
+        'Page-aware PDF OCR including image-only and mixed native/scanned documents',
+        'IMAGE_OCR',
+        ['PDF', 'IMAGE_ONLY_PDF', 'MIXED_NATIVE_SCANNED_PDF'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY'],
+        [
+          'Detect image-only PDFs and route pages through the local OCR path without inventing native text.',
+          'For mixed PDFs, preserve native-text pages and OCR only pages whose native-text inventory is absent.',
+          'Preserve the original PDF SHA and physical page number for both native-text and OCR observations.',
+          'Allow bounded orientation retry only on an individually selected scanned PDF page and remap OCR coordinates to original PDF page space.',
+          'Do not silently treat missing or low-quality OCR output as a complete source; the affected scanned page must fail closed.'
+        ],
+        'CONTRACT_READY',
+        ['services/local_ocr/test_pdf_rasterization.py', 'server/tests/pdfOcrFallback.test.ts', 'server/tests/mixedPdfSelectiveOcr.test.ts', 'server/tests/mixedPdfSelectiveOcrFailClosed.test.ts', 'server/tests/pdfOcrIntegrationWiring.test.ts', 'server/tests/imageOnlyPdfCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_MIXED_PDF_SELECTIVE_OCR_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-OCR-LOW-QUALITY-SCAN',
+        'Low-quality scan with uncertainty preservation',
+        'IMAGE_OCR',
+        ['IMAGE', 'DEGRADED_SCAN'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY'],
+        [
+          'Preserve OCR confidence and uncertain alternatives rather than force an unsupported value.',
+          'Low-confidence material values must fail closed or enter review instead of silent promotion.'
+        ],
+        'CONTRACT_READY',
+        ['scripts/academy/verify_degraded_ocr_edge_cases.py', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'server/tests/ocrFailClosedQualityGate.test.ts', 'docs/launch/evidence/2026-09-16_P2_DEGRADED_OCR_FIXTURES_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-OCR-ROTATED-SKEWED',
+        'Rotated/skewed document image',
+        'IMAGE_OCR',
+        ['IMAGE', 'ROTATED_SCAN', 'SKEWED_SCAN'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING'],
+        [
+          'Recover document reading order after orientation/skew handling.',
+          'Retain original-image coordinate lineage even when preprocessing is applied.'
+        ],
+        'CONTRACT_READY',
+        ['scripts/academy/verify_degraded_ocr_edge_cases.py', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'server/tests/ocrOrientationRetry.test.ts', 'docs/launch/evidence/2026-09-16_P2_OCR_ORIENTATION_RETRY_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-OCR-GLARE-CROP',
+        'Glare/crop image with material evidence loss',
+        'IMAGE_OCR',
+        ['IMAGE', 'GLARE', 'CROPPED_IMAGE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY'],
+        [
+          'Detect unreadable/cropped material regions instead of declaring the source complete.',
+          'Block conclusions that require the obscured evidence while allowing unrelated supported conclusions.'
+        ],
+        'CONTRACT_READY',
+        ['scripts/academy/verify_degraded_ocr_edge_cases.py', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'server/tests/taskEvidenceSufficiency.test.ts', 'docs/launch/evidence/2026-09-16_P2_DEGRADED_OCR_FIXTURES_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-OCR-ENGINE-DISAGREEMENT',
+        'PaddleOCR versus docTR material disagreement',
+        'IMAGE_OCR',
+        ['IMAGE', 'OCR_MULTI_ENGINE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY'],
+        [
+          'Preserve both engine outputs, confidence and engine/version metadata.',
+          'Do not silently choose a materially different value solely because one engine is primary.',
+          'Escalate or review material disagreement before canonical promotion.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/academyOcrCurriculumRunner.test.ts', 'server/tests/ocrEdgeCasesCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_OCR_CURRICULUM_RECEIPT_INVOICE_ACCEPTANCE.md', 'docs/launch/evidence/2026-09-16_P2_OCR_EDGE_CASES_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-SUFF-MISSING-PAGE-NON-MATERIAL',
+        'Missing page proven non-material for the current task',
+        'SOURCE_COMPLETENESS',
+        ['PDF', 'BANK_STATEMENT', 'MISSING_PAGE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Persist the source gap even when the current conclusion may proceed.',
+          'Disclose the gap and mark it non-material only for the scoped current purpose.',
+          'Do not erase or globally clear the missing page.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/bankStatementCompletenessAdapter.test.ts']
+      ),
+      caseSpec(
+        'CURR-SUFF-MISSING-TRANSACTION-MATERIAL',
+        'Missing transaction pages material to population completeness',
+        'SOURCE_COMPLETENESS',
+        ['PDF', 'BANK_STATEMENT', 'TRANSACTION_POPULATION', 'MISSING_PAGE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Classify broken transaction continuity as material for a complete-population task.',
+          'Block the affected population-dependent conclusion.',
+          'Do not block unrelated conclusions that remain independently supported.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/bankStatementCompletenessAdapter.test.ts', 'server/tests/bankStatementProductTruthBrowser.test.ts', 'server/tests/bankStatementDeliverableTruth.test.ts', 'server/tests/bankStatementFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_BANK_STATEMENT_COMPLETENESS_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-SUFF-MISSING-PAGE-UNKNOWN',
+        'Missing page with unknown materiality',
+        'SOURCE_COMPLETENESS',
+        ['PDF', 'BANK_STATEMENT', 'MISSING_PAGE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Classify unknown impact as review required rather than complete or sufficient.',
+          'Apply fail-safe scope to current conclusions until the missing-page impact is established.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/taskEvidenceSufficiency.test.ts', 'server/tests/sufficiencyClarificationCoordinator.test.ts', 'server/tests/bankStatementCompletenessAdapter.test.ts']
+      ),
+      caseSpec(
+        'CURR-MIXED-SOURCE-BATCH',
+        'Mixed source batch with independent coordinate families',
+        'MIXED_SOURCE',
+        ['SPREADSHEET', 'PDF', 'IMAGE', 'CSV'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Preserve the correct coordinate family for every source rather than flattening provenance.',
+          'Retain distinct document SHA, artifact and provenance identities for spreadsheet, PDF, image and CSV sources.',
+          'Similar monetary values are independent observations and do not establish source identity, corroboration or a canonical batch amount.',
+          'Cross-document coordinate or source-artifact substitution must block promotion and require source reconciliation.',
+          'Actual product and exported drafts must retain all material parent references and the fail-closed batch decision.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/mixedSourceBatchEvidenceEngine.test.ts', 'server/tests/mixedSourceBatchProductTruthBrowser.test.ts', 'server/tests/mixedSourceBatchDeliverableTruth.test.ts', 'server/tests/mixedSourceBatchFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_MIXED_SOURCE_BATCH_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-MIXED-SPREADSHEET-RECEIPT',
+        'Spreadsheet plus receipt mixed conclusion',
+        'MIXED_SOURCE',
+        ['SPREADSHEET', 'IMAGE', 'RECEIPT'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'A mixed conclusion must reverse-trace to the exact spreadsheet cell/range and receipt OCR region.',
+          'Agreement may produce a reviewable matched value only when both independent sources establish the same metric and currency.',
+          'A correct-looking spreadsheet value cannot mask contradictory receipt evidence; conflict must preserve both values and block canonical promotion.',
+          'Actual product and exported PDF/JSON/CSV/XLSX artifacts must retain both parent source families and the reconciliation decision.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/mixedSpreadsheetReceiptReconciliation.test.ts', 'server/tests/mixedSpreadsheetReceiptProductTruthBrowser.test.ts', 'server/tests/mixedSpreadsheetReceiptDeliverableTruth.test.ts', 'server/tests/mixedSpreadsheetReceiptFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_MIXED_SPREADSHEET_RECEIPT_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-SPREADSHEET-GL-TRIAL-BALANCE',
+        'Spreadsheet general ledger trial-balance reconciliation with exact cell/formula lineage',
+        'LEDGER_RECONCILIATION',
+        ['SPREADSHEET', 'GENERAL_LEDGER', 'TRIAL_BALANCE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Recompute debit and credit totals from account rows rather than trusting cached spreadsheet total cells.',
+          'Include hidden ledger rows in the population and retain their exact workbook/sheet/cell provenance.',
+          'Preserve total and variance formulas, cached values, source SHA and source provenance IDs.',
+          'A stale cached formula cannot override an unbalanced underlying ledger; unbalanced trial balances must be blocked.',
+          'Trial-balance equality is distinct from Assets = Liabilities + Equity and does not establish financial-statement completeness or posting approval.',
+          'Actual product and exported draft artifacts must preserve trial-balance state plus reverse lineage.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/trialBalanceInterpretationEngine.test.ts', 'server/tests/trialBalanceProductTruthBrowser.test.ts', 'server/tests/trialBalanceDeliverableTruth.test.ts', 'server/tests/trialBalanceFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_TRIAL_BALANCE_FIVE_DIMENSION_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-PBC-INSUFFICIENT-RESPONSE',
+        'PBC response received but evidence remains insufficient',
+        'PBC_CLARIFICATION',
+        ['PBC_RESPONSE', 'EVIDENCE_REFERENCE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'A customer/CPA response is evidence, not automatic clearance.',
+          'Response state becomes RESPONSE_RECEIVED and requires a new P1-009 decision.',
+          'If any affected conclusion remains blocked/review-required, the request remains unresolved and follow-up is required.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/sufficiencyClarificationCoordinator.test.ts', 'server/tests/sufficiencyClarificationRoutes.test.ts']
+      ),
+      caseSpec(
+        'CURR-PBC-RESOLVES-AFTER-REEVALUATION',
+        'PBC response resolves only after allowed re-evaluation',
+        'PBC_CLARIFICATION',
+        ['PBC_RESPONSE', 'EVIDENCE_REFERENCE'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Link the response to the same task/workspace/engagement and affected conclusions.',
+          'Resolve only after a later P1-009 re-evaluation marks every affected conclusion ALLOWED.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/sufficiencyClarificationCoordinator.test.ts', 'server/tests/sufficiencyClarificationRoutes.test.ts']
+      ),
+      caseSpec(
+        'CURR-EVIDENCE-DUPLICATE-NEAR-DUPLICATE',
+        'Duplicate and near-duplicate evidence discrimination',
+        'EVIDENCE_INTEGRITY',
+        ['PDF', 'IMAGE', 'DUPLICATE_EVIDENCE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Exact byte-identical duplicates retain source lineage but must not be double-counted as independent corroboration.',
+          'Cosmetic-only near-duplicates with a different physical SHA but unchanged material content must not increase evidentiary weight.',
+          'Near-duplicates with materially changed accounting content must remain separately traceable and block promotion pending reconciliation.',
+          'Duplicate discrimination must validate source SHA/artifact/coordinate consistency rather than relying on filename or amount alone.',
+          'Actual product and PDF/JSON/CSV/XLSX drafts must preserve classifications, source lineage, corroboration counts and the fail-closed conflict decision.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/duplicateEvidenceIntegrityEngine.test.ts', 'server/tests/duplicateEvidenceProductTruthBrowser.test.ts', 'server/tests/duplicateEvidenceDeliverableTruth.test.ts', 'server/tests/duplicateEvidenceFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_DUPLICATE_EVIDENCE_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-ISOLATION-BULK-MIXED-CLIENT',
+        'Bulk mixed-client upload isolation',
+        'CLIENT_ISOLATION',
+        ['BULK_UPLOAD', 'MULTI_CLIENT', 'CSV', 'PDF'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH', 'DELIVERABLE_TRUTH'],
+        [
+          'Every document, provenance coordinate, fact, finding, clarification and rendered value must remain bound to the correct client/workspace/engagement tuple.',
+          'Matching filenames, amounts, account labels and reporting periods across customers must never merge or establish shared accounting truth.',
+          'Cross-client document, fact or provenance references must fail closed and block promotion pending client-scope repair.',
+          'PBC references and findings must not borrow evidence from another client even when the accounting value is identical.',
+          'Actual customer UI and PDF/JSON/CSV/XLSX drafts must contain only the intended client source SHA and provenance identities.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/clientIsolationEngine.test.ts', 'server/tests/clientIsolationProductTruthBrowser.test.ts', 'server/tests/clientIsolationDeliverableTruth.test.ts', 'server/tests/clientIsolationFiveDimensionAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_BULK_CLIENT_ISOLATION_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-SEMANTIC-LONG-DOCUMENT',
+        'Long-document semantic/context extraction',
+        'SEMANTIC_CONTEXT',
+        ['PDF', 'LONG_DOCUMENT', 'NARRATIVE'],
+        ['SOURCE_COVERAGE', 'SEMANTIC_UNDERSTANDING'],
+        [
+          'Preserve entity, author/speaker, section, footnote and narrative intent where material.',
+          'Continuation pages must inherit context only from a physically traceable prior anchor within the same section.',
+          'New sections reset prior attribution/context unless the new section explicitly establishes its own entity, period and intent.',
+          'Do not substitute accounting keyword matching for document-level semantic context; identical terms across entities, periods and intents remain distinct.',
+          'Impossible cross-entity or cross-period context combinations must return no evidence rather than borrow a nearby keyword match.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/longDocumentSemanticContext.test.ts', 'server/tests/longDocumentSemanticRuntimeWiring.test.ts', 'server/tests/longDocumentSemanticCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_LONG_DOCUMENT_SEMANTIC_CONTEXT_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-PRODUCT-SOURCE-TO-DASHBOARD',
+        'Real source-to-dashboard click-through',
+        'PRODUCT_RENDERING',
+        ['SPREADSHEET', 'IMAGE', 'BROWSER_RENDER'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'PRODUCT_TRUTH'],
+        [
+          'Verify the actual browser-rendered value rather than a backend-only adapter object.',
+          'Click-through provenance must reverse-trace the rendered value to original customer evidence coordinates.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/sourceToDashboardPresentationIntegrity.test.ts', 'server/tests/sourceToDashboardProductTruthBrowser.test.ts', 'server/tests/sourceToDashboardCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_SOURCE_TO_DASHBOARD_PRODUCT_TRUTH_ACCEPTANCE.md']
+      ),
+      caseSpec(
+        'CURR-DELIVERABLE-FINAL-LINEAGE',
+        'Final report/export evidence lineage',
+        'DELIVERABLE_LINEAGE',
+        ['PDF_EXPORT', 'XLSX_EXPORT', 'REPORT'],
+        ['SOURCE_COVERAGE', 'ACCOUNTING_ACCURACY', 'DELIVERABLE_TRUTH'],
+        [
+          'Final exported/report values must match canonical results and remain grounded in original evidence.',
+          'Material report statements must retain enough lineage to reverse-trace through derivations to source coordinates.'
+        ],
+        'CONTRACT_READY',
+        ['server/tests/finalDeliverableLineageValidator.test.ts', 'server/tests/finalDeliverableLineageTruth.test.ts', 'server/tests/finalDeliverableLineageCurriculumAcceptance.test.ts', 'docs/launch/evidence/2026-09-16_P2_FINAL_DELIVERABLE_LINEAGE_ACCEPTANCE.md']
+      )
+    ];
+  }
+
+  public getFiveDimensionCurriculumCases(): FiveDimensionCurriculumCase[] {
+    return this.fiveDimensionCurriculum.map(c => ({
+      ...c,
+      sourceKinds: [...c.sourceKinds],
+      targetDimensions: [...c.targetDimensions],
+      expectedSafeguards: [...c.expectedSafeguards],
+      validationRefs: [...c.validationRefs]
+    }));
+  }
+
+  public getFiveDimensionCurriculumCoverage(): FiveDimensionCurriculumCoverage {
+    const byFamily: Record<string, number> = {};
+    const targetDimensionCounts: Record<FiveDimensionName, number> = {
+      SOURCE_COVERAGE: 0,
+      SEMANTIC_UNDERSTANDING: 0,
+      ACCOUNTING_ACCURACY: 0,
+      PRODUCT_TRUTH: 0,
+      DELIVERABLE_TRUTH: 0
+    };
+    for (const c of this.fiveDimensionCurriculum) {
+      byFamily[c.family] = (byFamily[c.family] || 0) + 1;
+      for (const dimension of c.targetDimensions) targetDimensionCounts[dimension] += 1;
+    }
+    return {
+      totalCases: this.fiveDimensionCurriculum.length,
+      contractReadyCases: this.fiveDimensionCurriculum.filter(c => c.fixtureStatus === 'CONTRACT_READY').length,
+      physicalFixturePendingCases: this.fiveDimensionCurriculum.filter(c => c.fixtureStatus === 'PHYSICAL_FIXTURE_REQUIRED').length,
+      autonomousEligibleCases: this.fiveDimensionCurriculum.filter(c => c.autonomousEligible).length,
+      byFamily,
+      targetDimensionCounts
+    };
   }
 
   /**
@@ -621,6 +1078,134 @@ export class AcademyMinervaLab {
         details: ['Fact was missing or not present in persisted memory recall response.']
       };
     }
+  }
+
+  private gradeFiveDimension(dimension: FiveDimensionName, input: FiveDimensionInput): FiveDimensionGrade {
+    const labels: Record<FiveDimensionName, string> = {
+      SOURCE_COVERAGE: 'Source Coverage',
+      SEMANTIC_UNDERSTANDING: 'Semantic Understanding',
+      ACCOUNTING_ACCURACY: 'Accounting Accuracy',
+      PRODUCT_TRUTH: 'Product Truth',
+      DELIVERABLE_TRUTH: 'Deliverable Truth'
+    };
+    const checks = Array.isArray(input?.checks) ? input.checks : [];
+    const notTested = checks.filter(c => c.outcome === 'NOT_TESTED');
+    const tested = checks.filter(c => c.outcome !== 'NOT_TESTED');
+    const explicitFailures = tested.filter(c => c.outcome === 'FAIL');
+    const validPasses = tested.filter(c => c.outcome === 'PASS' && (c.evidenceRefs || []).some(ref => Boolean(String(ref || '').trim())));
+    const passWithoutEvidence = tested.filter(c => c.outcome === 'PASS' && !(c.evidenceRefs || []).some(ref => Boolean(String(ref || '').trim())));
+    const effectiveFailedChecks = [...explicitFailures, ...passWithoutEvidence];
+
+    let status: FiveDimensionStatus;
+    if (effectiveFailedChecks.length > 0) status = 'FAIL';
+    else if (checks.length === 0 || notTested.length > 0) status = 'NOT_TESTED';
+    else status = 'PASS';
+
+    // A partially exercised dimension remains NOT_TESTED and receives no score.
+    // This prevents a few successful assertions from inflating an incomplete dimension.
+    const score = status === 'NOT_TESTED'
+      ? null
+      : tested.length > 0
+        ? Number(((validPasses.length / tested.length) * 100).toFixed(1))
+        : null;
+
+    const evidenceRefs = [...new Set(checks.flatMap(c => c.evidenceRefs || []).map(ref => String(ref || '').trim()).filter(Boolean))];
+    const testedAssertions = tested.map(c => c.checkId);
+    const passedAssertions = validPasses.map(c => c.checkId);
+    const failedAssertions = effectiveFailedChecks.map(c => c.checkId);
+    const notTestedReasons = notTested.flatMap(c => (c.details && c.details.length ? c.details : [`${c.label} was not tested.`]));
+    const defects = [
+      ...explicitFailures.flatMap(c => (c.details && c.details.length ? c.details : [`${c.label}: FAIL`])),
+      ...passWithoutEvidence.map(c => `${c.label}: EVIDENCE_REQUIRED_FOR_PASS`)
+    ];
+    const examinerNotes = checks.flatMap(c => c.examinerNotes || c.details || []);
+
+    return {
+      dimension,
+      label: labels[dimension],
+      status,
+      score,
+      evidenceRefs,
+      testedAssertions,
+      passedAssertions,
+      failedAssertions,
+      notTestedReason: notTestedReasons.length ? notTestedReasons.join(' | ') : null,
+      defects,
+      examinerNotes,
+      totalChecks: checks.length,
+      testedChecks: tested.length,
+      passedChecks: validPasses.length,
+      failedChecks: effectiveFailedChecks.length,
+      notTestedChecks: notTested.length
+    };
+  }
+
+  /** P2-001: five independent Academy quality dimensions. NOT_TESTED never becomes PASS. */
+  public evaluateFiveDimensions(input: FiveDimensionEvaluationInput): FiveDimensionEvaluationReport {
+    const names: FiveDimensionName[] = [
+      'SOURCE_COVERAGE',
+      'SEMANTIC_UNDERSTANDING',
+      'ACCOUNTING_ACCURACY',
+      'PRODUCT_TRUTH',
+      'DELIVERABLE_TRUTH'
+    ];
+    const dimensions = Object.fromEntries(
+      names.map(name => [name, this.gradeFiveDimension(name, input.dimensions[name])])
+    ) as Record<FiveDimensionName, FiveDimensionGrade>;
+    const passedDimensions = names.filter(name => dimensions[name].status === 'PASS');
+    const failedDimensions = names.filter(name => dimensions[name].status === 'FAIL');
+    const notTestedDimensions = names.filter(name => dimensions[name].status === 'NOT_TESTED');
+    const testedDimensions = names.filter(name => dimensions[name].status !== 'NOT_TESTED');
+    const testedScores = testedDimensions
+      .map(name => dimensions[name].score)
+      .filter((score): score is number => score !== null);
+    const testedOnlyAverageScore = testedScores.length
+      ? Number((testedScores.reduce((sum, score) => sum + score, 0) / testedScores.length).toFixed(1))
+      : null;
+    const fullyTested = notTestedDimensions.length === 0;
+    const allRequiredDimensionsPassed = passedDimensions.length === names.length;
+    const overallStatus: FiveDimensionEvaluationReport['overallStatus'] = failedDimensions.length > 0
+      ? 'FIVE_DIMENSION_FAIL'
+      : allRequiredDimensionsPassed
+        ? 'FIVE_DIMENSION_PASS'
+        : 'INCOMPLETE_DIMENSION_COVERAGE';
+
+    const report: FiveDimensionEvaluationReport = {
+      evaluationId: `five-dim-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+      caseId: input.caseId,
+      executionId: input.executionId,
+      runAt: new Date().toISOString(),
+      overallStatus,
+      fullyTested,
+      allRequiredDimensionsPassed,
+      testedDimensionCount: testedDimensions.length,
+      passedDimensionCount: passedDimensions.length,
+      failedDimensionCount: failedDimensions.length,
+      notTestedDimensionCount: notTestedDimensions.length,
+      testedOnlyAverageScore,
+      dimensions,
+      testedDimensions,
+      passedDimensions,
+      failedDimensions,
+      notTestedDimensions,
+      gradingRule: 'Five independent dimensions. PASS requires evidence. Any failed dimension fails the case. Any untested assertion leaves its dimension NOT_TESTED. A case passes only when all five required dimensions PASS; NOT_TESTED dimensions never inflate the tested-only average.'
+    };
+    this.fiveDimensionHistory.unshift(report);
+    if (this.fiveDimensionHistory.length > 100) this.fiveDimensionHistory = this.fiveDimensionHistory.slice(0, 100);
+    return report;
+  }
+
+  public getFiveDimensionHistory(): FiveDimensionEvaluationReport[] {
+    return this.fiveDimensionHistory.map(r => ({
+      ...r,
+      dimensions: Object.fromEntries(
+        Object.entries(r.dimensions).map(([key, value]) => [key, { ...value }])
+      ) as Record<FiveDimensionName, FiveDimensionGrade>
+    }));
+  }
+
+  public getLatestFiveDimensionEvaluation(): FiveDimensionEvaluationReport | null {
+    return this.fiveDimensionHistory[0] || null;
   }
 
   public evaluateAuthoritativePhysicalSource(filePath: string): {

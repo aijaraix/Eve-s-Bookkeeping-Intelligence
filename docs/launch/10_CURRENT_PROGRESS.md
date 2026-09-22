@@ -1,10 +1,10 @@
 # Current Launch Progress
 
-Last updated: 2026-09-16 UTC
+Last updated: 2026-09-15 / 2026-09-16 UTC
 
 This file is the rolling execution overlay for `07_EXECUTION_BACKLOG_AND_OWNERSHIP.md`. Physical reality and evidence files listed here override stale task status text in earlier snapshots.
 
-## Completed / accepted in this launch-control pass
+## Completed in this launch-control pass
 
 ### EVE-P0-002 — Establish launch source of truth
 Status: DONE
@@ -15,351 +15,67 @@ Authoritative launch package committed to `main` under `docs/launch/`.
 Status: DONE
 Evidence: `docs/launch/evidence/2026-09-15_RUNTIME_BASELINE.md`
 
-Physically verified at baseline:
+Physically verified:
 
 - Eve web running
 - extraction worker running
 - local AI running
 - OpenClaw running
 - Hermes running
+- current observed pods at zero restarts
 - persistent web `/storage` evidence present
 - persistent Hermes `/opt/data` Academy evidence present
 - exactly one Academy cron job
 - Academy job `e9c9dd128ba4` enabled every 5 minutes
 - scheduler `last_status: ok`
+- cron continuing through 2026-09-16 00:25:50 UTC at audit time
 - public/customer/owner domains reachable over HTTPS
-- Hermes advanced endpoint reachable and protected
+- Hermes advanced endpoint reachable and redirects unauthenticated users to login
 
 ### EVE-P1-001 — Current intake/parser inventory
-Status: DONE
+Status: DONE for code/runtime support inventory
 Evidence: `docs/launch/evidence/2026-09-15_INPUT_SUPPORT_MATRIX.md`
 
-The inventory established the pre-work boundary: corporate/iXBRL/native-text parsing was useful, image OCR was placeholder-only, spreadsheet parsing lacked exact cell/formula provenance, and mixed client-dump intake remained incomplete.
+Key findings:
 
-### EVE-P1-003 — Universal source-to-presentation provenance contract
-Status: ACCEPTED CANDIDATE ON FEATURE BRANCH
-Branch: `feature/universal-evidence-ocr-foundation`
-Evidence: `docs/launch/evidence/2026-09-16_UNIVERSAL_SOURCE_EVIDENCE_CONTRACT_ACCEPTANCE.md` on the feature branch
+- current corporate/iXBRL and native-text PDF foundation is useful
+- native PDF path inventories pages and extracts page text but lacks scan OCR fallback
+- image extensions route to `OCRParser`
+- current `OCRParser` is a placeholder, not real OCR
+- spreadsheet path uses SheetJS and iterates sheets but does not yet preserve exact cell/formula provenance
+- DOCX raw text extraction exists via Mammoth
+- archive/email/bulk client-dump intake is not launch-grade yet
+- no dedicated OCR/CV package is present in current Node dependencies
+- local Ollama currently exposes `qwen3.5:4b-q4_K_M`; vision/OCR capability of this exact model is not yet proven
 
-Implemented and tested:
+### EVE-P1-003 — Source-to-value provenance gap audit
+Status: DESIGN/GAP AUDIT DONE; implementation active
+Evidence: `docs/launch/evidence/2026-09-15_PROVENANCE_GAP_AUDIT.md`
 
-- one source-coordinate model across PDF, image, spreadsheet, CSV, HTML/iXBRL, DOCX, email, text and other sources
-- transformation history
-- mixed-source parent provenance
-- presentation usage references
-- recursive source tracing
-- browser-confirmed presentation requirement for dashboard lineage completion
+Key finding:
 
-Physical marker:
+Eve already has raw evidence, semantic fact, canonical fact, formula operand and render lineage infrastructure. The required work is to unify these through one source-coordinate/provenance adapter that supports PDF/image/spreadsheet/HTML/iXBRL/DOCX/CSV/email evidence without replacing the current lineage system.
 
-`UNIVERSAL_SOURCE_EVIDENCE_CONTRACT_TESTS=PASS`
+### EVE-P1-005 — Local OCR candidate selection
+Status: CANDIDATES LOCKED / IMPLEMENTATION PENDING
+Evidence: `docs/launch/13_LOCAL_OCR_SELECTION_STRATEGY.md`
 
-### EVE-P1-004 — Spreadsheet source-to-pixel lineage
-Status: ACCEPTED CANDIDATE ON FEATURE BRANCH
-Evidence: `docs/launch/evidence/2026-09-16_SPREADSHEET_SOURCE_TO_PIXEL_LINEAGE_ACCEPTANCE.md` on the feature branch
+Decision:
 
-Implemented and physically verified:
+- primary local OCR: PaddleOCR
+- secondary local OCR: docTR
+- utility baseline: Tesseract/OCRmyPDF where operationally useful
+- Surya remains external reference only until license/runtime review
+- paid/cloud OCR is optional future escalation only
+- Codex is not to be used for repeated OCR benchmark loops
 
-- source SHA and workbook identity
-- sheet name
-- exact cell/range address
-- formulas and cached values
-- cell type and number format
-- merged/hidden metadata
-- preservation through fact persistence
-- propagation through presentation adapters
-- real Practice Home DOM lineage attributes
-- click-through to the actual Eve provenance drawer
+Physical runtime constraints incorporated into the decision:
 
-Physical marker:
+- 4 vCPU
+- ~14 GiB RAM
+- no NVIDIA GPU
 
-`P1_004_REAL_PRACTICE_HOME_BROWSER_LINEAGE=PASS`
-
-The real browser path traced a rendered Eve value back to `Balance!B4`, including formula `=B2-B3` and number format `$#,##0.00`.
-
-### EVE-P1-005 — Local OCR + image source-to-pixel lineage
-Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / INTERNAL OCR SERVICES PHYSICALLY RUNNING / PRODUCTION APP ACTIVATION PENDING
-Draft PR: #31
-Evidence: `docs/launch/evidence/2026-09-16_LOCAL_OCR_SOURCE_TO_PIXEL_ACCEPTANCE.md` on the feature branch
-Runtime record: `docs/launch/evidence/2026-09-16_OCR_RUNTIME_CURRENT_STATE.md` on the feature branch
-
-Accepted local engines:
-
-- primary: PaddleOCR 3.7.0 / PP-OCRv6 medium / CPU-only
-- fallback: python-doctr 1.1.0 / `fast_base+crnn_vgg16_bn` / CPU-only PyTorch
-- paid/cloud OCR remains optional escalation only
-
-Physical engine proof on the actual Eve node:
-
-- PaddleOCR local CPU inference: PASS
-- docTR local CPU inference: PASS
-- exact text, regions, bounding boxes, confidence and source SHA returned by both
-
-Persistent internal-only services now running:
-
-- `eve-ocr-paddle:8765`
-- `eve-ocr-doctr:8765`
-
-Both are ClusterIP-only with no public ingress. Model caches are persisted under `/opt/eve-ocr-models/` and survived deployment restart.
-
-Persistent endpoint proof markers:
-
-- `PADDLE_PERSISTENT_OCR=PASS`
-- `DOCTR_PERSISTENT_OCR=PASS`
-- `OCR_CACHE_RESTART_SURVIVAL=PASS`
-- OCR network reachability from Eve extraction worker: PASS
-- OCR network reachability from actual Eve port-3000 web pod: PASS
-
-Real browser marker:
-
-`P1_005_REAL_PRACTICE_HOME_IMAGE_LINEAGE=PASS`
-
-The real Eve Practice Home rendered a material value with image provenance and the real provenance drawer displayed source image filename, dimensions, page/image-region locator, normalized bounding box, OCR text, confidence, OCR engine/version and source provenance ID.
-
-Important release boundary:
-
-The OCR services are physically running now, but active production application code remains sourced from `main`. Production customer OCR is **not yet declared active**. Activation requires controlled merge/release of PR #31, application runtime OCR URL configuration, and a post-deployment synthetic receipt/browser regression.
-
-PR #31 intentionally remains draft so service availability and application release remain separate control points.
-
-### EVE-P1-009 — Source completeness vs task evidence sufficiency
-Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / PRODUCTION APP ACTIVATION PENDING
-Draft PR: #31
-Evidence: `docs/launch/evidence/2026-09-16_TASK_EVIDENCE_SUFFICIENCY_ACCEPTANCE.md` on the feature branch
-
-Implemented source-completeness states:
-
-- `SOURCE_COMPLETE`
-- `SOURCE_GAP_NON_MATERIAL_FOR_CURRENT_PURPOSE`
-- `SOURCE_GAP_MATERIAL_FOR_CURRENT_PURPOSE`
-- `SOURCE_GAP_UNKNOWN_MATERIALITY`
-
-Implemented task-sufficiency states:
-
-- `SUFFICIENT_FOR_CURRENT_PURPOSE`
-- `INSUFFICIENT_FOR_CURRENT_PURPOSE`
-- `REVIEW_REQUIRED_TO_DETERMINE_MATERIALITY`
-
-Accepted behavior:
-
-- a known source gap is never erased merely because work can proceed
-- a gap demonstrated irrelevant to the current task can be disclosed without blocking a supported conclusion
-- broken transaction continuity / failed reconciliation blocks the affected population-dependent conclusion
-- a missing required evidence capability fails closed for the affected conclusion
-- unknown gap impact scope applies fail-safe to every current conclusion until scope is established
-- mixed tasks block only affected conclusions rather than freezing unrelated supported work
-- a requested document with no saved completeness record becomes an unknown-impact gap rather than being silently treated as complete
-- decisions persist with evidence references and a decision hash under runtime storage
-
-Operational internal CPA API candidate includes:
-
-- `POST /api/cpa/evidence-sufficiency/evaluate`
-- `GET /api/cpa/evidence-sufficiency/decisions`
-- `GET /api/cpa/evidence-sufficiency/decisions/:decisionId`
-
-Physical CI markers:
-
-- `TASK_EVIDENCE_SUFFICIENCY_TESTS=PASS`
-- `TASK_EVIDENCE_SUFFICIENCY_ROUTES_TESTS=PASS`
-- core run `35050184183`: PASS through production build
-- operational API run `35050681084`: PASS through route/auth tests, prior evidence/OCR regressions and production build
-
-P1-009 deliberately does not create another completeness system or another clarification queue.
-
-### EVE-P1-010 — Clarification / PBC tied to task evidence sufficiency
-Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / PRODUCTION APP ACTIVATION PENDING
-Draft PR: #31
-Evidence: `docs/launch/evidence/2026-09-16_CLARIFICATION_PBC_SUFFICIENCY_ACCEPTANCE.md` on the feature branch
-
-P1-010 extends the existing `professionalClarificationEngine`; it does not create a parallel clarification queue.
-
-Permanent workflow:
-
-`P1-009 decision -> exact gap -> affected conclusion(s) -> clarification/PBC -> authenticated response + evidence -> P1-009 re-evaluation -> resolve only when every affected conclusion is ALLOWED`
-
-Accepted behavior:
-
-- one durable request per concrete actionable gap
-- idempotent creation for the same source decision + gap
-- material client-evidence gaps become `PBC_EVIDENCE_REQUEST`
-- unknown materiality becomes `INTERNAL_MATERIALITY_REVIEW`
-- non-client material issues can become `CPA_REVIEW`
-- request preserves source decision/hash/task, gap IDs, affected conclusion IDs and source evidence references
-- response before PBC submission state is rejected
-- response evidence/document IDs persist
-- authenticated server principal is the responder; body identity cannot spoof it
-- a PBC response becomes `RESPONSE_RECEIVED`, not automatically `RESOLVED`
-- linked response explicitly requires P1-009 re-evaluation
-- unrelated task/workspace/engagement decisions cannot clear the request
-- unresolved re-evaluation creates follow-up rather than false clearance
-- request resolves only when every affected conclusion is `ALLOWED`
-- legacy unlinked clarification response behavior remains compatible
-
-Feature-branch professional clarification API candidate includes:
-
-- `GET /api/cpa/professional-clarifications`
-- `GET /api/cpa/professional-clarifications/:requestId`
-- `POST /api/cpa/professional-clarifications/from-sufficiency/:decisionId`
-- `POST /api/cpa/professional-clarifications/:requestId/submit`
-- `POST /api/cpa/professional-clarifications/:requestId/respond`
-- `POST /api/cpa/professional-clarifications/:requestId/link-reevaluation`
-
-Important delivery boundary:
-
-`SUBMITTED_TO_CLIENT` is currently a durable workflow state only. It does **not** establish that an email, portal notification or other external message was physically sent.
-
-Physical CI acceptance:
-
-- corrected P1-010 run `35051920926`: PASS
-- P1-010 coordinator contract: PASS
-- P1-010 route/auth contract: PASS
-- P1-009 regression: PASS
-- universal evidence regression: PASS
-- spreadsheet lineage regression: PASS
-- OCR evidence regression: PASS
-- presentation regression: PASS
-- full production build: PASS
-
-The first P1-010 run failed only because its test expected an unknown-materiality review for a task that explicitly required a complete transaction population. P1-009 correctly treated that missing page as material. The production rule was preserved; the test was corrected to a true unknown-materiality scenario.
-
-### EVE-P2-001 — Five-dimension Academy evidence grading
-Status: ACCEPTED CANDIDATE ON FEATURE BRANCH / PRODUCTION APP ACTIVATION PENDING
-Draft PR: #31
-Accepted implementation checkpoint: `b7ef550513306ce50d194e045dad64b614abf117`
-Evidence: `docs/launch/evidence/2026-09-16_P2_001_FIVE_DIMENSION_ACADEMY_ACCEPTANCE.md` on the feature branch
-
-Minerva now has a stricter independent grading contract across:
-
-- Source Coverage
-- Semantic Understanding
-- Accounting Accuracy
-- Product Truth
-- Deliverable Truth
-
-Permanent behavior:
-
-- dimension states are `PASS`, `FAIL`, `NOT_TESTED`
-- `NOT_TESTED` never counts as PASS
-- incomplete/partially exercised dimensions remain `NOT_TESTED` and receive no dimension score
-- every PASS assertion requires a nonblank evidence reference
-- any failed dimension prevents all-required-pass
-- the case receives `FIVE_DIMENSION_PASS` only when all five required dimensions independently pass
-- tested-only average excludes untested dimensions
-- historical cases are not retroactively treated as five-dimension complete
-- the old numeric/evidence/PBC/review/report weighted Full Practice score remains available only for backward compatibility and cannot override five-dimension status
-- latest result plus bounded five-dimension history are exposed through the Observatory read model
-- PASS / FAIL / NOT_TESTED are visibly distinct in the Academy curriculum UI
-- blanket global `zeroToleranceCertified` is disabled rather than inferred from one case
-- Minerva wording is explicitly internal technical evaluation, not a CPA opinion, audit opinion, statutory certification or human professional sign-off
-
-Physical CI acceptance:
-
-- initial integration run `35053016519`: PASS
-- final hardening run `35053528405`: PASS
-- five-dimension grading tests: PASS
-- five-dimension presentation tests: PASS
-- P1-009 regression: PASS
-- P1-010 coordinator regression: PASS
-- P1-010 route/auth regression: PASS
-- universal evidence regression: PASS
-- spreadsheet lineage regression: PASS
-- OCR evidence regression: PASS
-- presentation adapter regression: PASS
-- Academy dashboard truth regression: PASS
-- full production build: PASS
-
-P2-001 extends the existing Minerva / Hermes Academy path; no second evaluator service was created.
-
-### EVE-P2-002 — Five-dimension Academy curriculum catalog
-Status: CATALOG FOUNDATION ACCEPTED ON FEATURE BRANCH / PHYSICAL FIXTURE EXECUTION IN PROGRESS / PRODUCTION APP ACTIVATION PENDING
-Draft PR: #31
-Accepted implementation checkpoint: `98d3c236b247ea3fdb0b8d9782a1482b187a1b4a`
-Evidence: `docs/launch/evidence/2026-09-16_P2_ACADEMY_CURRICULUM_CATALOG_ACCEPTANCE.md` on the feature branch
-
-The existing Minerva service now owns a curated 19-case curriculum spanning:
-
-- receipt photo and scanned invoice OCR
-- image-only PDF
-- low-quality, rotated/skewed, glare/crop image conditions
-- PaddleOCR vs docTR material disagreement
-- missing-page non-material, material transaction-population and unknown-materiality cases
-- mixed-source batch and spreadsheet + receipt conclusions
-- insufficient PBC response and resolving PBC response after re-evaluation
-- duplicate / near-duplicate evidence
-- bulk mixed-client upload isolation
-- long-document semantic/context extraction
-- real source-to-dashboard click-through
-- final report/export evidence lineage
-
-Truthful readiness state:
-
-- total curated cases: 19
-- contract-ready cases: 5
-- physical-fixture-required cases: 14
-- autonomous-eligible cases: 0
-
-All new cases are explicitly excluded from autonomous scheduling until their fixture/execution path is physically proven. A curriculum specification is not treated as a pass.
-
-The Observatory and existing Curriculum tab expose the case catalog, target dimensions, readiness state and explicit `Autonomous scheduler: NOT ELIGIBLE` status.
-
-Physical CI acceptance:
-
-- curriculum catalog run `35053836636`: PASS
-- 19-case curriculum contract: PASS
-- P2 five-dimension grading/presentation regressions: PASS
-- P1-009 regression: PASS
-- P1-010 coordinator + route/auth regressions: PASS
-- universal evidence, spreadsheet lineage, OCR evidence and presentation regressions: PASS
-- Academy dashboard truth regression: PASS
-- full production build: PASS
-
-No new evaluator service or scheduler was created.
-
-### P2 physical OCR curriculum advancement — receipt, invoice, degraded images and image-only PDF
-Status: ACCEPTED FEATURE-BRANCH CANDIDATES / PRODUCTION ACTIVATION PENDING
-Draft PR: #31
-
-The Academy OCR curriculum has advanced beyond catalog-only state. Accepted checkpoints now include:
-
-- OCR curriculum runner: `47afb13d671d9449d2ae53303dc2d2ff29f1c643`
-- final OCR fail-closed quality gate: `e983ffbe7680a47c30e697618f0e19996a256cff`
-- reproducible degraded-image fixtures: `5066706e41dad96390665e92de9bd9e626e10a22`
-- image-only PDF OCR fallback: `ccedc37d7f3b07d49a6d4c4aaf9cb5c67d6c21d9`
-
-Physical findings on the Eve CPU host:
-
-- synthetic receipt: PaddleOCR and docTR both recovered the intended material fields/totals
-- synthetic invoice: PaddleOCR produced a high-confidence `INV0ICE` semantic substitution while docTR returned `INVOICE`; Academy dual-engine comparison preserves this disagreement rather than treating confidence as semantic truth
-- low-quality compressed receipt remained readable in both engines
-- 6-degree skew remained readable in both engines
-- 90-degree rotation failed materially in both engines; current feature code now fails closed when the selected OCR result still misses the final quality floor
-- glare/occlusion over subtotal/tax/total caused those material lines to disappear and must remain an evidence gap
-- crop before subtotal/tax/total likewise removes those facts and must not be inferred
-- image-only PDF rasterization with PyMuPDF on Eve physically passed and the resulting raster was successfully read by both live OCR engines (`IMAGE_ONLY_PDF_RASTER_TO_LIVE_OCR=PASS`)
-
-Image-only PDF feature-branch behavior now preserves native-text-first parsing and only falls back to OCR when all inventoried PDF pages lack native text. OCR observations from scanned PDFs use the PDF page/region source-coordinate family (`PdfSourceCoordinate`) rather than being mislabeled as generic images.
-
-Important boundaries:
-
-- live `eve-ocr-paddle` / `eve-ocr-doctr` services were not rebuilt/released with the new direct-PDF service code in this workstream
-- mixed PDFs with both native-text and scanned pages still need selective page-level OCR
-- automatic orientation correction for the 90-degree case is not yet implemented
-- Product Truth and Deliverable Truth remain `NOT_TESTED` for cases without actual browser/export proof
-- all new curriculum cases remain excluded from autonomous scheduling until their full physical execution path is accepted
-
-Evidence:
-
-- `docs/launch/evidence/2026-09-16_P2_OCR_CURRICULUM_RECEIPT_INVOICE_ACCEPTANCE.md`
-- `docs/launch/evidence/2026-09-16_P2_DEGRADED_OCR_FIXTURES_ACCEPTANCE.md`
-- `docs/launch/evidence/2026-09-16_P2_IMAGE_ONLY_PDF_OCR_ACCEPTANCE.md`
-
-CI acceptance:
-
-- OCR runner run `35054577162`: PASS through full production build
-- fail-closed quality gate run `35055215309`: PASS through full production build
-- degraded fixture run `35055472690`: PASS with exact fixture hash reproduction and full production build
-- image-only PDF run `35055831123`: PASS through PDF rasterization/fallback/coordinate contracts, all listed P1/P2 regressions and full production build
-
+The strategy is to integrate the two local engines behind one Eve OCR contract and let Academy accumulate the real Eve-specific benchmark over time, with the secondary engine invoked selectively for low-confidence/material cases rather than on every page.
 
 ### EVE-P6-001 — Canva Brand System production structure
 Status: STRUCTURE READY / ASSET POPULATION IN PROGRESS
@@ -367,9 +83,10 @@ Evidence: `docs/launch/11_BRAND_ASSET_HANDOFF_MANIFEST.md`
 
 Verified in Canva:
 
-- canonical `Eve's Bookkeeping — Brand System`
-- Brand Master, Logos, Icons, Hero Assets, Product UI, Document Examples, CTA Mountains, Social/OG and Codex Handoff folders
-- Primary, Reversed, Emblem and App Mark logo subfolders
+- canonical folder `Eve's Bookkeeping — Brand System`
+- production folders for Brand Master, Logos, Icons, Hero Assets, Product UI, Document Examples, CTA Mountains, Social/OG and Codex Handoff
+- logo subfolders for Primary, Reversed, Emblem and App Mark
+- existing Website concept folder retained
 
 Locked implementation tokens:
 
@@ -381,53 +98,51 @@ Locked implementation tokens:
 - `#E5E7EB`
 - `#FFFFFF`
 
-Final canonical asset selection/export is still being populated by the Canva workstream.
+The production structure is ready. Final permanent Brand Master/Codex handoff selections and exported logos/icons/heroes/product mockups/document examples/mountain CTA/OG files are still being populated. Website structural implementation may proceed using the locked tokens while final assets are completed.
 
-## Source-control / runtime safety
+## Source-control safety note
 
-Current evidence/OCR/sufficiency/clarification/Academy application work is isolated on `feature/universal-evidence-ocr-foundation` and draft PR #31. `main` application code has not been changed by that work; progress-document updates do not activate feature-branch application code.
+During creation of the launch package an empty `README.md` was accidentally created by a helper write call and immediately removed. A compare against the pre-plan checkpoint confirmed the net launch-plan change contained only the intended `docs/launch/*` files. No prior repository content was lost.
 
-Pfizer / Company 1 was not rerun or altered.
+## Tooling capability established
 
-Hermes was not replaced and no second Academy scheduler was created.
+The connected SentinelX host can reach GitHub with `git`.
 
-The two OCR services were added side-by-side and do not replace any existing Eve service.
+The production Eve web container has Node 22 and npm 10 with installed dependencies, but contains bundled production output rather than the full source tree.
 
-Transient helper-file mistakes (`noop` earlier and an empty `nonexistent` file during P1-010 metadata cleanup) were immediately removed from the feature branch. P2 one-shot hardening/catalog machinery also removed itself automatically after green builds. None of these helper files touched production runtime.
+This creates a workable no-Codex pattern for bounded changes:
 
-## No-Codex engineering pattern established
+1. inspect/prepare exact patch through GitHub
+2. use an isolated scratch clone/worktree on the connected host where possible
+3. use container/runtime tooling for read-only verification or isolated execution
+4. commit through GitHub only after review
+5. avoid mutating running production containers as a substitute for deployment
 
-For bounded work we can now:
+Node 22 type-stripping was physically verified for isolated scratch TypeScript execution.
 
-1. inspect exact current source through GitHub
-2. prepare/test branch patches in isolated scratch or Kubernetes environments
-3. run branch CI/build gates
-4. exercise the actual Eve UI with the existing real-browser runtime
-5. physically verify runtime services through SentinelX
-6. commit only after tests pass
-7. reserve Codex for a documented blocker rather than routine implementation
+If a patch cannot be fully tested with current tooling, record that limitation rather than claiming acceptance.
 
 ## Active next tasks
 
-1. finish `EVE-P2-002` receipt-image curriculum by adding controlled orientation correction/retry and real Product Truth / Deliverable Truth proof where applicable
-2. continue `EVE-P2-003` invoice/AP curriculum beyond the OCR fixture into AP semantics, approval/reconciliation and deliverable truth
-3. continue `EVE-P2-004` bank-statement completeness/sufficiency curriculum, including missing non-material vs missing material page scenarios
-4. add selective page-level OCR for mixed native-text/scanned PDFs; do not convert an entire mixed PDF to OCR merely because one page is scanned
-5. exercise `EVE-P2-006/007` mixed-batch/duplicate and clarification curricula plus long-document semantic/context, real browser source-to-dashboard and final deliverable-lineage cases
-6. controlled review/release plan for draft PR #31 as a separate authorized step; do not infer merge authorization from branch acceptance
+1. `EVE-P1-003` — universal source-coordinate/provenance contract implementation
+2. `EVE-P1-004` — spreadsheet cell/formula adapter into universal source-to-presentation lineage
+3. `EVE-P1-005` — integrate PaddleOCR/docTR behind normalized local OCR contract and connect regions to provenance; Academy owns continuing comparison
+4. `EVE-P1-009` — source completeness vs task evidence sufficiency model
+5. `EVE-P1-010` — clarification/PBC model
+6. `EVE-P2-001` — Academy five-dimension grading contract
 7. `EVE-P3-002/003/004` — plan, entitlement and usage schemas
 8. `EVE-P4-001` — owner live operational read-model integration audit
 9. `EVE-P5-001` — remove development/internal language from customer-facing routes
-10. `EVE-P6-002/003` — public claims truth lock and website structural implementation using locked brand tokens
+10. `EVE-P6-002` — public claims truth lock while final Canva assets are populated
+11. `EVE-P6-003` — website structural implementation using locked brand tokens
 
-## Immediate blockers not requiring Codex
+## Immediate blockers not requiring Codex yet
 
-- final canonical Canva asset population/export for full public-site visual fidelity
+- final canonical Canva asset population/export for full visual fidelity
 - owner pricing/plan decisions before publishing commercial pricing
 - payment-processor selection/authorization before automated checkout
-- production application evidence/OCR/sufficiency/clarification/P2 activation is deliberately held behind PR #31 release control, not blocked by Codex
-- PBC external delivery/notification transport is not yet implemented; current accepted state is durable workflow state + authenticated response/re-evaluation contracts
+- advanced Hermes/development credential closeout may require provider control-plane access, but must be audited with current tools before Codex escalation
 
 ## Codex status
 
-No current task is authorized as `CODEX_LAST_RESORT`. Current work continues through direct GitHub/runtime tooling until a specific physical blocker is documented.
+No current task is authorized as `CODEX_LAST_RESORT` merely because credits are unavailable. Current work continues through direct GitHub/runtime tooling until a specific physical blocker is documented.

@@ -1,0 +1,18 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import type {SupportAudit,SupportCase,SupportMessage,SupportSession,SupportState,SupportSeverity,SupportVisibility} from './supportTypes.js';
+const id=(prefix:string)=>`${prefix}-${crypto.randomBytes(12).toString('hex')}`;
+const at=()=>new Date().toISOString();
+export class SupportStore {
+ readonly file:string;
+ constructor(root=process.env.EVE_SUPPORT_DIR||path.join(process.cwd(),'storage','support')){this.file=path.join(root,'support.json');}
+ read():SupportState { if(!fs.existsSync(this.file)) return {version:1,cases:[],messages:[],sessions:[],audit:[]}; const value=JSON.parse(fs.readFileSync(this.file,'utf8')); if(value.version!==1||!Array.isArray(value.cases)||!Array.isArray(value.messages)||!Array.isArray(value.sessions)||!Array.isArray(value.audit)) throw new Error('SUPPORT_STORE_INVALID'); return value; }
+ transaction<T>(fn:(s:SupportState)=>T):T { fs.mkdirSync(path.dirname(this.file),{recursive:true,mode:0o700}); const value=this.read(); const result=fn(value); const temp=`${this.file}.${crypto.randomUUID()}.tmp`; fs.writeFileSync(temp,JSON.stringify(value),{mode:0o600}); fs.renameSync(temp,this.file); return result; }
+ audit(s:SupportState,actorUserId:string,tenantId:string,event:SupportAudit['event'],caseId:string|null=null,sessionId:string|null=null){s.audit.push({id:id('sa'),at:at(),actorUserId,tenantId,caseId,sessionId,event});}
+ createCase(input:{tenantId:string;workspaceId?:string|null;subject:string;severity:SupportSeverity;createdByUserId:string}){return this.transaction(s=>{const createdAt=at();const row:SupportCase={id:id('sc'),tenantId:input.tenantId,workspaceId:input.workspaceId||null,subject:input.subject.slice(0,240),severity:input.severity,status:'OPEN',createdByUserId:input.createdByUserId,assignedOperatorUserId:null,createdAt,updatedAt:createdAt};s.cases.push(row);this.audit(s,input.createdByUserId,input.tenantId,'SUPPORT_CASE_CREATED',row.id);return row;});}
+ addMessage(input:{caseId:string;tenantId:string;actorUserId:string;actorKind:'CUSTOMER'|'OPERATOR';body:string;visibility:SupportVisibility}){return this.transaction(s=>{const parent=s.cases.find(x=>x.id===input.caseId&&x.tenantId===input.tenantId);if(!parent)throw new Error('SUPPORT_CASE_NOT_FOUND');const row:SupportMessage={id:id('sm'),caseId:parent.id,actorUserId:input.actorUserId,actorKind:input.actorKind,body:input.body.slice(0,4000),visibility:input.visibility,createdAt:at()};s.messages.push(row);parent.updatedAt=row.createdAt;this.audit(s,input.actorUserId,input.tenantId,input.visibility==='INTERNAL_ONLY'?'SUPPORT_INTERNAL_NOTE_ADDED':'SUPPORT_MESSAGE_SENT',parent.id);return row;});}
+ startSession(input:{operatorUserId:string;tenantId:string;caseId:string;reason:string}){return this.transaction(s=>{const parent=s.cases.find(x=>x.id===input.caseId&&x.tenantId===input.tenantId);if(!parent)throw new Error('SUPPORT_CASE_NOT_FOUND');const createdAt=at();const row:SupportSession={id:id('ss'),operatorUserId:input.operatorUserId,tenantId:input.tenantId,caseId:input.caseId,reason:input.reason.slice(0,500),createdAt,expiresAt:new Date(Date.now()+30*60_000).toISOString(),endedAt:null,mode:'READ_ONLY'};s.sessions.push(row);this.audit(s,input.operatorUserId,input.tenantId,'SUPPORT_SESSION_STARTED',input.caseId,row.id);return row;});}
+ endSession(sessionId:string,operatorUserId:string){return this.transaction(s=>{const row=s.sessions.find(x=>x.id===sessionId&&x.operatorUserId===operatorUserId);if(!row)throw new Error('SUPPORT_SESSION_NOT_FOUND');if(!row.endedAt){row.endedAt=at();this.audit(s,operatorUserId,row.tenantId,'SUPPORT_SESSION_ENDED',row.caseId,row.id);}return row;});}
+}
+export const supportStore=new SupportStore();

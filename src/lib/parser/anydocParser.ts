@@ -1,4 +1,5 @@
 import { CanonicalDocumentModel, FileInspectionResult } from "./types.js";
+import crypto from "node:crypto";
 
 export class AnyDocParser {
   public async parse(
@@ -109,9 +110,36 @@ export class AnyDocParser {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     const docId = `doc-${Date.now()}`;
     const pages = pdfPages || [{ page_number: 1, text, tables: extractedTables }];
+    const sourceSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+    const sourceKind = detectedFormat === "pdf" ? "PDF" : detectedFormat === "html" ? "HTML" : "TEXT";
+    const sourceArtifactId = `artifact-${sourceKind.toLowerCase()}-${sourceSha256.slice(0, 24)}`;
+    const coordinateFor = (suffix: string, locator: Record<string, any>) => ({
+      coordinateId: `coord-${sourceSha256.slice(0, 16)}-${suffix}`,
+      sourceArtifactId,
+      sourceSha256,
+      sourceType: sourceKind,
+      rawLiteral: locator.rawLiteral,
+      normalizedLiteral: locator.normalizedLiteral,
+      extractionMethod: sourceKind === "PDF" ? "PDF_NATIVE_TEXT" : `${sourceKind}_NATIVE_TEXT`,
+      extractionVersion: "anydoc-2.1",
+      confidence: 0.98,
+      ...locator
+    });
 
+    let htmlCursor = 0;
     const sourceBlocks = detectedFormat === "html"
-      ? lines.map((line, idx) => ({
+      ? lines.map((line, idx) => {
+          const locatedStart = text.indexOf(line, htmlCursor);
+          const textStart = locatedStart >= 0 ? locatedStart : htmlCursor;
+          htmlCursor = textStart + line.length;
+          const sourceCoordinate = coordinateFor(`line-${idx + 1}`, {
+            textStart: Math.max(0, textStart),
+            textEnd: Math.max(0, textStart) + line.length,
+            rawLiteral: line,
+            normalizedLiteral: line
+          });
+          const sourceProvenanceId = `prov-${sourceSha256.slice(0, 16)}-line-${idx + 1}`;
+          return ({
           source_block_id: `SB-${docId}-DOC-${idx + 1}`,
           document_id: docId,
           page_number: 1,
@@ -119,9 +147,30 @@ export class AnyDocParser {
           raw_text: line,
           text_content: line,
           evidence_scope: "DOCUMENT",
-          source_format: "html"
-        }))
-      : pages.filter(page => page.text.trim().length > 0).map(page => ({
+          source_format: "html",
+          source_sha256: sourceSha256,
+          source_artifact_id: sourceArtifactId,
+          source_provenance_id: sourceProvenanceId,
+          source_coordinate: sourceCoordinate,
+          extraction_method: sourceCoordinate.extractionMethod,
+          extraction_version: sourceCoordinate.extractionVersion
+        });
+        })
+      : pages.filter(page => page.text.trim().length > 0).map(page => {
+          const sourceCoordinate = coordinateFor(`p${page.page_number}-native`, sourceKind === "PDF" ? {
+            pageNumber: page.page_number,
+            textStart: 0,
+            textEnd: page.text.length,
+            rawLiteral: page.text,
+            normalizedLiteral: page.text
+          } : {
+            lineStart: 1,
+            lineEnd: Math.max(1, page.text.split("\n").length),
+            rawLiteral: page.text,
+            normalizedLiteral: page.text
+          });
+          const sourceProvenanceId = `prov-${sourceSha256.slice(0, 16)}-p${page.page_number}-native`;
+          return ({
           source_block_id: `SB-${docId}-P${page.page_number}`,
           document_id: docId,
           page_number: page.page_number,
@@ -129,8 +178,15 @@ export class AnyDocParser {
           raw_text: page.text,
           text_content: page.text,
           evidence_scope: "PAGE",
-          source_format: detectedFormat
-        }));
+          source_format: detectedFormat,
+          source_sha256: sourceSha256,
+          source_artifact_id: sourceArtifactId,
+          source_provenance_id: sourceProvenanceId,
+          source_coordinate: sourceCoordinate,
+          extraction_method: sourceCoordinate.extractionMethod,
+          extraction_version: sourceCoordinate.extractionVersion
+        });
+        });
 
     return {
       document_id: docId,
@@ -138,6 +194,8 @@ export class AnyDocParser {
         filename: safeFilename,
         originalName: safeOriginalName,
         format: detectedFormat,
+        hash: sourceSha256,
+        sourceArtifactId,
         access_timestamp: new Date().toISOString()
       },
       parser: {

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+
+<g fill="none" stroke="#0B2D4D" stroke-width="12"><circle cx="256" cy="256" r="190"/><circle cx="256" cy="256" r="166" stroke-width="4"/></g>
+<text x="256" y="326" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="270" fill="#0B2D4D">E</text>
+<path d="M315 330 C366 286,391 291,398 248 C351 257,317 284,315 330 Z" fill="#0B2D4D"/>
+</svg>

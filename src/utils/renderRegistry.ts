@@ -94,6 +94,7 @@ export function getRenderLineageAttributes(entry: {
 export class RenderRegistry {
   private static instance: RenderRegistry | null = null;
   private renders: Map<string, RenderEntry> = new Map();
+  private renderIdentityIndex: Map<string, string> = new Map();
   private derivedCalculations: Map<string, DerivedCalculationLineage> = new Map();
   private currencyConversions: Map<string, CurrencyDisplayLineage> = new Map();
 
@@ -107,6 +108,20 @@ export class RenderRegistry {
   }
 
   public registerRender(entry: Omit<RenderEntry, 'renderId' | 'renderTimestamp'>): string {
+    // React may recompute presentation adapters many times while opening drawers or
+    // changing local UI state. The same physical presentation must keep one render
+    // identity so reverse-render lineage does not go stale merely because of a rerender.
+    // A material presentation change (value, verification state, route/widget, period,
+    // currency, source fact or derivation) intentionally creates a new identity.
+    const identityKey = JSON.stringify([
+      entry.route, entry.screen, entry.component, entry.widget,
+      entry.factLineageId, entry.canonicalFactId || '', entry.derivedCalculationId || '',
+      entry.entityId, entry.period, entry.currency, entry.displayScale,
+      entry.displayValue, entry.normalizedBaseValue ?? null, entry.verificationState
+    ]);
+    const existingId = this.renderIdentityIndex.get(identityKey);
+    if (existingId && this.renders.has(existingId)) return existingId;
+
     const renderId = `RND-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
     const fullEntry: RenderEntry = {
       ...entry,
@@ -114,6 +129,7 @@ export class RenderRegistry {
       renderTimestamp: new Date().toISOString()
     };
     this.renders.set(renderId, fullEntry);
+    this.renderIdentityIndex.set(identityKey, renderId);
     return renderId;
   }
 
@@ -185,6 +201,7 @@ export class RenderRegistry {
 
   public clear() {
     this.renders.clear();
+    this.renderIdentityIndex.clear();
     this.derivedCalculations.clear();
     this.currencyConversions.clear();
   }

@@ -6,6 +6,7 @@ import express from 'express';
 import { IdentityStore,hashPassword,verifyPassword,digest } from '../access/identityStore.js';
 import { createAccessPortal } from '../access/accessPortal.js';
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'eve-access-test-'));const original=process.cwd();process.chdir(temp);fs.mkdirSync('storage');
+fs.mkdirSync(path.join('dist','brand','product'),{recursive:true});fs.writeFileSync(path.join('dist','brand','product','eve-product-overview.jpg'),'synthetic-capture');
 fs.writeFileSync('storage/ai_cpa_storage.json',JSON.stringify({workspaces:[{id:'customer-a',name:'A',classification:'CUSTOMER'},{id:'customer-b',name:'B',classification:'CUSTOMER'},{id:'academy',name:'Academy',classification:'ACADEMY'}],documents:[],facts:[],findings:[],reports:[]}));
 const baseline=fs.readFileSync('storage/ai_cpa_storage.json');
 const store=new IdentityStore(path.join(temp,'identity'));
@@ -21,6 +22,16 @@ const app=express();app.use(createAccessPortal(store));app.use((req,res)=>res.js
 const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));const port=(server.address() as any).port;
 const request=(url:string,token?:string,options:any={})=>fetch(`http://127.0.0.1:${port}${url}`,{redirect:'manual',...options,headers:{host:'eve.test',...(token?{cookie:`__Host-eve_session=${token}`} :{}),...options.headers}});
 try{
+ process.env.EVE_PUBLIC_PREVIEW_HOSTS='eve.test,127.0.0.1';
+ const publicHome=await request('/');assert.equal(publicHome.status,200);const publicHtml=await publicHome.text();assert.match(publicHtml,/<title>Eve Bookkeeping \| Evidence-Led Bookkeeping Intelligence<\/title>/);assert.match(publicHtml,/name="twitter:title" content="Eve Bookkeeping \| Evidence-Led Bookkeeping Intelligence"/);assert.match(publicHtml,/name="twitter:image" content="https:\/\/evesbookkeeping.com\/brand\/og-home.png"/);assert.match(publicHome.headers.get('content-security-policy')||'',/frame-ancestors 'none'/);
+ process.env.EVE_PUBLIC_CANONICAL_ORIGIN='https://eve-candidate.example.test/';const candidateHome=await request('/');const candidateHtml=await candidateHome.text();assert.match(candidateHtml,/property="og:url" content="https:\/\/eve-candidate.example.test"/);assert.match(candidateHtml,/property="og:image" content="https:\/\/eve-candidate.example.test\/brand\/og-home.png"/);delete process.env.EVE_PUBLIC_CANONICAL_ORIGIN;
+ assert.equal((await request('/product')).status,200);
+ assert.equal((await request('/brand/product/eve-product-overview.jpg')).status,200);
+ assert.equal((await request('/brand/product/../../storage/ai_cpa_storage.json')).status,404);
+ assert.equal((await request('/robots.txt')).status,200);
+ assert.equal((await request('/sitemap.xml')).status,200);
+ assert.equal((await request('/not-a-page')).status,404);
+ delete process.env.EVE_PUBLIC_PREVIEW_HOSTS;
  assert.equal((await request('/owner')).status,302);
  assert.equal((await request('/api/portal/engagements')).status,401);
  assert.equal((await request('/owner',first.token)).status,302);
@@ -50,4 +61,4 @@ try{
  assert.deepEqual(fs.readFileSync('storage/ai_cpa_storage.json'),baseline);
  assert(!fs.readFileSync(store.file,'utf8').includes('a long permanent test password'));
  console.log('PASS: durable one-time setup, password replacement, session revocation, HTTP cookies/CSRF, tenant isolation/default deny, no professional authority, accounting conservation, throttling.');
-}finally{server.close();process.chdir(original);fs.rmSync(temp,{recursive:true,force:true});}
+}finally{server.close();delete process.env.EVE_PUBLIC_PREVIEW_HOSTS;process.chdir(original);fs.rmSync(temp,{recursive:true,force:true});}

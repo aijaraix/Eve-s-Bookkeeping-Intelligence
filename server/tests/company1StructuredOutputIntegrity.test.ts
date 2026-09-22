@@ -62,6 +62,7 @@ export async function runCompany1StructuredOutputIntegrityTests(): Promise<void>
     confidence: 0.99
   } as any, parsedHtml.pageManifests, parsedHtml.sourceBlocks);
   assert(evidence.evidenceStatus === 'CONFIRMED', 'Document-scoped HTML evidence should confirm exact same-line quote+amount evidence');
+  assert(evidence.matchedSourceBlock?.source_block_id === revenueBlock.source_block_id, 'confirmed evidence must retain the exact matched source block identity');
   assert(evidence.matchedPageNumber === undefined, 'Document-scoped HTML evidence must not fabricate a physical page match');
   assert(String(evidence.notes || '').includes('document-scoped'), 'Evidence notes must disclose document-scoped confirmation');
 

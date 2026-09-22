@@ -36,6 +36,9 @@ export function readOwnerEngagements(): any[] {
   const queueFile = process.env.QUEUE_FILE || path.join(root, 'queue_jobs.json');
   const jobs = fs.existsSync(queueFile) ? array(readJson(queueFile), 'queue') : [];
   const packages = records(process.env.HERMES_REPORTS_DIR || path.join(root, 'reports'), 'audit_package_');
+  const clarificationFile = path.join(root, 'cpa_memory', 'clarifications', 'clarification_requests.json');
+  const clarifications = fs.existsSync(clarificationFile) ? array(readJson(clarificationFile), 'clarifications') : [];
+  const sufficiencyDecisions = records(path.join(root, 'cpa_memory', 'task_sufficiency')).map(r => r.data);
   const result: any[] = [];
   for (const ws of db.workspaces) {
     if (!ws.id) throw new Error('ACCOUNTING_READ_INVALID: workspace identity');
@@ -54,7 +57,8 @@ export function readOwnerEngagements(): any[] {
       if (states.some(c => !docs.some(d => d.id === c.documentId))) throw new Error('ACCOUNTING_RELATIONSHIP_INVALID: continuation document linkage');
       const facts = array(db.facts, 'facts').filter(f => (f.workspaceId ?? f.workspace_id) === ws.id && (!states.length || documentIds.includes(f.documentId ?? f.document_id)));
       const pkgs = packages.filter(p => p.data.engagementId === engagementId && (!p.data.workspaceId || p.data.workspaceId === ws.id));
-      result.push(project(ws, engagementId, docs, facts, states, pkgs, array(db.findings, 'findings').filter(f => f.workspaceId === ws.id), jobs.filter(j => j.workspaceId === ws.id && (!states.length || states.some(c => c.jobId === j.id)))));
+      const workspaceDocuments = array(db.documents, 'documents').filter(d => d.workspaceId === ws.id);
+      result.push(project(ws, engagementId, docs, facts, states, pkgs, array(db.findings, 'findings').filter(f => f.workspaceId === ws.id), jobs.filter(j => j.workspaceId === ws.id && (!states.length || states.some(c => c.jobId === j.id))), workspaceDocuments, clarifications.filter(c => c.projectId === ws.id), sufficiencyDecisions.filter(d => d.task?.workspaceId === ws.id)));
     }
   }
   // Preserve historical synthetic packages without seeding simulations or fabricating customer workspaces.
@@ -66,7 +70,7 @@ export function readOwnerEngagements(): any[] {
   }
   return result;
 }
-function project(ws: any, engagementId: string, docs: any[], facts: any[], states: any[], packages: any[], findings: any[], jobs: any[]): any {
+function project(ws: any, engagementId: string, docs: any[], facts: any[], states: any[], packages: any[], findings: any[], jobs: any[], workspaceDocuments: any[] = docs, clarificationHistory: any[] = [], sufficiencyHistory: any[] = []): any {
   const state = states[0];
   const reports = packages.map(({ data: p, file }) => {
     const dir = path.dirname(file);
@@ -110,6 +114,9 @@ function project(ws: any, engagementId: string, docs: any[], facts: any[], state
     numericVariance: state?.euclidBalance?.variance ?? null, crossEngagementLeakageScore: null,
     notes: cls === 'CUSTOMER' ? 'AI-prepared work. Authorized professional review remains required.' : 'Historical synthetic practice evidence; not customer work or professional certification.',
     documents: docs.map(d => ({ ...d, documentId: d.id, filename: d.originalName || d.filename || d.name || null, filesize: d.size ?? null, mimeType: d.mimeType || d.type || null, sha256: d.sha256 || null, classification: d.classification || cls, documentCategory: d.category || null, uploadedAt: d.createdAt || d.uploadedAt || null, pagesCount: d.pageCount ?? d.pagesCount ?? null })),
+    documentHistory: workspaceDocuments.map(d => ({ ...d, documentId: d.id, filename: d.originalName || d.filename || d.name || null, filesize: d.size ?? null, mimeType: d.mimeType || d.type || null, sha256: d.sha256 || null, classification: d.classification || cls, documentCategory: d.category || null, uploadedAt: d.createdAt || d.uploadedAt || null, pagesCount: d.pageCount ?? d.pagesCount ?? null })),
+    clarificationHistory,
+    sufficiencyHistory,
     facts, financialFacts: facts, findings, pbcRequests: pbc, reviewNotes: findings, reports,
     continuation: state ? { continuationId: state.continuationId, jobId: state.jobId, documentId: state.documentId, engagementId, workspaceId: ws.id, status: state.status, jobAttempt: state.jobAttempt, logicVersion: state.logicVersion, systemFindings: state.systemFindings || [], reviewFindings: readableFindings.length ? readableFindings : (state.reviewFindings || []), structuredUncertainties: recordedUncertainties, specialistSummary: state.specialistSummary, internalTruthAudit: state.internalTruthAudit, minervaLiveValidation: state.minervaLiveValidation } : null,
     jobs: jobs.map(j => ({ jobId: j.id, workspaceId: j.workspaceId, documentId: j.documentId, status: j.status, stage: j.stage, attempts: j.attemptCount })),

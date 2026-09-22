@@ -6,8 +6,9 @@ import { deliverableArtifactService, DeliverableArtifactRecord } from './deliver
 import { eveInternalAuditEngine } from './eveInternalAuditEngine.js';
 import { academyMinervaLab } from './academyMinervaLab.js';
 import { disclosureEvidenceLedgerService } from './disclosureEvidenceLedgerService.js';
+import { deriveTrialBalanceRuntimeEvidenceFromPhysicalSource, type TrialBalanceRuntimeEvidence } from './trialBalanceRuntimeAdapter.js';
 
-export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v6-bounded-lexicon-review-package';
+export const VERIFIED_CONTINUATION_LOGIC_VERSION = 'v10-post-reprocess-deduplicated-lineage';
 
 export type VerifiedContinuationStatus =
   | 'READY_FROM_VERIFIED_EXTRACTION'
@@ -52,6 +53,8 @@ export interface VerifiedContinuationState {
   minervaLiveValidation?: any;
   systemFindings?: string[];
   reviewFindings?: string[];
+  trialBalanceQualification?: string;
+  trialBalanceReview?: any;
   error?: string;
   specialistRetryId?: string;
 }
@@ -91,6 +94,64 @@ export function selectProofCompleteFacts(facts: any[], workspaceId: string): any
   return (facts || []).filter(f => (f.workspaceId === workspaceId || f.workspace_id === workspaceId) && isProofCompleteFact(f));
 }
 
+export function mapProofFactToDeliverableFact(f: any, document: any, job: any): any {
+  return {
+    id: f.id,
+    canonicalMetric: f.canonicalMetric || f.labelNormalized,
+    label: f.labelOriginal || f.labelNormalized,
+    value: numericFactValue(f) || 0,
+    statement: f.statementType,
+    sourceDoc: document?.filename || job.documentTitle,
+    documentId: f.documentId || f.document_id,
+    page: f.pageNumber,
+    verificationStatus: f.verificationStatus,
+    evidenceStatus: f.evidenceStatus,
+    factState: f.status,
+    unitScale: f.unitScale,
+    normalizedScaleMultiplier: f.normalizedScaleMultiplier,
+    reportingPeriod: f.reportingPeriod || 'NOT_RECORDED',
+    sourceText: String(f.sourceText || f.source_text || ''),
+    sourceBlockIds: f.sourceBlockIds || (f.sourceBlockId ? [f.sourceBlockId] : []),
+    sourceSha256: f.sourceSha256 || f.provenance?.sourceSha256 || job.documentHash,
+    sourceArtifactId: f.sourceArtifactId || f.provenance?.sourceArtifactId,
+    sourceProvenanceId: f.sourceProvenanceId || f.provenance?.sourceProvenanceId,
+    sourceProvenanceIds: f.sourceProvenanceIds || f.provenance?.sourceProvenanceIds || [],
+    sourceCoordinate: f.sourceCoordinate || f.provenance?.sourceCoordinate,
+    sourceCoordinates: f.sourceCoordinates || f.provenanceCoordinates || f.provenance?.provenanceCoordinates || [],
+    sourceConfidence: f.sourceConfidence ?? f.confidence ?? f.provenance?.ocrConfidence,
+    sourceExtractionMethod: f.sourceExtractionMethod || f.extractionMethod || f.extractionEngine || f.provenance?.ocrEngine,
+    sourceExtractionVersion: f.sourceExtractionVersion || f.provenance?.ocrEngineVersion
+  };
+}
+
+export function shouldRecoverPersistedEvidenceBlock(prior: VerifiedContinuationState | null, job: any, facts: any[]): boolean {
+  const persistedProofFacts = selectProofCompleteFacts(facts || [], job.workspaceId);
+  if (prior?.status === 'BLOCKED_NO_PROOF_COMPLETE_FACTS') return persistedProofFacts.length > 0;
+  if (prior?.status !== 'BLOCKED_ACCOUNTING_IDENTITY') return false;
+  const persistedFiscalYear = deriveFiscalYear(persistedProofFacts);
+  const persistedBalance = persistedFiscalYear ? deriveCurrentBalance(persistedProofFacts, persistedFiscalYear) : null;
+  return Boolean(persistedBalance && persistedBalance.variance <= 0.01);
+}
+
+export function shouldInvalidateReadyContinuation(prior: VerifiedContinuationState | null, job: any, facts: any[]): boolean {
+  if (!prior?.status?.startsWith('READY_FOR_AUTHORIZED_HUMAN_REVIEW') || !prior.deliverable?.reportId) return false;
+  const proofFacts = selectProofCompleteFacts(facts || [], job.workspaceId);
+  const year = deriveFiscalYear(proofFacts);
+  if (!year) return false;
+  const balanceKeys = new Set(['totalassets','assets','totalliabilities','liabilities','totalequity','totalshareholdersequity','totalstockholdersequity','equityincludingnoncontrollinginterest','stockholdersequityincludingportionattributabletononcontrollinginterest']);
+  const groups = new Map<string, Set<number>>();
+  for (const fact of proofFacts) {
+    if (String(factYear(fact) || '') !== year || !String(fact?.statementType || '').toUpperCase().includes('BALANCE_SHEET')) continue;
+    const key = metricKey(fact);
+    if (!balanceKeys.has(key)) continue;
+    const value = numericFactValue(fact);
+    if (value === null) continue;
+    if (!groups.has(key)) groups.set(key, new Set());
+    groups.get(key)!.add(value);
+  }
+  return [...groups.values()].some(values => values.size > 1);
+}
+
 function metricKey(f: any): string {
   return String(f?.canonicalMetric || f?.canonical_metric || f?.labelNormalized || f?.labelOriginal || '')
     .toLowerCase()
@@ -98,7 +159,11 @@ function metricKey(f: any): string {
 }
 
 function yearsIn(value: any): number[] {
-  return [...String(value || '').matchAll(/\b(20\d{2})\b/g)].map(m => Number(m[1]));
+  // Accounting periods are commonly serialized both as "FY 2026" and
+  // "FY2026".  A leading word boundary rejects the latter because the Y and
+  // 2 are both word characters.  Bound only on adjacent digits so embedded
+  // identifiers remain excluded while compact fiscal-year tokens are valid.
+  return [...String(value || '').matchAll(/(?<!\d)(20\d{2})(?!\d)/g)].map(m => Number(m[1]));
 }
 
 function factYear(f: any): number | null {
@@ -136,6 +201,8 @@ export function deriveCurrentBalance(facts: any[], fiscalYear: string): { assets
     'stockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
     'totalEquity',
     'total_equity',
+    'totalShareholdersEquity',
+    'totalStockholdersEquity',
     'equityIncludingNoncontrollingInterest'
   ], fiscalYear);
   if (assets === null || liabilities === null || equity === null) return null;
@@ -169,6 +236,67 @@ function countDiscoveredAccounts(facts: any[]) {
     liabilityAccountsCount: balanceFacts.filter(f => /liabil|debt|borrow|payable|accrued/.test(text(f))).length,
     equityAccountsCount: balanceFacts.filter(f => /equity|stock|capital|retained|treasury/.test(text(f))).length
   };
+}
+
+export function loadPersistedAdjudicationLineage(workspaceId: string, facts: any[]): any | undefined {
+  const root = path.join(process.cwd(), 'storage', 'cpa_memory');
+  const clarificationPath = path.join(root, 'clarifications', 'clarification_requests.json');
+  const decisionsDir = path.join(root, 'task_sufficiency');
+  if (!fs.existsSync(clarificationPath) || !fs.existsSync(decisionsDir)) return undefined;
+  const clarificationPayload = JSON.parse(fs.readFileSync(clarificationPath, 'utf8'));
+  const clarifications = (Array.isArray(clarificationPayload) ? clarificationPayload : clarificationPayload.clarifications || [])
+    .filter((c: any) => c.projectId === workspaceId && c.status === 'RESOLVED' && c.response);
+  const decisions = fs.readdirSync(decisionsDir).filter(f => f.endsWith('.json')).map(f => JSON.parse(fs.readFileSync(path.join(decisionsDir, f), 'utf8')))
+    .filter((d: any) => d.task?.workspaceId === workspaceId && (d.allowedConclusionIds || []).length > 0)
+    .sort((a: any, b: any) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  const decision = decisions.at(-1);
+  if (!decision) return undefined;
+  const clarification = clarifications.find((c: any) => (decision.evidenceRefs || []).includes(`clarification:${c.requestId}`));
+  if (!clarification) return undefined;
+  const refs = decision.evidenceRefs || [];
+  const documentIds = refs.filter((r: string) => r.startsWith('document:')).map((r: string) => r.slice(9));
+  const sourceShas = refs.filter((r: string) => r.startsWith('sha256:')).map((r: string) => r.slice(7));
+  const evidence = documentIds.map((documentId: string, index: number) => {
+    const related = facts.filter((f: any) => (f.documentId || f.document_id) === documentId);
+    return {
+      role: index === documentIds.length - 1 ? 'RESOLVING_SOURCE' : `CONFLICT_SOURCE_${String.fromCharCode(65 + index)}`,
+      documentId,
+      sourceSha256: sourceShas[index] || related.find((f: any) => f.sourceSha256)?.sourceSha256,
+      provenanceIds: [...new Set(related.flatMap((f: any) => [f.sourceProvenanceId, ...(f.sourceProvenanceIds || [])]).filter(Boolean))],
+      sourceBlockIds: [...new Set(related.flatMap((f: any) => [f.sourceBlockId, ...(f.sourceBlockIds || [])]).filter(Boolean))],
+      locator: related.map((f: any) => f.sourceCoordinate || f.sourceCoordinates?.[0]).filter(Boolean)[0] || 'PERSISTED_SOURCE_DOCUMENT'
+    };
+  });
+  return {
+    conflictId: `conflict:${decision.task?.taskId || decision.decisionId}`,
+    gapId: clarification.sufficiencyLink?.gapIds?.[0],
+    clarificationId: clarification.requestId,
+    affectedConclusionId: decision.allowedConclusionIds?.[0],
+    finalStatus: decision.conclusionAssessments?.[0]?.state || 'ALLOWED',
+    clarificationResponse: clarification.response?.narrativeExplanation,
+    responseAloneCleared: false,
+    finalDecisionId: decision.decisionId,
+    finalDecisionHash: decision.decisionHash,
+    evidence
+  };
+}
+
+
+export async function deriveContinuationTrialBalanceEvidence(job: any, document: any): Promise<TrialBalanceRuntimeEvidence> {
+  const sourceFilePath=String(job?.filePath || document?.filePath || document?.url || '');
+  const filename=String(document?.originalName || document?.filename || job?.documentTitle || (sourceFilePath ? path.basename(sourceFilePath) : ''));
+  const mimeType=String(document?.mimeType || job?.mimeType || '');
+  const expectedSourceSha256=String(job?.documentHash || document?.sha256 || '');
+  const runtime=await deriveTrialBalanceRuntimeEvidenceFromPhysicalSource({sourceFilePath,expectedSourceSha256,filename,mimeType,currency:job?.functionalCurrency});
+  const workerReview=job?.result?.trialBalanceReview || job?.results?.trialBalanceReview;
+  if (workerReview) {
+    if (runtime.qualification !== 'QUALIFIED_TRIAL_BALANCE' || !runtime.review) throw new Error('TRIAL_BALANCE_WORKER_CONTINUATION_MISMATCH');
+    const same = workerReview.sourceSha256 === runtime.review.sourceSha256 && workerReview.status === runtime.review.status &&
+      Number(workerReview.totalDebits) === runtime.review.totalDebits && Number(workerReview.totalCredits) === runtime.review.totalCredits &&
+      Number(workerReview.variance) === runtime.review.variance && workerReview.formulaIntegrityStatus === runtime.review.formulaIntegrityStatus;
+    if (!same) throw new Error('TRIAL_BALANCE_WORKER_CONTINUATION_MISMATCH');
+  }
+  return runtime;
 }
 
 function compactSwarm(summary: SwarmExecutionSummary): any {
@@ -371,8 +499,16 @@ export class VerifiedCustomerContinuationService {
       throw new Error('ACADEMY_CLASSIFICATION_MISMATCH');
     }
     const prior = this.getState(job.id);
+    if (shouldInvalidateReadyContinuation(prior, job, db.facts || [])) {
+      return this.persist({ ...prior!, previousStatus: prior!.status, status: 'BLOCKED_ACCOUNTING_IDENTITY',
+        updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+        error: 'A later independently preserved source created a material balance-sheet conflict; the prior draft is stale and blocked pending evidence adjudication.',
+        deliverable: { ...prior!.deliverable!, status: 'STALE_BLOCKED_CONFLICT', isStale: true } });
+    }
     const retry = this.pendingLexiconRetry(job, prior);
-    if (!retry && this.isTerminalForSameAttempt(prior, job)) return prior;
+    if (!retry && this.isTerminalForSameAttempt(prior, job)) {
+      if (!shouldRecoverPersistedEvidenceBlock(prior, job, db.facts || [])) return prior;
+    }
     // An interrupted claimed retry requires reconciliation, never automatic duplicate model calls.
     if (!retry && prior?.specialistRetryId) return prior;
     if (job.classification === 'ACADEMY' && prior?.status === 'AWAITING_UI_DRAFT_REQUEST' &&
@@ -422,6 +558,9 @@ export class VerifiedCustomerContinuationService {
 
       const workspace = (db?.workspaces || []).find((w: any) => w.id === job.workspaceId);
       const document = (db?.documents || []).find((d: any) => d.id === job.documentId);
+      const trialBalanceRuntime = await deriveContinuationTrialBalanceEvidence(job, document);
+      base.trialBalanceQualification = trialBalanceRuntime.qualification;
+      base.trialBalanceReview = trialBalanceRuntime.review;
       const clientName = String(
         job?.result?.documentMap?.documentIssuer ||
         proofFacts.find((f: any) => f.reportingEntity)?.reportingEntity ||
@@ -502,6 +641,8 @@ export class VerifiedCustomerContinuationService {
           reportingCurrency,
           workspaceId: job.workspaceId,
           documentId: job.documentId,
+          trialBalanceQualification: trialBalanceRuntime.qualification,
+          trialBalanceReview: trialBalanceRuntime.review,
           reuseSuccessfulJobs,
           discoveredAccounts: countDiscoveredAccounts(proofFacts),
           customerPbcUploaded: false,
@@ -509,7 +650,9 @@ export class VerifiedCustomerContinuationService {
         } as any);
       }
 
-      state = this.persist({ ...state, status: 'SPECIALIST_SWARM_COMPLETE', specialistSummary: compactSwarm(swarm) });
+      const ledger = swarm.jobs.find(j => j.agentId === 'LEDGER');
+      const ledgerTrialBalanceReview = ledger?.outputManifest?.trialBalanceReview || trialBalanceRuntime.review;
+      state = this.persist({ ...state, status: 'SPECIALIST_SWARM_COMPLETE', specialistSummary: compactSwarm(swarm), trialBalanceQualification: trialBalanceRuntime.qualification, trialBalanceReview: ledgerTrialBalanceReview });
       const quinn = swarm.jobs.find(j => j.agentId === 'QUINN');
       const quinnReview = {
         aiQualityReview: quinn?.status || 'NOT_RUN',
@@ -549,21 +692,10 @@ export class VerifiedCustomerContinuationService {
             ...disclosureEvidenceSummary,
             records: disclosureLedger.records
           },
-          facts: proofFacts.map((f: any) => ({
-            id: f.id,
-            canonicalMetric: f.canonicalMetric || f.labelNormalized,
-            label: f.labelOriginal || f.labelNormalized,
-            value: numericFactValue(f) || 0,
-            statement: f.statementType,
-            sourceDoc: document?.filename || job.documentTitle,
-            documentId: f.documentId || f.document_id,
-            page: f.pageNumber,
-            verificationStatus: f.verificationStatus,
-            evidenceStatus: f.evidenceStatus,
-            reportingPeriod: f.reportingPeriod || 'NOT_RECORDED',
-            sourceText: String(f.sourceText || f.source_text || ''),
-            sourceBlockIds: f.sourceBlockIds || (f.sourceBlockId ? [f.sourceBlockId] : [])
-          })),
+          trialBalanceReview: ledgerTrialBalanceReview,
+          adjudicationLineage: loadPersistedAdjudicationLineage(job.workspaceId, proofFacts),
+          requireFinalLineage: true,
+          facts: proofFacts.map((f: any) => mapProofFactToDeliverableFact(f, document, job)),
           euclidBalance
         });
       }

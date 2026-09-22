@@ -21,9 +21,25 @@ export class EvidenceCrossCheckEngine {
     const usingDocumentScope = exactPageBlocks.length === 0 && documentBlocks.length > 0;
     const candidateBlocks = exactPageBlocks.length > 0 ? exactPageBlocks : documentBlocks;
 
-    const normalizeText = (value: any): string => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const normalizeText = (value: any): string => String(value || '')
+      // Native HTML/iXBRL blocks can retain entities while parser candidates
+      // contain their decoded glyphs. Compare the same visible accounting text
+      // without weakening the independent value check below.
+      .replace(/&#(\d+);/g, (_match, decimal) => String.fromCodePoint(Number(decimal)))
+      .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+      .replace(/&apos;|&#39;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, '&')
+      .replace(/&nbsp;/gi, ' ')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
     const targetQuote = normalizeText(candidate?.sourceQuote);
     const targetLabel = normalizeText(candidate?.rowLabel || candidate?.metricLabel);
+    const targetLabelVariants = [
+      targetLabel,
+      targetLabel.replace(/,?\s+(?:beginning|ending) balances?$/, ''),
+    ].filter((value, index, values) => Boolean(value) && values.indexOf(value) === index);
     const rawValue = candidate?.rawValue || '';
     const blockText = (block: any): string => String(block?.raw_text || block?.text_content || block?.text || '');
 
@@ -48,12 +64,13 @@ export class EvidenceCrossCheckEngine {
     let labelOnlyMatch = false;
     let valueOnlyMatch = false;
     let matchedBlockText = '';
+    let matchedSourceBlock: any | undefined;
 
     for (const block of candidateBlocks) {
       const raw = blockText(block);
       const normalized = normalizeText(raw);
       const quoteMatch = Boolean(targetQuote && normalized.includes(targetQuote));
-      const labelMatch = Boolean(targetLabel && normalized.includes(targetLabel));
+      const labelMatch = targetLabelVariants.some(label => normalized.includes(label));
       const valueMatch = amountAppearsInSourceBlock(rawValue, raw);
 
       if (quoteMatch) quoteOnlyMatch = true;
@@ -63,13 +80,16 @@ export class EvidenceCrossCheckEngine {
       if (quoteMatch && valueMatch) {
         quoteAndValueMatch = true;
         matchedBlockText = raw;
+        matchedSourceBlock = block;
         break;
       }
       if (labelMatch && valueMatch && !labelAndValueMatch) {
         labelAndValueMatch = true;
         matchedBlockText = raw;
+        matchedSourceBlock = block;
       } else if (!matchedBlockText && (quoteMatch || labelMatch || valueMatch)) {
         matchedBlockText = raw;
+        matchedSourceBlock = block;
       }
     }
 
@@ -83,6 +103,7 @@ export class EvidenceCrossCheckEngine {
         evidenceStatus: 'CONFIRMED',
         matchedSourceText: matchedBlockText,
         matchedPageNumber: usingDocumentScope ? undefined : pageNum,
+        matchedSourceBlock,
         confidenceScore: candidate?.confidence ?? 0,
         notes: scopeNote
       };
@@ -94,6 +115,7 @@ export class EvidenceCrossCheckEngine {
         evidenceStatus: 'PARTIAL',
         matchedSourceText: matchedBlockText || undefined,
         matchedPageNumber: usingDocumentScope ? undefined : pageNum,
+        matchedSourceBlock,
         confidenceScore: candidate?.confidence ?? 0,
         notes: usingDocumentScope
           ? 'Partial document-scoped native-text evidence matched. REVIEW_REQUIRED.'

@@ -7,6 +7,7 @@ import { LLM_CONFIG, getGeminiDiagnosticStatus } from "./llmGateway.js";
 import { intakeService } from "./intakeService.js";
 import { assertRealDocumentHash } from "./failClosedGuards.js";
 import { runtimeAuthorityManifestManager } from "./cpaOrganization/runtimeAuthorityManifest.js";
+import { routeSupportedSource } from './sourceFormatRouting.js';
 import {
   ExtractedFact,
   DiscrepancyItem,
@@ -31,6 +32,8 @@ export interface QueueJob extends Omit<QueueJobRecord, 'processingUnits'> {
   processingUnits: ProcessingUnit[];
   workerHeartbeatAt?: string;
   lastProgressAt?: string;
+  redeliveryCount?: number;
+  lastRedeliveryAt?: string;
 }
 
 export class BackgroundIngestionQueue {
@@ -118,6 +121,16 @@ export class BackgroundIngestionQueue {
     if (this.queueWriterAuthorized !== null) {
       return this.queueWriterAuthorized;
     }
+    // Explicit acceptance/test authority is an operator-controlled deployment
+    // setting and must be evaluated before the production default-deny branch.
+    // Otherwise an isolated production-mode acceptance pod can never enqueue,
+    // even when it is deliberately configured as the sole test writer.
+    if (process.env.TEST_QUEUE_AUTHORITY === "true") {
+      return true;
+    }
+    if (process.env.TEST_QUEUE_AUTHORITY === "false") {
+      return false;
+    }
     if (process.env.NODE_ENV === "production") {
       if (process.env.REQUIRE_STRICT_LEADER_LEASE === "true") {
         try {
@@ -127,12 +140,6 @@ export class BackgroundIngestionQueue {
         }
       }
       return false; // Fail closed by default in production
-    }
-    if (process.env.TEST_QUEUE_AUTHORITY === "true") {
-      return true;
-    }
-    if (process.env.TEST_QUEUE_AUTHORITY === "false") {
-      return false;
     }
     if (process.env.REQUIRE_STRICT_LEADER_LEASE === "true") {
       try {
@@ -571,7 +578,8 @@ export class BackgroundIngestionQueue {
     intakeSessionId?: string,
     engineMode?: string,
     documentHash?: string,
-    customerPriorityJobId?: string
+    customerPriorityJobId?: string,
+    mimeType?: string
   ): QueueJob {
     if (!workspaceId) {
       throw new Error("Mandatory workspaceId (projectId) missing for ingestion session. Workers cannot create orphan jobs.");
@@ -595,7 +603,8 @@ export class BackgroundIngestionQueue {
     const jobId = customerPriorityJobId || `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const units: ProcessingUnit[] = [];
 
-    const isPdf = (filePath || "").toLowerCase().endsWith(".pdf") || documentTitle.toLowerCase().endsWith(".pdf") || (pageManifests && pageManifests.length > 0);
+    const sourceFormat = routeSupportedSource(documentTitle || filePath || '', mimeType || '');
+    const isPdf = sourceFormat === 'PDF';
     let jobStatus: IngestionJobStatus = "QUEUED";
     let jobLastError: string | undefined = undefined;
 
@@ -639,9 +648,10 @@ export class BackgroundIngestionQueue {
         .replace(/trailer\s*<<[\s\S]*?>>/g, '')
         .replace(/endobj|startxref/g, '');
 
-      const nativeSourceType: "SPREADSHEET_RANGE" | "CSV_BATCH" | "DOCX_SECTION" = 
-        filePath?.endsWith(".xlsx") || filePath?.endsWith(".xls") ? "SPREADSHEET_RANGE" :
-        filePath?.endsWith(".csv") ? "CSV_BATCH" : "DOCX_SECTION";
+      const lowerSourceName = (documentTitle || filePath || '').toLowerCase();
+      const nativeSourceType: "SPREADSHEET_RANGE" | "CSV_BATCH" | "DOCX_SECTION" =
+        /\.(?:xlsx|xls|xlsm|xlsb|ods)$/.test(lowerSourceName) ? "SPREADSHEET_RANGE" :
+        /\.(?:csv|tsv)$/.test(lowerSourceName) ? "CSV_BATCH" : "DOCX_SECTION";
 
       const paragraphs = (cleanText || "").split(/\n\s*\n/).filter(p => p.trim().length > 10);
       const maxCharsPerUnit = 4000;
@@ -702,6 +712,7 @@ export class BackgroundIngestionQueue {
       documentTitle,
       filePath,
       documentHash,
+      mimeType,
       textData: undefined,
       functionalCurrency,
       engineMode: engineMode || process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE',
@@ -752,6 +763,7 @@ export class BackgroundIngestionQueue {
   public getJob(jobId: string): Omit<QueueJob, 'textData'> | undefined {
     const job = this.jobs.get(jobId);
     if (!job) return undefined;
+
     const { textData, ...rest } = job;
     return rest;
   }
@@ -784,6 +796,23 @@ export class BackgroundIngestionQueue {
     }
     const job = this.jobs.get(jobId);
     if (!job) return undefined;
+
+    // A broker may legitimately redeliver an already-acknowledged message.
+    // Treat that delivery as an idempotent receipt instead of reopening the
+    // completed extraction and duplicating downstream accounting/report work.
+    if (job.status === 'COMPLETED' && job.stage === 'FINAL_RECONCILIATION_COMPLETED') {
+      job.redeliveryCount = Number(job.redeliveryCount || 0) + 1;
+      job.lastRedeliveryAt = new Date().toISOString();
+      job.stageHistory.push({
+        stage: 'FINAL_RECONCILIATION_COMPLETED',
+        status: 'COMPLETED',
+        timestamp: job.lastRedeliveryAt,
+        details: `Idempotent redelivery acknowledged; canonical result retained (delivery ${job.redeliveryCount}).`
+      });
+      void this.saveQueueToDiskAsync(true);
+      const { textData, ...rest } = job;
+      return rest;
+    }
 
     let resetCount = 0;
     job.processingUnits.forEach(u => {
@@ -879,6 +908,7 @@ export class BackgroundIngestionQueue {
           workspaceId: queuedJob.workspaceId,
           filePath: queuedJob.filePath || '',
           originalFilename: queuedJob.documentTitle,
+          mimeType: queuedJob.mimeType,
           documentHash: assertRealDocumentHash(queuedJob.documentHash),
           currency: queuedJob.functionalCurrency,
           onProgress: (stageName: string, progressPercent: number) => {

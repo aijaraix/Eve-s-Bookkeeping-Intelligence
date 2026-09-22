@@ -16,6 +16,7 @@ import { FileRouter } from "./src/lib/parser/router";
 import { AnyDocParser } from "./src/lib/parser/anydocParser";
 import { SpreadsheetParser } from "./src/lib/parser/spreadsheetParser";
 import { OCRParser } from "./src/lib/parser/ocrParser";
+import { selectParserPath } from "./src/lib/parser/parserSelection";
 import { WebParser } from "./src/lib/parser/webParser";
 import { DocumentIntelligenceAgent } from "./src/lib/agents/documentAgents";
 import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
@@ -633,8 +634,19 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     }
     const wsCurrency = resolvedWorkspaceCurrency || ws?.currency || '';
 
+    // A legitimate queue replay must converge on one canonical fact row per
+    // workspace/fact identity. Keep the newest persisted row (facts are
+    // prepended) and never let an ID collision replace another tenant's fact.
+    const seenWorkspaceFactIds = new Set<string>();
+    db.facts = db.facts.filter((fact: any) => {
+      if (fact.workspaceId !== job.workspaceId || !fact.id) return true;
+      if (seenWorkspaceFactIds.has(fact.id)) return false;
+      seenWorkspaceFactIds.add(fact.id);
+      return true;
+    });
+
     job.result.facts.forEach((f: any) => {
-      const existingIdx = db.facts.findIndex(ef => ef.id === f.id || (ef.workspaceId === job.workspaceId && ef.labelNormalized?.toLowerCase() === (f.labelNormalized || '').toLowerCase() && ef.valueFunctional === String(f.valueFunctional)));
+      const existingIdx = db.facts.findIndex(ef => ef.workspaceId === job.workspaceId && (ef.id === f.id || (ef.labelNormalized?.toLowerCase() === (f.labelNormalized || '').toLowerCase() && ef.valueFunctional === String(f.valueFunctional))));
 
       const normLower = (f.labelNormalized || f.labelOriginal || "").toLowerCase();
       let fType = f.factType || "general";
@@ -664,14 +676,30 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
         reportingPeriod: f.reportingPeriod,
         reportingScope: f.reportingScope,
         reportingEntity: f.reportingEntity,
+        unitScale: f.unitScale,
+        normalizedScaleMultiplier: f.normalizedScaleMultiplier,
         pageNumber: f.pageNumber || f.page,
         sourceText: f.sourceText || f.source_text || "",
+        sourceBlockId: f.sourceBlockId,
+        sourceBlockIds: f.sourceBlockIds,
+        sourceSha256: f.sourceSha256,
+        sourceArtifactId: f.sourceArtifactId,
         confidence: persistFactConfidence(f.confidence),
         evidenceStatus: f.evidenceStatus,
         verificationStatus: f.verificationStatus,
         status: persistFactStatus(f.status, f.evidenceStatus),
         extractionMethod: f.extractionMethod,
         extractionEngine: f.extractionEngine,
+        sourceProvenanceId: f.sourceProvenanceId,
+        sourceProvenanceIds: f.sourceProvenanceIds,
+        sourceCoordinate: f.sourceCoordinate,
+        sourceCoordinates: f.sourceCoordinates || f.provenanceCoordinates,
+        provenanceCoordinates: f.provenanceCoordinates || f.sourceCoordinates,
+        sourceProvenanceRecords: f.sourceProvenanceRecords,
+        sourceExtractionMethod: f.sourceExtractionMethod,
+        sourceExtractionVersion: f.sourceExtractionVersion,
+        universalProvenance: f.universalProvenance,
+        provenance: f.provenance,
         created_at: new Date().toISOString()
       };
 
@@ -706,6 +734,16 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     }
 
     if (job.result.facts.length > 0) reprocessWorkspaceExtraction(job.workspaceId);
+    // Reprocessing can materialize derived replacements after the initial
+    // upsert. Converge once more at the transaction boundary so the durable
+    // store and downstream lineage validator observe exactly one row per ID.
+    const finalSeenFactIds = new Set<string>();
+    db.facts = db.facts.filter((fact: any) => {
+      if (fact.workspaceId !== job.workspaceId || !fact.id) return true;
+      if (finalSeenFactIds.has(fact.id)) return false;
+      finalSeenFactIds.add(fact.id);
+      return true;
+    });
     saveStorage();
     console.log(`[Server] Persisted ${job.result.facts.length} facts and document evidence for background job ${job.id} to workspace ${job.workspaceId}`);
   }
@@ -2723,13 +2761,10 @@ app.post("/api/documents/upload", (req, res) => {
         let canonicalDoc;
         try {
           const parsePromise = (async () => {
-            if (inspection.requiresSpreadsheetPath) {
-              return await spreadsheetParser.parse(fileInput, inspection);
-            } else if (inspection.needsOCR) {
-              return await ocrParser.parse(fileInput, inspection);
-            } else {
-              return await anyDocParser.parse(fileInput, inspection);
-            }
+            const parserPath = selectParserPath(inspection);
+            if (parserPath === "SPREADSHEET") return await spreadsheetParser.parse(fileInput, inspection);
+            if (parserPath === "OCR") return await ocrParser.parse(fileInput, inspection);
+            return await anyDocParser.parse(fileInput, inspection);
           })();
           const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 180000));
           canonicalDoc = await Promise.race([parsePromise, timeoutPromise]);
@@ -2892,6 +2927,16 @@ app.post("/api/documents/upload", (req, res) => {
             };
           }
 
+          const parserDocumentId = String(canonicalDoc?.document_id || '');
+          canonicalDoc.document_id = docId;
+          canonicalDoc.sourceBlocks = (canonicalDoc.sourceBlocks || []).map((block: any) => ({
+            ...block,
+            document_id: docId,
+            source_block_id: parserDocumentId && typeof block.source_block_id === 'string'
+              ? block.source_block_id.replace(parserDocumentId, docId)
+              : block.source_block_id
+          }));
+
           // Send Canonical Model to Document Intelligence Agent for category classification
           classification = docIntelligenceAgent.classifyAndExtract(canonicalDoc);
 
@@ -3022,7 +3067,8 @@ app.post("/api/documents/upload", (req, res) => {
             intakeSession.id,
             effectiveEngineMode,
             docRec.sha256,
-            assignedJobId
+            assignedJobId,
+            docRec.mimeType || p.file.mimetype
           );
           job.classification = intakeSession.classification;
           docRec.classification = intakeSession.classification;

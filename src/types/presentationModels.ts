@@ -47,6 +47,15 @@ export interface SourceToPixelMetadata {
   sourcePage?: number;
   sourceRawValue?: string | number;
   sha256Hash?: string;
+  sourceType?: string;
+  sourceProvenanceId?: string;
+  sourceCoordinate?: any;
+  sourceCoordinates?: any[];
+  sourceLocationLabel?: string;
+  sourceFormula?: string;
+  sourceConfidence?: number;
+  sourceExtractionMethod?: string;
+  sourceExtractionVersion?: string;
 }
 
 export interface PracticeKpiSummary {
@@ -131,6 +140,17 @@ export interface StatementLinePresentation {
   verificationStatus: 'verified' | 'unverified' | 'calculated' | 'review_required';
   sourceDocName?: string;
   sourcePage?: number;
+  sourceText?: string;
+  sourceRawValue?: string | number;
+  sourceType?: string;
+  sourceProvenanceId?: string;
+  sourceCoordinate?: any;
+  sourceCoordinates?: any[];
+  sourceLocationLabel?: string;
+  sourceFormula?: string;
+  sourceConfidence?: number;
+  sourceExtractionMethod?: string;
+  sourceExtractionVersion?: string;
   factLineageId?: string;
   renderId?: string;
 }

@@ -43,6 +43,7 @@ import {
   validateRoleOutputContract,
   OutputValidationStatus
 } from './agentOutputContractValidator.js';
+import type { TrialBalanceReview } from './trialBalanceInterpretationEngine.js';
 
 export type RoleExecutionClass =
   | 'REAL_AI_AGENT'
@@ -190,6 +191,8 @@ export class HermesJobDispatchService {
     reportingCurrency?: string;
     workspaceId?: string;
     documentId?: string;
+    trialBalanceQualification?: string;
+    trialBalanceReview?: TrialBalanceReview;
     /** Internal continuation only: retain successful receipts during one explicit Lexicon retry. */
     reuseSuccessfulJobs?: AgentJobExecution[];
   }): Promise<SwarmExecutionSummary> {
@@ -414,12 +417,17 @@ export class HermesJobDispatchService {
         agentId: 'LEDGER',
         roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE',
         jobType: 'ACCOUNT_CHART_RECONCILIATION',
-        taskObjective: 'Construct balance sheet account tree and verify debit/credit trial balance equality',
+        taskObjective: 'Construct the account tree and test debit/credit trial-balance equality only when qualifying spreadsheet evidence is supplied; otherwise record NOT_TESTED',
         inputManifest: {
           assets: params.reportedAssets,
           liabilities: params.reportedLiabilities,
           equity: params.reportedEquity,
-          extractedFactsCount: params.extractedFactsCount
+          extractedFactsCount: params.extractedFactsCount,
+          ...(params.trialBalanceQualification === 'QUALIFIED_TRIAL_BALANCE' ? {
+            trialBalanceQualification: params.trialBalanceQualification,
+            trialBalanceSourceSha256: params.trialBalanceReview?.sourceSha256 || null,
+            trialBalanceStatus: params.trialBalanceReview?.status || 'INSUFFICIENT_EVIDENCE'
+          } : {})
         },
         inputObjectReferences: hermesOutputs,
         handoffId: hHermesToLedger.handoffId
@@ -842,38 +850,43 @@ export class HermesJobDispatchService {
         const liabAccounts = params.discoveredAccounts?.liabilityAccountsCount ?? 0;
         const equityAccounts = params.discoveredAccounts?.equityAccountsCount ?? 0;
         const totalAccounts = assetAccounts + liabAccounts + equityAccounts;
+        const trialBalanceQualified = params.trialBalanceQualification === 'QUALIFIED_TRIAL_BALANCE';
+        const trialBalanceReview: TrialBalanceReview | undefined = params.trialBalanceReview;
+        const trialBalanceSourceMatches = !trialBalanceQualified || Boolean(trialBalanceReview?.sourceSha256) && trialBalanceReview?.sourceSha256 === params.sourceSha256;
+        if (trialBalanceQualified && (!trialBalanceReview || !trialBalanceSourceMatches)) {
+          return {
+            executionMechanism: 'DETERMINISTIC_SPECIALIST_ENGINE', roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE', modelExecutionId: undefined, modelCallStatus: 'NOT_INVOKED', outputValidationStatus: 'NOT_APPLICABLE', outputValidationErrors: [],
+            provenance: { agentId:'LEDGER', logicalAgentName:'LEDGER', model:'deterministic-ledger-engine', tier:'LEVEL_0_DETERMINISTIC', costUsd:0, measured:true, costMeasurement:'MEASURED' },
+            status: 'BLOCKED', uncertainties: ['Qualifying trial-balance evidence did not match the engagement source SHA or review payload was absent.'], findings: ['Trial-balance evidence identity mismatch; LEDGER failed closed.'],
+            outputObjectReferences: [`obj-ledger-chart-${params.engagementId}`,`obj-ledger-tb-${params.engagementId}`],
+            outputManifest: { assetAccountsMapped:assetAccounts, liabilityAccountsMapped:liabAccounts, equityAccountsMapped:equityAccounts, totalBalanceSheetAccounts:totalAccounts, trialBalanceTested:false, trialBalanceQualification:params.trialBalanceQualification, trialBalanceStatus:'TRIAL_BALANCE_EVIDENCE_MISMATCH', trialBalanceReview:null }
+          };
+        }
+        const trialBalanceStatus = trialBalanceQualified && trialBalanceReview
+          ? trialBalanceReview.status === 'BALANCED' ? 'SOURCE_TRIAL_BALANCE_BALANCED'
+            : trialBalanceReview.status === 'UNBALANCED' ? 'SOURCE_TRIAL_BALANCE_UNBALANCED'
+              : 'SOURCE_TRIAL_BALANCE_INSUFFICIENT_EVIDENCE'
+          : totalAccounts > 0 ? 'ACCOUNT_LINES_DISCOVERED_TRIAL_BALANCE_NOT_TESTED' : 'NO_ACCOUNTS_DISCOVERED';
+        const status: AgentJobExecution['status'] = trialBalanceQualified && trialBalanceReview
+          ? trialBalanceReview.status === 'BALANCED' ? 'JOB_COMPLETED_SUCCESS' : trialBalanceReview.status === 'UNBALANCED' ? 'JOB_NEEDS_REVIEW' : 'BLOCKED'
+          : 'JOB_COMPLETED_SUCCESS';
+        const uncertainties = [
+          ...(totalAccounts === 0 ? ['No balance sheet accounts discovered in filing'] : []),
+          ...(trialBalanceQualified && trialBalanceReview?.status === 'UNBALANCED' ? [`Source trial balance is unbalanced by ${trialBalanceReview.variance}.`] : []),
+          ...(trialBalanceQualified && trialBalanceReview?.status === 'INSUFFICIENT_EVIDENCE' ? ['Qualifying spreadsheet trial-balance structure is present but exact evidence is insufficient.'] : [])
+        ];
+        const findings = [`Discovered ${totalAccounts} balance sheet line items`, trialBalanceQualified && trialBalanceReview
+          ? `Trial balance recomputed from ${trialBalanceReview.accountLineCount} source account rows: debits=${trialBalanceReview.totalDebits}, credits=${trialBalanceReview.totalCredits}, variance=${trialBalanceReview.variance}, status=${trialBalanceReview.status}`
+          : 'Trial balance not tested: no qualifying spreadsheet trial-balance evidence was supplied to LEDGER.'];
 
         return {
-          executionMechanism: 'DETERMINISTIC_SPECIALIST_ENGINE',
-          roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE',
-          modelExecutionId: undefined,
-          modelCallStatus: 'NOT_INVOKED',
-          outputValidationStatus: 'NOT_APPLICABLE',
-          outputValidationErrors: [],
-          provenance: {
-            agentId: 'LEDGER',
-            logicalAgentName: 'LEDGER',
-            model: 'deterministic-ledger-engine',
-            tier: 'LEVEL_0_DETERMINISTIC',
-            costUsd: 0.0,
-            measured: true,
-            costMeasurement: 'MEASURED'
-          },
-          status: 'JOB_COMPLETED_SUCCESS',
-          uncertainties: totalAccounts === 0 ? ['No balance sheet accounts discovered in filing'] : [],
-          findings: [`Discovered ${totalAccounts} balance sheet line items`],
-          outputObjectReferences: [
-            `obj-ledger-chart-${params.engagementId}`,
-            `obj-ledger-tb-${params.engagementId}`
-          ],
+          executionMechanism: 'DETERMINISTIC_SPECIALIST_ENGINE', roleExecutionClass: 'DETERMINISTIC_SPECIALIST_ENGINE', modelExecutionId: undefined, modelCallStatus: 'NOT_INVOKED', outputValidationStatus: 'NOT_APPLICABLE', outputValidationErrors: [],
+          provenance: { agentId:'LEDGER', logicalAgentName:'LEDGER', model:'deterministic-ledger-engine', tier:'LEVEL_0_DETERMINISTIC', costUsd:0.0, measured:true, costMeasurement:'MEASURED' },
+          status, uncertainties, findings, outputObjectReferences:[`obj-ledger-chart-${params.engagementId}`,`obj-ledger-tb-${params.engagementId}`],
           outputManifest: {
-            assetAccountsMapped: assetAccounts,
-            liabilityAccountsMapped: liabAccounts,
-            equityAccountsMapped: equityAccounts,
-            totalBalanceSheetAccounts: totalAccounts,
-            trialBalanceStatus: totalAccounts > 0
-              ? 'ACCOUNT_LINES_DISCOVERED_TRIAL_BALANCE_NOT_TESTED'
-              : 'NO_ACCOUNTS_DISCOVERED'
+            assetAccountsMapped:assetAccounts, liabilityAccountsMapped:liabAccounts, equityAccountsMapped:equityAccounts, totalBalanceSheetAccounts:totalAccounts,
+            trialBalanceTested:trialBalanceQualified, trialBalanceQualification:params.trialBalanceQualification || 'NOT_EVALUATED', trialBalanceStatus,
+            trialBalanceSourceSha256:trialBalanceReview?.sourceSha256 || null, trialBalanceReview:trialBalanceQualified ? trialBalanceReview : undefined
           }
         };
       }

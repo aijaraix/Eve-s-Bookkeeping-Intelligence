@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import * as XLSX from 'xlsx';
 import { ProfessionalApprovalObject, professionalSignoffGuard } from './professionalSignoffGuard.js';
+import { computeFinalDeliverableLineageHash, validateFinalDeliverableLineage } from './finalDeliverableLineageValidator.js';
 
 export interface ArtifactManifestItem {
   format: 'PDF' | 'XLSX' | 'JSON' | 'CSV';
@@ -89,6 +90,14 @@ export interface DeliverableArtifactRecord {
   dependentDerivationIds?: string[];
   specialistReview?: any;
   disclosureEvidenceLedger?: any;
+  apReview?: any;
+  bankStatementReview?: any;
+  trialBalanceReview?: any;
+  mixedSourceReview?: any;
+  mixedSourceBatchReview?: any;
+  duplicateEvidenceReview?: any;
+  adjudicationLineage?: any;
+  finalLineageValidation?: any;
 }
 
 export class DeliverableArtifactService {
@@ -249,7 +258,14 @@ export class DeliverableArtifactService {
             dependentFactIds: data.dependentFactIds || [],
             dependentDerivationIds: data.dependentDerivationIds || [],
             specialistReview: data.specialistReview,
-            disclosureEvidenceLedger: data.disclosureEvidenceLedger
+            disclosureEvidenceLedger: data.disclosureEvidenceLedger,
+            apReview: data.apReview,
+            bankStatementReview: data.bankStatementReview,
+            trialBalanceReview: data.trialBalanceReview,
+            mixedSourceReview: data.mixedSourceReview,
+            mixedSourceBatchReview: data.mixedSourceBatchReview,
+            duplicateEvidenceReview: data.duplicateEvidenceReview
+            ,adjudicationLineage: data.adjudicationLineage
           };
 
           const existing = this.artifacts.get(engagementId) || [];
@@ -303,10 +319,27 @@ export class DeliverableArtifactService {
       page?: number;
       verificationStatus?: string;
       evidenceStatus?: string;
+      factState?: string;
+      unitScale?: string;
+      normalizedScaleMultiplier?: number;
       documentId?: string;
       reportingPeriod?: string;
       sourceText?: string;
       sourceBlockIds?: string[];
+      sourceSha256?: string;
+      sourceArtifactId?: string;
+      sourceProvenanceId?: string;
+      sourceProvenanceIds?: string[];
+      sourceCoordinate?: any;
+      sourceCoordinates?: any[];
+      sourceConfidence?: number;
+      sourceExtractionMethod?: string;
+      sourceExtractionVersion?: string;
+      derivationId?: string;
+      derivationFormula?: string;
+      derivationOperation?: 'ADD' | 'SUBTRACT' | 'SUM';
+      operandFactIds?: string[];
+      operandValues?: Record<string, number>;
     }>;
     canonicalFacts?: any[];
     euclidBalance?: {
@@ -331,21 +364,57 @@ export class DeliverableArtifactService {
 
     // Normalize facts strictly without defaulting missing source data
     const rawFacts = params.facts || params.canonicalFacts || [];
-    const normalizedFacts = rawFacts.map((f: any) => ({
-      id: f.id || undefined,
-      canonicalMetric: f.canonicalMetric || 'Financial Metric',
-      label: f.label || f.canonicalMetric || 'Line Item',
-      value: typeof f.value === 'number' ? f.value : (Number(f.normalizedValue || f.expectedValue) || 0),
-      statement: f.statement || f.statementType || 'BALANCE_SHEET',
-      sourceDoc: f.sourceDoc || f.documentTitle || 'MISSING_EVIDENCE',
-      page: typeof f.page === 'number' ? f.page : (typeof f.sourcePage === 'number' ? f.sourcePage : undefined),
-      verificationStatus: f.verificationStatus || 'NOT_VERIFIED',
-      evidenceStatus: f.evidenceStatus || 'NOT_MEASURED',
-      documentId: f.documentId,
-      reportingPeriod: f.reportingPeriod || f.period || 'NOT_RECORDED',
-      sourceText: f.sourceText || '',
-      sourceBlockIds: Array.isArray(f.sourceBlockIds) ? f.sourceBlockIds : []
-    }));
+    const normalizedFacts = rawFacts.map((f: any) => {
+      const inheritedCoordinates = Array.isArray(f.sourceCoordinates) ? f.sourceCoordinates
+        : Array.isArray(f.provenanceCoordinates) ? f.provenanceCoordinates
+        : Array.isArray(f.provenance?.provenanceCoordinates) ? f.provenance.provenanceCoordinates
+        : [];
+      const sourceCoordinate = f.sourceCoordinate || f.provenance?.sourceCoordinate || inheritedCoordinates[0];
+      const sourceCoordinates = inheritedCoordinates.length ? inheritedCoordinates : (sourceCoordinate ? [sourceCoordinate] : []);
+      const sourceProvenanceIds = [...new Set([
+        ...(Array.isArray(f.sourceProvenanceIds) ? f.sourceProvenanceIds : []),
+        ...(f.sourceProvenanceId ? [f.sourceProvenanceId] : []),
+        ...(Array.isArray(f.provenance?.sourceProvenanceIds) ? f.provenance.sourceProvenanceIds : []),
+        ...(f.provenance?.sourceProvenanceId ? [f.provenance.sourceProvenanceId] : []),
+      ].filter(Boolean).map(String))];
+      return {
+        id: f.id || undefined,
+        canonicalMetric: f.canonicalMetric || 'Financial Metric',
+        label: f.label || f.labelNormalized || f.labelOriginal || f.canonicalMetric || 'Line Item',
+        value: typeof f.value === 'number' ? f.value : (Number(f.normalizedValue ?? f.valueFunctional ?? f.expectedValue) || 0),
+        statement: f.statement || f.statementType || 'BALANCE_SHEET',
+        sourceDoc: f.sourceDoc || f.documentTitle || f.sourceDocument || 'MISSING_EVIDENCE',
+        page: typeof f.page === 'number' ? f.page : (typeof f.sourcePage === 'number' ? f.sourcePage : (typeof f.pageNumber === 'number' ? f.pageNumber : undefined)),
+        verificationStatus: f.verificationStatus || 'NOT_VERIFIED',
+        evidenceStatus: f.evidenceStatus || 'NOT_MEASURED',
+        factState: f.factState || f.status || 'NOT_RECORDED',
+        unitScale: f.unitScale || 'NOT_RECORDED',
+        normalizedScaleMultiplier: Number.isFinite(Number(f.normalizedScaleMultiplier)) ? Number(f.normalizedScaleMultiplier) : null,
+        documentId: f.documentId,
+        reportingPeriod: f.reportingPeriod || f.period || 'NOT_RECORDED',
+        sourceText: f.sourceText || f.rawText || f.provenance?.sourceText || '',
+        sourceBlockIds: Array.isArray(f.sourceBlockIds) ? f.sourceBlockIds : [],
+        sourceSha256: f.sourceSha256 || f.provenance?.sourceSha256 || sourceCoordinate?.sourceSha256,
+        sourceArtifactId: f.sourceArtifactId || f.provenance?.sourceArtifactId || sourceCoordinate?.sourceArtifactId,
+        sourceProvenanceId: f.sourceProvenanceId || f.provenance?.sourceProvenanceId || sourceProvenanceIds[0],
+        sourceProvenanceIds,
+        sourceCoordinate,
+        sourceCoordinates,
+        sourceConfidence: f.sourceConfidence ?? sourceCoordinate?.confidence ?? f.provenance?.ocrConfidence,
+        sourceExtractionMethod: f.sourceExtractionMethod || sourceCoordinate?.extractionMethod || f.provenance?.ocrEngine,
+        sourceExtractionVersion: f.sourceExtractionVersion || sourceCoordinate?.extractionVersion || f.provenance?.ocrEngineVersion,
+        derivationId: f.derivationId || f.derivation?.derivationId || f.derivedCalculationId || undefined,
+        derivationFormula: f.derivationFormula || f.derivation?.formula || undefined,
+        derivationOperation: f.derivationOperation || f.derivation?.operation || undefined,
+        operandFactIds: Array.isArray(f.operandFactIds) ? f.operandFactIds.map(String) : (Array.isArray(f.derivation?.operandFactIds) ? f.derivation.operandFactIds.map(String) : []),
+        operandValues: f.operandValues || f.derivation?.operandValues || undefined,
+      };
+    });
+
+    const finalLineageValidation = validateFinalDeliverableLineage(normalizedFacts);
+    if (params.requireFinalLineage === true && !finalLineageValidation.valid) {
+      throw new Error(`FINAL_DELIVERABLE_LINEAGE_INVALID:${finalLineageValidation.issues.join('|')}`);
+    }
 
     // Normalize euclidBalance from real fact numbers rather than fabricated defaults
     const balance = params.euclidBalance || {};
@@ -354,6 +423,8 @@ export class DeliverableArtifactService {
     const equity = typeof balance.equity === 'number' ? balance.equity : (normalizedFacts.find(f => (f.canonicalMetric || '').toLowerCase().includes('equity'))?.value || 0);
     const variance = typeof balance.variance === 'number' ? balance.variance : Math.abs(assets - (liabilities + equity));
 
+    const balanceIdentityApplicable = [balance.assets, balance.liabilities, balance.equity].some(v => typeof v === 'number') ||
+      normalizedFacts.some(f => /(?:asset|liabilit|equity)/i.test(String(f.canonicalMetric || '')));
     const euclidBalance = { assets, liabilities, equity, variance };
 
     // Determine initial lifecycle status following Requirement 7 & 4
@@ -374,6 +445,8 @@ export class DeliverableArtifactService {
     const pdf = await this.generateBinaryPdf({
       reportId,
       version,
+      engagementId,
+      workspaceId: params.workspaceId || engagementId,
       clientName,
       deliverableTitle: title,
       firmName,
@@ -384,13 +457,23 @@ export class DeliverableArtifactService {
       facts: normalizedFacts,
       specialistReview: params.specialistReview,
       disclosureEvidenceLedger: params.disclosureEvidenceLedger,
-      euclidBalance
+      euclidBalance,
+      balanceIdentityApplicable,
+      apReview: params.apReview,
+      bankStatementReview: params.bankStatementReview,
+      trialBalanceReview: params.trialBalanceReview,
+      mixedSourceReview: params.mixedSourceReview,
+      mixedSourceBatchReview: params.mixedSourceBatchReview,
+      duplicateEvidenceReview: params.duplicateEvidenceReview
+      ,adjudicationLineage: params.adjudicationLineage
     });
 
     // 2. Generate Binary XLSX
     const xlsx = this.generateBinaryXlsx({
       reportId,
       version,
+      engagementId,
+      workspaceId: params.workspaceId || engagementId,
       clientName,
       deliverableTitle: title,
       firmName,
@@ -400,13 +483,19 @@ export class DeliverableArtifactService {
       facts: normalizedFacts,
       specialistReview: params.specialistReview,
       disclosureEvidenceLedger: params.disclosureEvidenceLedger,
-      euclidBalance
+      euclidBalance,
+      balanceIdentityApplicable,
+      apReview: params.apReview,
+      bankStatementReview: params.bankStatementReview,
+      trialBalanceReview: params.trialBalanceReview,
+      mixedSourceReview: params.mixedSourceReview,
+      mixedSourceBatchReview: params.mixedSourceBatchReview,
+      duplicateEvidenceReview: params.duplicateEvidenceReview
+      ,adjudicationLineage: params.adjudicationLineage
     });
 
     // Canonical fact hash binds the draft package to the verified fact set.
-    const canonicalFactHash = crypto.createHash('sha256')
-      .update(normalizedFacts.map(f => `${f.canonicalMetric}:${f.value}`).join(';'))
-      .digest('hex');
+    const canonicalFactHash = computeFinalDeliverableLineageHash(normalizedFacts);
 
     // 3. Generate JSON deliverable
     const jsonFilename = `audit_package_${reportId}_${version}.json`;
@@ -415,12 +504,14 @@ export class DeliverableArtifactService {
       reportId,
       version,
       engagementId,
+      workspaceId: params.workspaceId || engagementId,
       clientName,
       title,
       period,
       currency,
       generatedAt: new Date().toISOString(),
-      euclidBalance,
+      euclidBalance: balanceIdentityApplicable ? euclidBalance : null,
+      balanceIdentityApplicable,
       status: reportStatus,
       firmName,
       partnerName,
@@ -430,7 +521,16 @@ export class DeliverableArtifactService {
       quinnReviewStatus: params.quinnReviewStatus || 'READY_FOR_AUTHORIZED_HUMAN_REVIEW',
       quinnReview: params.quinnReview || { aiQualityReview: 'NOT_RUN', humanPartnerSignOff: 'PENDING', concurringApprovalGranted: false, deliveryEligible: false },
       specialistReview: params.specialistReview || null,
-      disclosureEvidenceLedger: params.disclosureEvidenceLedger || null
+      disclosureEvidenceLedger: params.disclosureEvidenceLedger || null,
+      apReview: params.apReview || null,
+      bankStatementReview: params.bankStatementReview || null,
+      trialBalanceReview: params.trialBalanceReview || null,
+      mixedSourceReview: params.mixedSourceReview || null,
+      mixedSourceBatchReview: params.mixedSourceBatchReview || null,
+      duplicateEvidenceReview: params.duplicateEvidenceReview || null,
+      adjudicationLineage: params.adjudicationLineage || null,
+      finalLineageRequired: params.requireFinalLineage === true,
+      finalLineageValidation
     };
     const jsonStr = JSON.stringify(jsonPayload, null, 2);
     fs.writeFileSync(jsonFilepath, jsonStr, 'utf-8');
@@ -439,7 +539,14 @@ export class DeliverableArtifactService {
     // 4. Generate CSV Lead Schedules
     const csvFilename = `lead_schedules_${reportId}_${version}.csv`;
     const csvFilepath = path.join(this.storageDir, csvFilename);
-    const csvContent = buildReviewCsv(normalizedFacts, currency);
+    const csvContent = buildReviewCsv(normalizedFacts, currency, params.apReview, params.bankStatementReview, params.trialBalanceReview, params.mixedSourceReview, params.mixedSourceBatchReview, params.duplicateEvidenceReview, {
+      reportId,
+      version,
+      engagementId,
+      workspaceId: params.workspaceId || engagementId,
+      clientName,
+      period
+    }, params.adjudicationLineage);
     fs.writeFileSync(csvFilepath, csvContent, 'utf-8');
     const csvSha = crypto.createHash('sha256').update(csvContent).digest('hex');
 
@@ -449,6 +556,7 @@ export class DeliverableArtifactService {
       generator: 'DeliverableArtifactService:Scribe',
       engagementId,
       createdAt: new Date().toISOString(),
+      contentHash: canonicalFactHash,
       artifacts: {
         pdf: {
           format: 'PDF',
@@ -550,7 +658,15 @@ export class DeliverableArtifactService {
       dependentFactIds: normalizedFacts.map(f => f.id).filter(Boolean) as string[],
       dependentDerivationIds: params.dependentDerivationIds || [],
       specialistReview: params.specialistReview || undefined,
-      disclosureEvidenceLedger: params.disclosureEvidenceLedger || undefined
+      disclosureEvidenceLedger: params.disclosureEvidenceLedger || undefined,
+      apReview: params.apReview || undefined,
+      bankStatementReview: params.bankStatementReview || undefined,
+      trialBalanceReview: params.trialBalanceReview || undefined,
+      mixedSourceReview: params.mixedSourceReview || undefined,
+      mixedSourceBatchReview: params.mixedSourceBatchReview || undefined,
+      duplicateEvidenceReview: params.duplicateEvidenceReview || undefined,
+      adjudicationLineage: params.adjudicationLineage || undefined,
+      finalLineageValidation
     };
 
     const updatedList = existing.filter(r => !(r.reportId === reportId && r.version === version));
@@ -574,9 +690,14 @@ export class DeliverableArtifactService {
     if (!list) {
       return { success: false, error: `Engagement ${engagementId} not found.` };
     }
-    const report = list.find(r => r.reportId === reportId);
+    const candidates = list.filter(r => r.reportId === reportId);
+    const report = approval.reportVersion
+      ? candidates.find(r => r.version === approval.reportVersion)
+      : (candidates.length === 1 ? candidates[0] : undefined);
     if (!report) {
-      return { success: false, error: `Report ${reportId} not found in engagement.` };
+      return { success: false, error: candidates.length > 1 && !approval.reportVersion
+        ? `Report ${reportId} has multiple versions; approval.reportVersion is required.`
+        : `Report ${reportId}${approval.reportVersion ? ` version ${approval.reportVersion}` : ''} not found in engagement.` };
     }
 
     if (report.isStale || report.status === 'STALE_INVALIDATED') {
@@ -794,4 +915,3 @@ export class DeliverableArtifactService {
 }
 
 export const deliverableArtifactService = DeliverableArtifactService.getInstance();
-

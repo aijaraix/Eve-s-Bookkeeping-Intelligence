@@ -102,6 +102,7 @@ assert(hermes.includes("verifiedFacts: params.verifiedFacts || []"), "real model
 assert(hermes.includes("evidenceConfirmedFactsCount: verifiedFactCount"), "Veritas must report evidence-confirmed count");
 
 const server = fs.readFileSync("server.ts", "utf8");
+assert(server.includes('unitScale: f.unitScale') && server.includes('normalizedScaleMultiplier: f.normalizedScaleMultiplier'), 'durable fact persistence must retain source scale authority for deliverables');
 assert(server.includes("runtimeAuthorityManifestManager.isLeader()"), "continuation sweep must be leader-only");
 assert(server.includes("continueCompletedHybridJob(job, db)"), "completed hybrid jobs must flow into verified continuation");
 const continuationSource = fs.readFileSync("server/cpaOrganization/verifiedCustomerContinuationService.ts", "utf8");
