@@ -24,6 +24,7 @@ import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
 import { verifiedCustomerContinuationService } from "./server/cpaOrganization/verifiedCustomerContinuationService.js";
 import { rawInputEvidenceWorker, rawInputHermesContinuationService } from "./server/cpaOrganization/rawInputHermesContinuation.js";
+import { rawInputAccountingStageExecutor } from "./server/cpaOrganization/rawInputAccountingStageExecutor.js";
 import { deliverableArtifactService } from "./server/cpaOrganization/deliverableArtifactService.js";
 import { runtimeAuthorityManifestManager } from "./server/cpaOrganization/runtimeAuthorityManifest.js";
 import { getLLMGatewayMetrics, getGeminiDiagnosticStatus } from "./server/llmGateway.js";
@@ -790,8 +791,16 @@ async function sweepRawInputContinuations(): Promise<void> {
   rawInputContinuationSweepRunning = true;
   try {
     await rawInputHermesContinuationService.dispatchNext({
-      supportedStages: ['EXTRACTION_REMEDIATION', 'EVIDENCE_COMPLETION'],
-      executor: rawInputEvidenceWorker,
+      // MINERVA_GRADING is intentionally excluded until a physical browser
+      // and artifact readback receipt is recorded for the continuation.
+      supportedStages: [
+        'EXTRACTION_REMEDIATION', 'EVIDENCE_COMPLETION', 'CANONICALIZATION',
+        'ACCOUNTING_CLASSIFICATION', 'POSTING_WORKPAPER', 'RECONCILIATION',
+        'CLARIFICATION', 'REPORT_DELIVERABLE', 'LINEAGE_VERIFICATION',
+      ],
+      executor: params => ['EXTRACTION_REMEDIATION', 'EVIDENCE_COMPLETION'].includes(params.execution.stage)
+        ? rawInputEvidenceWorker(params)
+        : rawInputAccountingStageExecutor(params),
     });
   } catch (error: any) {
     console.error('[RawInputContinuation] bounded scheduler pass failed:', error?.message || error);
@@ -1368,7 +1377,7 @@ app.get("/api/workspaces", (req, res) => {
 });
 
 app.post("/api/workspaces", (req, res) => {
-  const { name, code, currency, country, userEmail } = req.body || {};
+  const { name, code, currency, country, userEmail, classification, tenantClassification } = req.body || {};
   if (!name || !name.trim()) {
     return res.status(400).json({ error: "Workspace name is required" });
   }
@@ -1388,6 +1397,14 @@ app.post("/api/workspaces", (req, res) => {
     userEmail: userEmail ? userEmail.toLowerCase() : "",
     createdAt: new Date().toISOString()
   };
+  if (classification === 'ACADEMY') {
+    const requested = String(tenantClassification || 'ACADEMY_SYNTHETIC') as UniversityTenantClassification;
+    if (!UNIVERSITY_TENANT_CLASSIFICATIONS.includes(requested) || requested === 'PRODUCTION_CUSTOMER') {
+      return res.status(422).json({ error: 'ACADEMY_TENANT_CLASSIFICATION_INVALID' });
+    }
+    (ws as any).classification = 'ACADEMY';
+    (ws as any).tenantClassification = requested;
+  }
 
   db.workspaces.push(ws);
 
@@ -2782,13 +2799,19 @@ app.post("/api/documents/upload", (req, res) => {
       } catch (error: any) {
         return res.status(400).json({ error: error.message });
       }
-      if (targetWorkspaceId && db.workspaces.find(w => w.id === targetWorkspaceId)?.classification === 'ACADEMY') {
+      const customerUpload = (req as any).eveCustomerUpload as { tenantId: string; workspaceIds: string[]; userId: string; email: string } | undefined;
+      if (customerUpload && (!targetWorkspaceId || req.body?.uploadIntent !== 'ATTACH_TO_EXISTING_PROJECT' || !customerUpload.workspaceIds.includes(targetWorkspaceId))) {
+        return res.status(403).json({ error: 'TENANT_UPLOAD_TARGET_NOT_PERMITTED' });
+      }
+      const targetAcademyWorkspace = targetWorkspaceId ? db.workspaces.find(w => w.id === targetWorkspaceId)?.classification === 'ACADEMY' : false;
+      const isAcademyIntake = req.body?.academyExercise === 'true' || targetAcademyWorkspace;
+      if (targetWorkspaceId && targetAcademyWorkspace && !customerUpload) {
         return res.status(400).json({ error: 'Academy engagements accept one isolated intake; create a new exercise.' });
       }
       if (req.body?.academyExercise === 'true' && (targetWorkspaceId || req.body?.uploadIntent !== 'CREATE_NEW_INTAKE')) {
         return res.status(400).json({ error: 'Academy exercises require a new isolated engagement.' });
       }
-      const requestedTenantClassification = String(req.body?.academyTenantClassification || 'ACADEMY_SYNTHETIC') as UniversityTenantClassification;
+      const requestedTenantClassification = String(targetAcademyWorkspace ? 'ACADEMY_SYNTHETIC' : (req.body?.academyTenantClassification || 'ACADEMY_SYNTHETIC')) as UniversityTenantClassification;
       if (req.body?.academyExercise === 'true' && (!UNIVERSITY_TENANT_CLASSIFICATIONS.includes(requestedTenantClassification) || requestedTenantClassification === 'PRODUCTION_CUSTOMER')) {
         return res.status(400).json({ error: 'Academy tenant classification must be ACADEMY_SYNTHETIC, ACADEMY_PUBLIC_DATA, or INTERNAL_ACCEPTANCE.' });
       }
@@ -2911,7 +2934,7 @@ app.post("/api/documents/upload", (req, res) => {
         });
       }
 
-      const userEmail = req.body?.userEmail || (req.headers["x-user-email"] as string) || "";
+      const userEmail = customerUpload?.email || req.body?.userEmail || (req.headers["x-user-email"] as string) || "";
 
       if (ws) {
         // Guarantee primary corporate entity exists for ws
@@ -3025,7 +3048,7 @@ app.post("/api/documents/upload", (req, res) => {
             ingestionVersion: "v2.0-immutable",
             isDuplicate: storedFile.isDuplicate || inspection.isDuplicate || false,
             engineMode: process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE',
-            tenantClassification: req.body?.academyExercise === 'true' ? requestedTenantClassification : 'PRODUCTION_CUSTOMER'
+            tenantClassification: isAcademyIntake ? requestedTenantClassification : 'PRODUCTION_CUSTOMER'
           };
 
           return { success: true, newDoc, canonicalDoc, filePath: storedFile.filePath };
@@ -3052,7 +3075,7 @@ app.post("/api/documents/upload", (req, res) => {
             summary: `Extraction failed: ${err?.message || "Internal parser error"}. Recorded in UploadManifest.`,
             pageCount: 1,
             ingestionVersion: "v2.0-immutable",
-            tenantClassification: req.body?.academyExercise === 'true' ? requestedTenantClassification : 'PRODUCTION_CUSTOMER'
+            tenantClassification: isAcademyIntake ? requestedTenantClassification : 'PRODUCTION_CUSTOMER'
           };
           return { success: false, newDoc: failedDoc, error: err?.message || "File parsing failed" };
         }
@@ -3085,8 +3108,8 @@ app.post("/api/documents/upload", (req, res) => {
       // Trigger Hermes Asynchronous Background Processing Queue for chunked multi-agent ingestion!
       const effectiveEngineMode = process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE';
       const intakeSession = intakeService.createIntakeSession({
-        classification: req.body?.academyExercise === 'true' ? 'ACADEMY' : 'CUSTOMER',
-        tenantClassification: req.body?.academyExercise === 'true' ? requestedTenantClassification : 'PRODUCTION_CUSTOMER',
+        classification: isAcademyIntake ? 'ACADEMY' : 'CUSTOMER',
+        tenantClassification: isAcademyIntake ? requestedTenantClassification : 'PRODUCTION_CUSTOMER',
         requestedWorkspaceName: uploadIntent === 'CREATE_NEW_INTAKE' && typeof req.body?.requestedWorkspaceName === 'string' ? req.body.requestedWorkspaceName.trim().slice(0, 200) : undefined,
         targetProjectId: uploadIntent === 'CREATE_NEW_INTAKE' ? null : ws?.id || null,
         userId: req.body?.userId || "usr-default",
@@ -3160,11 +3183,12 @@ app.post("/api/documents/upload", (req, res) => {
       if (intakeSession.classification === 'ACADEMY') {
         universityStore.registerAcademyIntake({
           intakeId: intakeSession.id,
-          name: intakeSession.requestedWorkspaceName,
+          name: intakeSession.requestedWorkspaceName || ws?.name,
           tenantClassification: intakeSession.tenantClassification as Exclude<UniversityTenantClassification, 'PRODUCTION_CUSTOMER'>,
           sourceType: newDocs[0]?.category || 'UNCLASSIFIED_RAW_INPUT',
           documentIds: newDocs.map(document => document.id)
         });
+        if (ws?.id) universityStore.linkWorkspace(intakeSession.id, ws.id);
       }
 
       saveStorage();
@@ -5303,3 +5327,5 @@ async function startServer() {
 if (process.env.NO_SERVER_LISTEN !== "true") {
   startServer();
 }
+
+export { app as eveApp, startServer };

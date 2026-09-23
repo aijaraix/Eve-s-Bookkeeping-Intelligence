@@ -865,27 +865,14 @@ export class BackgroundIngestionQueue {
 
     if (effectiveEngineMode === 'HYBRID_GEMINI_NATIVE') {
       const geminiStatus = getGeminiDiagnosticStatus();
-      if (geminiStatus === 'NOT_CONFIGURED' || geminiStatus === 'INVALID_KEY' || !process.env.GEMINI_API_KEY) {
-        console.warn(`[Hermes Queue ${queuedJob.id}] HYBRID_GEMINI_NATIVE engine requested but Gemini API key is unavailable (${geminiStatus}). Setting CONFIGURATION_REQUIRED status.`);
-        queuedJob.status = "CONFIGURATION_REQUIRED";
-        queuedJob.lastError = "AI document analysis is waiting. Gemini API key is missing or not configured.";
-        this.advanceJobStage(
-          queuedJob,
-          "INGESTION_FAILED",
-          "FAILED",
-          "AI document analysis is waiting. Gemini API key is missing or not configured.",
-          "CONFIGURATION_REQUIRED"
-        );
-        queuedJob.result = {
-          facts: [],
-          discrepancies: [],
-          agentLogs: [],
-          auditLogs: [],
-          executionTimeMs: 0
-        };
-        this.saveQueueToDiskAsync(true);
-        this.isProcessingQueue = false;
-        return;
+      const geminiUnavailable = geminiStatus === 'NOT_CONFIGURED' || geminiStatus === 'INVALID_KEY' || !process.env.GEMINI_API_KEY;
+      if (geminiUnavailable) {
+        // The hybrid orchestrator begins with physical parsing and bounded
+        // deterministic raw-input recognizers. Let that preflight run: a
+        // native receipt/invoice/register must not be blocked merely because
+        // an optional semantic provider is absent. Non-raw documents still
+        // fail closed below if they would require Gemini.
+        console.warn(`[Hermes Queue ${queuedJob.id}] Gemini is unavailable (${geminiStatus}); attempting deterministic raw-input preflight only.`);
       }
 
       try {
@@ -924,7 +911,12 @@ export class BackgroundIngestionQueue {
           }
         });
 
-        if (hybridRes.success) {
+        if (hybridRes.success && geminiUnavailable && !hybridRes.rawInput?.recognized && hybridRes.documentMap?.documentType !== 'BANK_STATEMENT') {
+          queuedJob.status = "CONFIGURATION_REQUIRED";
+          queuedJob.lastError = "AI document analysis is waiting. Gemini API key is missing or not configured.";
+          this.advanceJobStage(queuedJob, "INGESTION_FAILED", "FAILED", queuedJob.lastError, "CONFIGURATION_REQUIRED");
+          queuedJob.result = { facts: [], discrepancies: [], agentLogs: [], auditLogs: [], executionTimeMs: hybridRes.processingDurationMs };
+        } else if (hybridRes.success) {
           const resolvedReportingCurrency = String(
             hybridRes.documentMap?.primaryReportingCurrency ||
             hybridRes.documentMap?.currencies?.[0] ||
@@ -1000,7 +992,11 @@ export class BackgroundIngestionQueue {
           const errStr = hybridRes.error || "Hybrid extraction pipeline failed";
           const isCapacity = errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('high demand') || errStr.includes('overloaded') || errStr.includes('capacity');
 
-          if (isCapacity) {
+          if (geminiUnavailable) {
+            queuedJob.status = "CONFIGURATION_REQUIRED";
+            queuedJob.lastError = "AI document analysis is waiting. Deterministic raw-input preflight did not recognize a supported record and Gemini is missing.";
+            this.advanceJobStage(queuedJob, "INGESTION_FAILED", "FAILED", queuedJob.lastError, "CONFIGURATION_REQUIRED");
+          } else if (isCapacity) {
             this.handleJobCapacityPause(queuedJob, { message: errStr });
           } else {
             queuedJob.status = "FAILED";
@@ -1019,7 +1015,11 @@ export class BackgroundIngestionQueue {
         const errStr = hybridErr?.message || String(hybridErr);
         const isCapacity = hybridErr?.isCapacityError || hybridErr?.isDailyQuotaError || errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('high demand') || errStr.includes('overloaded');
 
-        if (isCapacity) {
+        if (geminiUnavailable) {
+          queuedJob.status = "CONFIGURATION_REQUIRED";
+          queuedJob.lastError = "AI document analysis is waiting. Deterministic raw-input preflight did not complete and Gemini is missing.";
+          this.advanceJobStage(queuedJob, "INGESTION_FAILED", "FAILED", queuedJob.lastError, "CONFIGURATION_REQUIRED");
+        } else if (isCapacity) {
           this.handleJobCapacityPause(queuedJob, hybridErr);
         } else {
           queuedJob.status = "FAILED";

@@ -66,6 +66,11 @@ export interface RawInputContinuation {
   reconciliationApplicable: boolean;
   facts: ExtractedFact[];
   rawInput: Record<string, any> | null;
+  physicalProof?: {
+    productEvidenceRefs: string[];
+    deliverableEvidenceRefs: string[];
+    recordedAt: string;
+  };
   executions: RawStageExecution[];
   createdAt: string;
   updatedAt: string;
@@ -301,13 +306,13 @@ export class RawInputHermesContinuationService {
     }
   }
 
-  async dispatchNext(params: { supportedStages: RawContinuationStage[]; executor: RawStageExecutor }): Promise<RawStageExecution | null> {
+  async dispatchNext(params: { supportedStages: RawContinuationStage[]; executor: RawStageExecutor; continuationId?: string }): Promise<RawStageExecution | null> {
     const supported = new Set(params.supportedStages);
     let selectedContinuationId: string | null = null;
     let selectedExecutionId: string | null = null;
     const selected = this.transaction(state => {
       const row = state.continuations
-        .filter(continuation => continuation.status === 'ACTIVE')
+        .filter(continuation => continuation.status === 'ACTIVE' && (!params.continuationId || continuation.continuationId === params.continuationId))
         .flatMap(continuation => continuation.executions.map(execution => ({ continuation, execution })))
         .find(({ execution }) => execution.status === 'QUEUED' && supported.has(execution.stage));
       if (!row) {
@@ -386,7 +391,14 @@ export class RawInputHermesContinuationService {
         executionReceiptHash: receiptHash,
         blockedReason: completed.blockedReason || undefined,
       });
-      if (completed.status === 'FAILED' || completed.status === 'BLOCKED') {
+      if (completed.status === 'COMPLETED' && completed.stage === 'MINERVA_GRADING') {
+        const result = completed.resultData?.minervaResult === 'PASS' ? 'PASS'
+          : completed.resultData?.minervaResult === 'CLARIFICATION_PASS' ? 'CLARIFICATION_PASS'
+            : 'FAIL';
+        this.university.advanceExamination(selected.continuation.examinationId, 'MINERVA', result);
+      } else if (completed.status === 'COMPLETED') {
+        this.university.advanceExamination(selected.continuation.examinationId, universityStageFor[completed.stage]);
+      } else if (completed.status === 'FAILED' || completed.status === 'BLOCKED') {
         this.university.recordFailure({
           examinationId: selected.continuation.examinationId,
           stage: universityStageFor[completed.stage],
@@ -428,6 +440,24 @@ export class RawInputHermesContinuationService {
 
   getAllContinuations(): RawInputContinuation[] {
     return this.read().continuations;
+  }
+
+  recordPhysicalProof(continuationId: string, proof: { productEvidenceRefs: string[]; deliverableEvidenceRefs: string[] }): RawInputContinuation {
+    if (!proof.productEvidenceRefs.length || !proof.deliverableEvidenceRefs.length) {
+      throw new Error('RAW_PHYSICAL_PRODUCT_AND_DELIVERABLE_PROOF_REQUIRED');
+    }
+    return this.transaction(state => {
+      const continuation = state.continuations.find(row => row.continuationId === continuationId);
+      if (!continuation) throw new Error('RAW_CONTINUATION_NOT_FOUND');
+      continuation.physicalProof = {
+        productEvidenceRefs: unique(proof.productEvidenceRefs),
+        deliverableEvidenceRefs: unique(proof.deliverableEvidenceRefs),
+        recordedAt: new Date().toISOString(),
+      };
+      continuation.updatedAt = continuation.physicalProof.recordedAt;
+      this.decision(state, continuationId, 'PHYSICAL_PROOF_RECORDED', 'Customer/owner rendering and deliverable readback evidence were attached for independent Minerva grading.');
+      return structuredClone(continuation);
+    });
   }
 }
 

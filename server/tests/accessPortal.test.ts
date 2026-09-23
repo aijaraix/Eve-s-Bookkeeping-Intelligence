@@ -18,7 +18,7 @@ store.changePassword(first.token,'a long permanent test password','');assert.equ
 const owner=store.login('owner@example.test','a long permanent test password','ip')!;assert(!owner.session.restricted);
 store.transaction(s=>s.tenants.push({id:'tenant-a',name:'A',workspaceIds:['customer-a']},{id:'tenant-b',name:'B',workspaceIds:['customer-b']}));
 const invite=store.invite('client@example.test','CLIENT_ADMIN','tenant-a','owner');const start=store.login('client@example.test',invite.temporaryPassword,'client')!;store.changePassword(start.token,'a different permanent test password','');const client=store.login('client@example.test','a different permanent test password','client')!;
-const app=express();app.use(createAccessPortal(store));app.use((req,res)=>res.json({legacy:true,user:(req as any).user||null}));
+const app=express();app.use(createAccessPortal(store));app.use((req,res)=>res.json({legacy:true,user:(req as any).user||null,customerUpload:(req as any).eveCustomerUpload||null,path:req.path}));
 const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));const port=(server.address() as any).port;
 const request=(url:string,token?:string,options:any={})=>fetch(`http://127.0.0.1:${port}${url}`,{redirect:'manual',...options,headers:{host:'eve.test',...(token?{cookie:`__Host-eve_session=${token}`} :{}),...options.headers}});
 try{
@@ -42,6 +42,8 @@ try{
  assert.equal((await request('/api/portal/report?engagementId=customer-b&reportId=x&version=x',client.token)).status,404);
  assert.equal((await request('/api/portal/engagements/customer-a',client.token)).status,200);
  assert.equal((await request('/portal',client.token)).status,200);
+ assert.equal((await request('/api/documents/upload',client.token,{method:'POST',headers:{origin:`https://127.0.0.1:${port}`,'x-eve-csrf':client.session.csrf}})).status,403);
+ const portalIntake=await request('/api/portal/intake',client.token,{method:'POST',headers:{origin:`https://127.0.0.1:${port}`,'x-eve-csrf':client.session.csrf}});assert.equal(portalIntake.status,200);const portalBridge=await portalIntake.json();assert.equal(portalBridge.path,'/api/documents/upload');assert.deepEqual(portalBridge.customerUpload.workspaceIds,['customer-a']);
  assert.equal((await request('/owner',owner.token)).status,200);
  const university=await request('/owner/university',owner.token);assert.equal(university.status,200);const universityHtml=await university.text();for(const label of ['University Overview','Live Examinations','Synthetic Customers','Raw Input Lab','Capability Matrix','Failures &amp; Remediation','Regression','Minerva','Workforce','Hermes','Learning / Darwin','Curriculum','Owner Requests'])assert.match(universityHtml,new RegExp(label));
  assert.equal((await request('/api/workspaces',owner.token)).status,200);

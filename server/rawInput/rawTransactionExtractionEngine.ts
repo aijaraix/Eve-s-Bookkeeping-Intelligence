@@ -41,6 +41,7 @@ export interface RawTransactionRecord {
   subtotal?: RawFieldEvidence<number>;
   tax?: RawFieldEvidence<number>;
   paymentMethod?: RawFieldEvidence<string>;
+  accountingCategory?: RawFieldEvidence<string>;
   description?: RawFieldEvidence<string>;
   lineItems: Array<{
     description: string;
@@ -350,7 +351,7 @@ function factFromTransaction(transaction: RawTransactionRecord, params: { worksp
   const amount = transaction.amount;
   const evidenceFields = [
     transaction.amount, transaction.transactionDate, transaction.currency, transaction.counterparty,
-    transaction.documentNumber, transaction.subtotal, transaction.tax, transaction.paymentMethod, transaction.description,
+    transaction.documentNumber, transaction.subtotal, transaction.tax, transaction.paymentMethod, transaction.accountingCategory, transaction.description,
     ...transaction.lineItems.map(item => item.evidence),
   ].filter(Boolean) as RawFieldEvidence<unknown>[];
   const blockIds = [...new Set(evidenceFields.map(field => field.sourceBlockId).filter(Boolean))];
@@ -518,10 +519,16 @@ export function extractRawInputTransactions(params: {
       const subtotal = findMatch(rows, [/\bsubtotal\s*[:#-]?\s*((?:[A-Z]{3}\s*)?[$€£¥]?\s*\(?-?[\d,]+(?:\.\d{2})?\)?)/i], match => parseMoney(match[1]));
       const tax = findMatch(rows, [/\b(?:sales\s+tax|vat|gst|tax)\s*[:#-]?\s*((?:[A-Z]{3}\s*)?[$€£¥]?\s*\(?-?[\d,]+(?:\.\d{2})?\)?)/i], match => parseMoney(match[1]));
       const paymentMethod = findMatch(rows, [/\b(?:payment\s+method|paid\s+by|tender)\s*[:#-]?\s*(cash|visa|mastercard|amex|card|check|cheque|bank transfer|ach|wire)\b/i], match => clean(match[1]).toUpperCase());
+      // Classification may use a category only when the source explicitly
+      // states it. Merchant names and item descriptions are not silently
+      // converted into ledger accounts.
+      const accountingCategory = findMatch(rows, [
+        /\b(?:accounting|expense|bookkeeping)\s+category\s*[:#-]?\s*([A-Z][A-Z &/-]{2,80})$/i,
+      ], match => clean(match[1]).toUpperCase());
       const description = findDescription(rows, kind);
       const partial = {
         transactionId: '1', documentKind: kind, amount, transactionDate, currency, counterparty,
-        documentNumber, subtotal, tax, paymentMethod, description, lineItems: extractLineItems(rows),
+        documentNumber, subtotal, tax, paymentMethod, accountingCategory, description, lineItems: extractLineItems(rows),
       };
       const reasons = requiredEvidenceReasons(partial);
       if (kind === 'INVOICE') reasons.push('INVOICE_AP_AR_DIRECTION_REQUIRES_TENANT_CONTEXT');

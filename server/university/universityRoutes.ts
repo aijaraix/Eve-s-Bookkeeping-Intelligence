@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { UNIVERSITY_TENANT_CLASSIFICATIONS, universityStore, type UniversityTenantClassification } from './universityStore.js';
 import { RAW_CONTINUATION_STAGES, rawInputHermesContinuationService } from '../cpaOrganization/rawInputHermesContinuation.js';
+import { rawInputAccountingStageExecutor } from '../cpaOrganization/rawInputAccountingStageExecutor.js';
 
 function isInternal(req: Request): boolean {
   const identityRole = (req as any).eveIdentity?.user?.role;
@@ -37,6 +38,26 @@ export function createUniversityRouter(): Router {
         })),
       },
     });
+  });
+  router.post('/raw-continuations/:id/physical-proof', async (req, res) => {
+    try {
+      const productEvidenceRefs = Array.isArray(req.body?.productEvidenceRefs) ? req.body.productEvidenceRefs.map(String) : [];
+      const deliverableEvidenceRefs = Array.isArray(req.body?.deliverableEvidenceRefs) ? req.body.deliverableEvidenceRefs.map(String) : [];
+      if (!productEvidenceRefs.every((ref: string) => /^(browser|screenshot):/.test(ref)) ||
+          !deliverableEvidenceRefs.every((ref: string) => /^(download|readback|artifact):/.test(ref))) {
+        return res.status(422).json({ error: 'PHYSICAL_PROOF_REFERENCE_TYPE_INVALID' });
+      }
+      rawInputHermesContinuationService.recordPhysicalProof(req.params.id, { productEvidenceRefs, deliverableEvidenceRefs });
+      const execution = await rawInputHermesContinuationService.dispatchNext({
+        continuationId: req.params.id,
+        supportedStages: ['MINERVA_GRADING'],
+        executor: rawInputAccountingStageExecutor,
+      });
+      if (!execution) return res.status(409).json({ error: 'MINERVA_GRADING_NOT_QUEUED' });
+      return res.json({ execution, continuation: rawInputHermesContinuationService.getContinuation(req.params.id) });
+    } catch (error: any) {
+      return res.status(409).json({ error: error.message });
+    }
   });
   router.post('/purge/preview', (req, res) => {
     try {

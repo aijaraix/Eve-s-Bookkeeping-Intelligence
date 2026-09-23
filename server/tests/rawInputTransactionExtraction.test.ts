@@ -60,6 +60,7 @@ const receipt = extractRawInputTransactions({
     'SALES TAX $0.80',
     'TOTAL $10.80',
     'PAYMENT METHOD VISA',
+    'ACCOUNTING CATEGORY OFFICE SUPPLIES',
   ], 'receipt.txt'),
   workspaceId: 'ws-receipt', documentId: 'doc-receipt', filename: 'receipt.txt', currency: 'EUR',
 });
@@ -70,6 +71,7 @@ assert.equal(receipt.transactions[0].amount.value, 10.8);
 assert.equal(receipt.transactions[0].currency?.value, 'USD', 'source currency must override unrelated workspace context');
 assert.equal(receipt.transactions[0].counterparty?.value, 'EVE TEST MARKET');
 assert.equal(receipt.transactions[0].lineItems.length, 1);
+assert.equal(receipt.transactions[0].accountingCategory?.value, 'OFFICE SUPPLIES');
 assert.equal(receipt.transactions[0].evidenceState, 'COMPLETE');
 assert.equal(receipt.facts[0].statementType, 'RAW_INPUT_TRANSACTION');
 assert.equal(receipt.facts[0].status, 'approved');

@@ -147,7 +147,7 @@ export class ProfessionalClarificationEngine {
   
   private requests = new Map<string, ProfessionalClarificationRequest>();
 
-  public constructor(storageDir = path.resolve('storage/cpa_memory/clarifications')) {
+  public constructor(storageDir = process.env.EVE_CLARIFICATION_DIR || path.resolve('storage/cpa_memory/clarifications')) {
     this.storageDir = storageDir;
     if (!fs.existsSync(this.storageDir)) {
       fs.mkdirSync(this.storageDir, { recursive: true });
