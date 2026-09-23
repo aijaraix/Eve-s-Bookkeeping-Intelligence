@@ -22,6 +22,7 @@ import { OCRParser } from '../../src/lib/parser/ocrParser.js';
 import { applySelectivePdfOcr, shouldUsePdfOcrFallback, shouldUseSelectivePdfOcr } from '../../src/lib/parser/pdfOcrFallback.js';
 import { buildLongDocumentSemanticContext } from '../cpaOrganization/longDocumentSemanticContextEngine.js';
 import { mimeTypeForSource, routeSupportedSource } from '../sourceFormatRouting.js';
+import { extractRawInputTransactions, RawTransactionExtractionResult } from '../rawInput/rawTransactionExtractionEngine.js';
 
 export function bindParsedDocumentIdentity(parsedDoc: any, documentId: string): any {
   if (!parsedDoc || !documentId) return parsedDoc;
@@ -135,6 +136,7 @@ export interface HybridExtractionResult {
   processingDurationMs: number;
   pageManifests?: any[];
   sourceBlocks?: any[];
+  rawInput?: RawTransactionExtractionResult;
   semanticContextReview?: any;
   error?: string;
 }
@@ -282,7 +284,8 @@ export class HybridExtractionOrchestrator {
           };
         }
 
-        const accountingValidations = AccountingValidationEngine.validateWorkspace(params.workspaceId, bankRes.facts);
+        const evidenceCompleteFacts = bankRes.facts.filter(fact => String(fact.evidenceStatus || '').toUpperCase() === 'CONFIRMED');
+        const accountingValidations = AccountingValidationEngine.validateWorkspace(params.workspaceId, evidenceCompleteFacts);
         updateProgress('Complete', 100);
         return {
           success: true,
@@ -291,15 +294,51 @@ export class HybridExtractionOrchestrator {
           workspaceId: params.workspaceId,
           physicalPagesTotal,
           factsCandidateCount: bankRes.facts.length,
-          factsConfirmedCount: 0,
-          factsCanonicalCount: bankRes.facts.length,
+          factsConfirmedCount: evidenceCompleteFacts.length,
+          factsCanonicalCount: evidenceCompleteFacts.length,
           canonicalFacts: bankRes.facts,
           evidenceResults: [],
-          documentMap: { documentType: 'BANK_STATEMENT', primaryReportingCurrency: params.currency },
+          documentMap: { documentType: 'BANK_STATEMENT', primaryReportingCurrency: bankRes.summary?.currency },
           accountingValidations: accountingValidations ? [accountingValidations] : [],
           processingDurationMs: Date.now() - startTime,
           pageManifests: parsedDoc.pageManifests || [],
           sourceBlocks: parsedDoc.sourceBlocks || []
+        };
+      }
+
+      // Raw bookkeeping inputs are not incomplete financial statements. Give
+      // them their own bounded transaction-fact path before statement mapping
+      // or statement-balance promotion is attempted.
+      const rawInput = extractRawInputTransactions({
+        doc: parsedDoc,
+        workspaceId: params.workspaceId,
+        documentId: params.documentId,
+        filename: params.originalFilename,
+        currency: params.currency,
+      });
+      if (rawInput.recognized) {
+        updateProgress(rawInput.requiresClarification ? 'Preparing Clarification' : 'Transaction Facts Ready', 100);
+        return {
+          success: true,
+          intakeId: params.intakeId,
+          documentId: params.documentId,
+          workspaceId: params.workspaceId,
+          physicalPagesTotal,
+          factsCandidateCount: rawInput.transactions.length,
+          factsConfirmedCount: rawInput.evidenceCompleteCount,
+          factsCanonicalCount: rawInput.evidenceCompleteCount,
+          canonicalFacts: rawInput.facts,
+          evidenceResults: [],
+          documentMap: {
+            documentType: rawInput.documentKind,
+            primaryReportingCurrency: rawInput.transactions.find(transaction => transaction.currency)?.currency?.value,
+            rawInputClassifierSignals: rawInput.classifierSignals,
+          },
+          accountingValidations: [],
+          processingDurationMs: Date.now() - startTime,
+          pageManifests: parsedDoc.pageManifests || [],
+          sourceBlocks: parsedDoc.sourceBlocks || [],
+          rawInput,
         };
       }
 
@@ -451,7 +490,8 @@ export class HybridExtractionOrchestrator {
             error: bankRes.error || 'Bank statement parse missed.'
           };
         }
-        const accountingValidations = AccountingValidationEngine.validateWorkspace(params.workspaceId, bankRes.facts);
+        const evidenceCompleteFacts = bankRes.facts.filter(fact => String(fact.evidenceStatus || '').toUpperCase() === 'CONFIRMED');
+        const accountingValidations = AccountingValidationEngine.validateWorkspace(params.workspaceId, evidenceCompleteFacts);
         return {
           success: true,
           intakeId: params.intakeId,
@@ -459,8 +499,8 @@ export class HybridExtractionOrchestrator {
           workspaceId: params.workspaceId,
           physicalPagesTotal,
           factsCandidateCount: bankRes.facts.length,
-          factsConfirmedCount: 0,
-          factsCanonicalCount: bankRes.facts.length,
+          factsConfirmedCount: evidenceCompleteFacts.length,
+          factsCanonicalCount: evidenceCompleteFacts.length,
           canonicalFacts: bankRes.facts,
           evidenceResults: [],
           documentMap: docMap,

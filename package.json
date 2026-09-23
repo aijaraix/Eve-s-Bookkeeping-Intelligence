@@ -18,7 +18,8 @@
     "test": "tsx run_tests.ts && tsx server/tests/company1StructuredOutputIntegrity.test.ts && tsx server/tests/company1CanonicalPromotionIntegrity.test.ts && tsx server/tests/company1DurableHandoff.test.ts && tsx server/tests/company1WorkspacePersistence.test.ts && tsx server/tests/company1AuthoritativeCurrency.test.ts && tsx server/tests/company1VerifiedContinuation.test.ts && tsx server/tests/company1BoundedLexiconReview.test.ts",
     "build:academy": "esbuild scripts/academy-ui-tick.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/academy-ui-tick.cjs",
     "test:access": "node --import tsx server/tests/accessPortal.test.ts && node --import tsx server/tests/operatorAccess.test.ts",
-    "test:university": "node --import tsx server/tests/universityActivation.test.ts"
+    "test:university": "node --import tsx server/tests/universityActivation.test.ts",
+    "test:raw-input": "node --import tsx server/tests/rawInputTransactionExtraction.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

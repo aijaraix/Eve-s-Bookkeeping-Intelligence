@@ -937,7 +937,7 @@ export class BackgroundIngestionQueue {
 
           const canonicalFacts = hybridRes.canonicalFacts.map(f => ({
             ...f,
-            extractionEngine: 'HYBRID_GEMINI_NATIVE'
+            extractionEngine: f.extractionEngine || 'HYBRID_GEMINI_NATIVE'
           }));
 
           queuedJob.factsExtractedCount = canonicalFacts.length;
@@ -949,6 +949,7 @@ export class BackgroundIngestionQueue {
           queuedJob.completedAt = new Date().toISOString();
           (queuedJob as any).pageManifests = hybridRes.pageManifests || [];
           (queuedJob as any).sourceBlocks = hybridRes.sourceBlocks || [];
+          (queuedJob as any).rawInput = hybridRes.rawInput;
 
           // Promote Intake Session to Project if associated with an intake session
           if (queuedJob.intakeSessionId && this.dbRef) {
@@ -984,6 +985,9 @@ export class BackgroundIngestionQueue {
             }],
             executionTimeMs: hybridRes.processingDurationMs
           };
+          if (hybridRes.rawInput) {
+            (queuedJob.result as any).rawInput = hybridRes.rawInput;
+          }
 
           if (this.onJobCompletedListener) {
             try {

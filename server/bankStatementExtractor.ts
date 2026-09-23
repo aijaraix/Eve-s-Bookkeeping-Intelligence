@@ -15,6 +15,20 @@ const AMOUNT_RE = /\(?-?\$?-?\d{1,3}(?:,\d{3})*(?:\.\d{2})\)?|\(?-?\d+(?:\.\d{2}
 const SUMMARY_BEGIN_RE = /(?:beginning balance|starting balance|previous balance|opening balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i;
 const SUMMARY_END_RE = /(?:ending balance|new balance|closing balance)[\s:$]*(-?\$?[\d,]+\.\d{2})/i;
 
+interface ExtractedBankRow {
+  date: string;
+  description: string;
+  amount: number;
+  balance?: number;
+  source: string;
+  page: number;
+  sourceBlockId?: string;
+  sourceSha256?: string;
+  sourceArtifactId?: string;
+  sourceProvenanceId?: string;
+  sourceCoordinate?: any;
+}
+
 function parseMoney(raw: string | undefined | null): number | null {
   if (!raw) return null;
   const trimmed = String(raw).trim();
@@ -34,8 +48,8 @@ function rowLooksLikeTransaction(cells: string[]): boolean {
   return amounts.length >= 1;
 }
 
-function extractFromTables(doc: CanonicalDocumentModel): Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> {
-  const rows: Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> = [];
+function extractFromTables(doc: CanonicalDocumentModel): ExtractedBankRow[] {
+  const rows: ExtractedBankRow[] = [];
   const tables = doc.tables || [];
   tables.forEach((table) => {
     const header = (table.headers || []).map((h) => String(h).toLowerCase());
@@ -45,7 +59,7 @@ function extractFromTables(doc: CanonicalDocumentModel): Array<{ date: string; d
     const balanceIdx = header.findIndex((h) => h.includes("balance") || h.includes("running"));
     const debitIdx = header.findIndex((h) => h.includes("debit") || h.includes("withdrawal"));
     const creditIdx = header.findIndex((h) => h.includes("credit") || h.includes("deposit"));
-    (table.rows || []).forEach((row) => {
+    (table.rows || []).forEach((row, rowIndex) => {
       const cells = (row || []).map((c) => String(c ?? "").trim());
       if (!rowLooksLikeTransaction(cells) && dateIdx < 0) return;
       const dateCell = dateIdx >= 0 ? cells[dateIdx] : cells.find((c) => DATE_RE.test(c)) || "";
@@ -67,18 +81,32 @@ function extractFromTables(doc: CanonicalDocumentModel): Array<{ date: string; d
         amount = moneyCells.length > 0 ? moneyCells[0] : null;
       }
       if (amount == null) return;
+      let amountEvidenceIndex = amountIdx;
+      if (debitIdx >= 0 && parseMoney(cells[debitIdx]) != null && parseMoney(cells[debitIdx]) !== 0) amountEvidenceIndex = debitIdx;
+      else if (creditIdx >= 0 && parseMoney(cells[creditIdx]) != null && parseMoney(cells[creditIdx]) !== 0) amountEvidenceIndex = creditIdx;
       const balance = balanceIdx >= 0 ? parseMoney(cells[balanceIdx]) ?? undefined : undefined;
       const source = cells.join(" | ");
       const amountToken = Number.isInteger(amount) ? String(Math.abs(amount)) : Math.abs(amount).toFixed(2);
       if (!amountAppearsInSourceBlock(amountToken, source) && !amountAppearsInSourceBlock(String(amount), source)) return;
-      rows.push({ date: dateMatch[1], description: description || "Transaction", amount, balance, source, page: table.pageNumber || 1 });
+      const cellEvidence = amountEvidenceIndex >= 0 ? table.rowEvidence?.[rowIndex]?.[amountEvidenceIndex] : undefined;
+      const sourceBlock = ((doc as any).sourceBlocks || []).find((block: any) =>
+        Number(block?.page_number || block?.pageNumber || 1) === Number(table.pageNumber || 1)
+      );
+      rows.push({
+        date: dateMatch[1], description: description || "Transaction", amount, balance, source, page: table.pageNumber || 1,
+        sourceBlockId: sourceBlock?.source_block_id || sourceBlock?.sourceBlockId,
+        sourceSha256: cellEvidence?.coordinate?.sourceSha256 || sourceBlock?.source_sha256 || sourceBlock?.sourceSha256 || doc.source?.hash,
+        sourceArtifactId: cellEvidence?.coordinate?.sourceArtifactId || sourceBlock?.source_artifact_id || sourceBlock?.sourceArtifactId || doc.source?.sourceArtifactId,
+        sourceProvenanceId: cellEvidence?.provenanceId || sourceBlock?.source_provenance_id || sourceBlock?.sourceProvenanceId,
+        sourceCoordinate: cellEvidence?.coordinate || sourceBlock?.source_coordinate || sourceBlock?.sourceCoordinate,
+      });
     });
   });
   return rows;
 }
 
-function extractFromTextLines(doc: CanonicalDocumentModel): Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> {
-  const rows: Array<{ date: string; description: string; amount: number; balance?: number; source: string; page: number }> = [];
+function extractFromTextLines(doc: CanonicalDocumentModel): ExtractedBankRow[] {
+  const rows: ExtractedBankRow[] = [];
   const pages = Array.isArray(doc.pages) && doc.pages.length
     ? doc.pages.map(p => ({ page: Number(p.page_number) || 1, text: String(p.text || '') }))
     : [{ page: 1, text: `${doc?.markdown || ""}\n${(doc?.sections || []).map((s) => s?.text || "").join("\n")}` }];
@@ -97,7 +125,19 @@ function extractFromTextLines(doc: CanonicalDocumentModel): Array<{ date: string
       const balance = parsedAmounts.length > 1 ? parsedAmounts[parsedAmounts.length - 1] : undefined;
       const description = withoutDate.replace(new RegExp(AMOUNT_RE.source, "g"), " ").replace(/\s+/g, " ").trim() || "Transaction";
       if (!amountAppearsInSourceBlock(amounts[0], line)) continue;
-      rows.push({ date: dateMatch[1], description, amount, balance, source: line, page: page.page });
+      const sourceBlock = ((doc as any).sourceBlocks || []).find((block: any) => {
+        const blockPage = Number(block?.page_number || block?.pageNumber || 1);
+        const blockText = String(block?.raw_text || block?.text_content || '');
+        return blockPage === page.page && blockText.includes(line);
+      });
+      rows.push({
+        date: dateMatch[1], description, amount, balance, source: line, page: page.page,
+        sourceBlockId: sourceBlock?.source_block_id || sourceBlock?.sourceBlockId,
+        sourceSha256: sourceBlock?.source_sha256 || sourceBlock?.sourceSha256 || doc.source?.hash,
+        sourceArtifactId: sourceBlock?.source_artifact_id || sourceBlock?.sourceArtifactId || doc.source?.sourceArtifactId,
+        sourceProvenanceId: sourceBlock?.source_provenance_id || sourceBlock?.sourceProvenanceId,
+        sourceCoordinate: sourceBlock?.source_coordinate || sourceBlock?.sourceCoordinate,
+      });
     }
   }
   return rows;
@@ -194,6 +234,66 @@ export function extractBankStatementFromDocument(params: {
   };
 
   const facts: ExtractedFact[] = [];
+  extractedRows.forEach((row, index) => {
+    const evidenceComplete = Boolean(row.sourceSha256 && row.sourceCoordinate && explicitCurrency);
+    const clarificationReasons = [
+      ...(!row.sourceSha256 || !row.sourceCoordinate ? ['AMOUNT_SOURCE_COORDINATE_REQUIRED'] : []),
+      ...(!explicitCurrency ? ['CURRENCY_MISSING_OR_AMBIGUOUS'] : []),
+    ];
+    facts.push({
+      id: `FCT-BANK-${documentId}-transaction-${index + 1}`,
+      workspaceId,
+      documentId,
+      sourceDocument: filename,
+      factType: 'transaction',
+      canonicalMetric: 'raw_input_transaction_total',
+      labelOriginal: row.description,
+      labelNormalized: 'Bank Transaction',
+      valueOriginal: String(row.amount),
+      valueFunctional: String(row.amount),
+      normalizedValue: row.amount,
+      currencyOriginal: explicitCurrency,
+      functionalCurrency: explicitCurrency,
+      currency: explicitCurrency,
+      unitScale: 'Units',
+      exchangeRate: explicitCurrency ? '1.0000' : undefined,
+      reportingPeriod: row.date,
+      periodStart: row.date,
+      periodEnd: row.date,
+      statementType: 'RAW_INPUT_TRANSACTION',
+      accountingRole: 'TRANSACTION_CANDIDATE',
+      pageNumber: row.page,
+      sourceText: row.source,
+      sourceBlockId: row.sourceBlockId,
+      sourceBlockIds: row.sourceBlockId ? [row.sourceBlockId] : [],
+      sourceSha256: row.sourceSha256,
+      sourceArtifactId: row.sourceArtifactId,
+      sourceProvenanceId: row.sourceProvenanceId,
+      sourceProvenanceIds: row.sourceProvenanceId ? [row.sourceProvenanceId] : [],
+      sourceCoordinate: row.sourceCoordinate,
+      sourceCoordinates: row.sourceCoordinate ? [row.sourceCoordinate] : [],
+      provenanceCoordinates: row.sourceCoordinate ? [row.sourceCoordinate] : [],
+      evidenceStatus: evidenceComplete ? 'CONFIRMED' : 'PARTIAL',
+      verificationStatus: evidenceComplete ? 'EVIDENCE_CONFIRMED' : 'REVIEW_REQUIRED',
+      status: evidenceComplete ? 'approved' : 'pending_review',
+      extractionEngine: 'BANK_STATEMENT_PARSER',
+      extractionMethod: 'BANK_TRANSACTION_NATIVE_PARSE',
+      canonicalizationState: evidenceComplete ? 'READY_FOR_CLASSIFICATION' : 'BLOCKED_EVIDENCE_INCOMPLETE',
+      postingStatus: 'NOT_POSTED',
+      clarificationReasons,
+      rawTransaction: {
+        transactionId: transactions[index]?.id,
+        documentKind: 'BANK_STATEMENT',
+        date: row.date,
+        description: row.description,
+        amount: row.amount,
+        balance: row.balance,
+        currency: explicitCurrency,
+        reconciliationApplicable: true,
+        reconciliationPassed: summary.reconciliationPassed,
+      },
+    } as ExtractedFact);
+  });
   const pushFact = (label: string, value: number | null, source: string, page: number, factType: string) => {
     if (value == null || !source) return;
     const token = Number.isInteger(value) ? String(Math.abs(value)) : Math.abs(value).toFixed(2);

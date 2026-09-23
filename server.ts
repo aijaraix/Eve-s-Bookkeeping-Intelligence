@@ -632,6 +632,7 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
   // Its processing receipt and source evidence still need durable persistence.
   if (job.result && Array.isArray(job.result.facts)) {
     const ws = db.workspaces.find(w => w.id === job.workspaceId);
+    const isRawInputJob = job.result.facts.some((fact: any) => fact.statementType === 'RAW_INPUT_TRANSACTION');
     const resolvedWorkspaceCurrency = String(job.functionalCurrency || ws?.currency || '').trim().toUpperCase();
     if (ws && resolvedWorkspaceCurrency && job.result.facts.length > 0) {
       ws.currency = resolvedWorkspaceCurrency;
@@ -650,6 +651,7 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     });
 
     job.result.facts.forEach((f: any) => {
+      const isRawTransaction = f.statementType === 'RAW_INPUT_TRANSACTION';
       const existingIdx = db.facts.findIndex(ef => ef.workspaceId === job.workspaceId && (ef.id === f.id || (ef.labelNormalized?.toLowerCase() === (f.labelNormalized || '').toLowerCase() && ef.valueFunctional === String(f.valueFunctional))));
 
       const normLower = (f.labelNormalized || f.labelOriginal || "").toLowerCase();
@@ -672,8 +674,9 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
         valueOriginal: f.valueOriginal || String(f.valueFunctional || ""),
         valueFunctional: String(f.valueFunctional || ""),
         normalizedValue: f.normalizedValue,
-        currencyOriginal: f.currencyOriginal || wsCurrency,
-        functionalCurrency: f.functionalCurrency || wsCurrency,
+        currencyOriginal: isRawTransaction ? f.currencyOriginal : (f.currencyOriginal || wsCurrency),
+        functionalCurrency: isRawTransaction ? f.functionalCurrency : (f.functionalCurrency || wsCurrency),
+        currency: isRawTransaction ? f.currency : (f.currency || f.functionalCurrency || wsCurrency),
         exchangeRate: f.exchangeRate,
         periodStart: f.periodStart,
         periodEnd: f.periodEnd,
@@ -704,6 +707,11 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
         sourceExtractionVersion: f.sourceExtractionVersion,
         universalProvenance: f.universalProvenance,
         provenance: f.provenance,
+        accountingRole: f.accountingRole,
+        canonicalizationState: f.canonicalizationState,
+        postingStatus: f.postingStatus,
+        clarificationReasons: f.clarificationReasons,
+        rawTransaction: f.rawTransaction,
         created_at: new Date().toISOString()
       };
 
@@ -722,7 +730,12 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     if (doc) {
       doc.extractedFactsCount = db.facts.filter(f => f.documentId === job.documentId).length;
       doc.status = "Completed";
-      if (resolvedWorkspaceCurrency) doc.currency = resolvedWorkspaceCurrency;
+      const rawSourceCurrencies = [...new Set(job.result.facts
+        .filter((fact: any) => fact.statementType === 'RAW_INPUT_TRANSACTION')
+        .map((fact: any) => fact.currency)
+        .filter(Boolean))];
+      if (isRawInputJob && rawSourceCurrencies.length === 1) doc.currency = String(rawSourceCurrencies[0]);
+      else if (!isRawInputJob && resolvedWorkspaceCurrency) doc.currency = resolvedWorkspaceCurrency;
       if ((job as any).pagesTotal) doc.pageCount = (job as any).pagesTotal;
     }
 
@@ -737,7 +750,11 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
       db.sourceBlocks.push(...(job as any).sourceBlocks.map((sb: any) => ({ ...sb, document_id: job.documentId })));
     }
 
-    if (job.result.facts.length > 0) reprocessWorkspaceExtraction(job.workspaceId);
+    // The legacy reprocessor is scoped to financial-statement facts. Raw
+    // transactions retain their exact extraction/evidence state for the
+    // separate accounting continuation rather than being interpreted as an
+    // incomplete statement or enriched with workspace defaults.
+    if (job.result.facts.length > 0 && !isRawInputJob) reprocessWorkspaceExtraction(job.workspaceId);
     // Reprocessing can materialize derived replacements after the initial
     // upsert. Converge once more at the transaction boundary so the durable
     // store and downstream lineage validator observe exactly one row per ID.
