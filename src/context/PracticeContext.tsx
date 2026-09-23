@@ -453,6 +453,7 @@ export const PracticeProvider: React.FC<{ children: ReactNode }> = ({ children }
         files,
         requestedWorkspaceName: options?.requestedWorkspaceName,
         academyExercise: options?.academyExercise === true,
+        academyTenantClassification: options?.academyTenantClassification,
         uploadIntent: options?.uploadIntent || 'ATTACH_TO_EXISTING_PROJECT',
         userEmail: userSession?.email
       });

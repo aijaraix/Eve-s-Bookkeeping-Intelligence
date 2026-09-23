@@ -22,7 +22,7 @@ function array(value: any, name: string): any[] {
 const upper = (v: any) => String(v || '').toUpperCase();
 const unique = (xs: any[]) => [...new Set(xs.filter(v => v !== undefined && v !== null && v !== ''))];
 function classification(id: string, name: string, explicit?: string): any {
-  if (['ACADEMY', 'CANARY', 'REGRESSION', 'DEMO', 'CUSTOMER'].includes(explicit || '')) return explicit;
+  if (['PRODUCTION_CUSTOMER', 'ACADEMY_SYNTHETIC', 'ACADEMY_PUBLIC_DATA', 'INTERNAL_ACCEPTANCE', 'ACADEMY', 'CANARY', 'REGRESSION', 'DEMO', 'CUSTOMER'].includes(explicit || '')) return explicit;
   if (id.includes('canary')) return 'CANARY';
   if (id.startsWith('eng-practice-') || name.includes('Academy')) return 'ACADEMY';
   return 'CUSTOMER';
@@ -92,7 +92,8 @@ function project(ws: any, engagementId: string, docs: any[], facts: any[], state
       sourceStatus: report.recordedStatus,
     });
   }
-  const cls = classification(engagementId, ws.name || '', ws.classification);
+  const cls = classification(engagementId, ws.name || '', ws.tenantClassification || ws.classification);
+  const isCustomer = cls === 'CUSTOMER' || cls === 'PRODUCTION_CUSTOMER';
   const eligible = facts.filter(f => upper(f.status) === 'APPROVED' && upper(f.verificationStatus || f.verification_status) === 'VERIFIED' && upper(f.evidenceStatus || f.evidence_status) === 'CONFIRMED' && (f.documentId || f.document_id) && String(f.sourceText || f.source_text || '').trim());
   const periods = unique(facts.map(f => f.reportingPeriod || f.period));
   const stage = state?.status?.startsWith('BLOCKED') ? 'STALLED' : state ? 'EVIDENCE_REVIEW' : docs.length ? 'DOCUMENTS_RECEIVED' : 'ONBOARDING';
@@ -103,7 +104,7 @@ function project(ws: any, engagementId: string, docs: any[], facts: any[], state
     `${agentId}: ${typeof finding === 'string' ? finding : [finding.topic, finding.description || finding.message || JSON.stringify(finding)].filter(Boolean).join(' — ')}`);
 
   return {
-    workspaceId: ws.id, engagementId, classification: cls, isCustomer: cls === 'CUSTOMER', clientId: ws.id, clientName: state?.clientName || ws.name || 'Name not recorded', entityName: state?.clientName || ws.name || 'Name not recorded', industry: ws.industry || 'Not recorded', jurisdiction: ws.country || 'Not recorded', period: reports[0]?.period || state?.fiscalYear || ws.period || (periods.length === 1 ? periods[0] : 'Not recorded'), periods,
+    workspaceId: ws.id, engagementId, classification: cls, isCustomer, clientId: ws.id, clientName: state?.clientName || ws.name || 'Name not recorded', entityName: state?.clientName || ws.name || 'Name not recorded', industry: ws.industry || 'Not recorded', jurisdiction: ws.country || 'Not recorded', period: reports[0]?.period || state?.fiscalYear || ws.period || (periods.length === 1 ? periods[0] : 'Not recorded'), periods,
     framework: ws.framework || null, functionalCurrency: ws.currency || state?.reportingCurrency || null, presentationCurrency: ws.currency || state?.reportingCurrency || null,
     currentStage: stage, status: state?.status || stage, stageProgressPercent: null, assignedPartner: null, assignedManager: null, leadAgents: [],
     documentsCount: docs.length, canonicalFactsCount: unique(eligible.map(f => f.id)).length,
@@ -112,7 +113,7 @@ function project(ws: any, engagementId: string, docs: any[], facts: any[], state
     openReviewNotesCount: findings.filter(f => !['CLEARED', 'Auto Resolved'].includes(f.status)).length, clearedReviewNotesCount: findings.filter(f => ['CLEARED', 'Auto Resolved'].includes(f.status)).length,
     reportsGeneratedCount: reports.length, latestReportId: reports[0]?.reportId, materiality: ws.materiality || null, startedAt: ws.createdAt || state?.startedAt || null, lastActivityAt: state?.updatedAt || ws.updatedAt || ws.createdAt || null,
     numericVariance: state?.euclidBalance?.variance ?? null, crossEngagementLeakageScore: null,
-    notes: cls === 'CUSTOMER' ? 'AI-prepared work. Authorized professional review remains required.' : 'Historical synthetic practice evidence; not customer work or professional certification.',
+    notes: isCustomer ? 'AI-prepared work. Authorized professional review remains required.' : 'Academy or acceptance evidence; not production customer work or professional certification.',
     documents: docs.map(d => ({ ...d, documentId: d.id, filename: d.originalName || d.filename || d.name || null, filesize: d.size ?? null, mimeType: d.mimeType || d.type || null, sha256: d.sha256 || null, classification: d.classification || cls, documentCategory: d.category || null, uploadedAt: d.createdAt || d.uploadedAt || null, pagesCount: d.pageCount ?? d.pagesCount ?? null })),
     documentHistory: workspaceDocuments.map(d => ({ ...d, documentId: d.id, filename: d.originalName || d.filename || d.name || null, filesize: d.size ?? null, mimeType: d.mimeType || d.type || null, sha256: d.sha256 || null, classification: d.classification || cls, documentCategory: d.category || null, uploadedAt: d.createdAt || d.uploadedAt || null, pagesCount: d.pageCount ?? d.pagesCount ?? null })),
     clarificationHistory,

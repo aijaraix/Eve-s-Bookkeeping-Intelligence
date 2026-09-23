@@ -5,6 +5,7 @@ import { IdentityStore, admin, internal, random, digest, roles, safeUser, type U
 import { page, escape as e, input, csrf, table, mark, marketing, demoThanks, notFound } from './portalPages.js';
 import { readOwnerEngagements } from '../cpaOrganization/ownerEngagementReadModel.js';
 import { supportStore } from '../support/supportStore.js';
+import { universityStore } from '../university/universityStore.js';
 const COOKIE='__Host-eve_session', PRE='__Host-eve_login_csrf';
 const publicLeadAttempts=new Map<string,{count:number;resetAt:number}>();
 const isPublicHost=(hostname:string)=>['evesbookkeeping.com','www.evesbookkeeping.com',...(process.env.EVE_PUBLIC_PREVIEW_HOSTS||'').split(',').map(value=>value.trim().toLowerCase()).filter(Boolean)].includes(hostname.toLowerCase());
@@ -16,11 +17,33 @@ const fail=(res:Response,status:number,message:string)=>res.status(status).type(
 const summary=(r:any)=>({workspaceId:r.workspaceId,engagementId:r.engagementId,clientName:r.clientName,status:r.status,period:r.period,documentsCount:r.documentsCount,canonicalFactsCount:r.canonicalFactsCount});
 function customerData(u:User,store:IdentityStore){const tenant=store.read().tenants.find(t=>t.id===u.tenantId);return tenant?readOwnerEngagements().filter(r=>r.isCustomer&&tenant.workspaceIds.includes(r.workspaceId)):[];}
 function customerProjection(r:any){return {...summary(r),periods:r.periods,numericVariance:r.numericVariance,documents:r.documents.map((d:any)=>({id:d.id,filename:d.filename,sha256:d.sha256,mimeType:d.mimeType})),facts:r.facts.filter((f:any)=>f.status==='APPROVED'&&(f.verificationStatus||f.verification_status)==='VERIFIED'&&(f.evidenceStatus||f.evidence_status)==='CONFIRMED').map((f:any)=>Object.fromEntries(['id','label','metric','value','period','reportingPeriod','currency','unit','scale','sourceText','documentId'].map(k=>[k,f[k]]))),findings:r.findings.filter((f:any)=>f.customerVisible===true).map((f:any)=>({id:f.id,title:f.title,message:f.message,status:f.status})),reports:r.reports.map((p:any)=>({reportId:p.reportId,version:p.version,status:p.status,title:p.title,formats:Object.keys(p.formats)}))};}
-const ownerSections=['overview','customers','support','engagements','documents','exceptions','academy','agents','reports','users','system','audit'];
+const ownerSections=['overview','customers','support','engagements','documents','exceptions','university','academy','agents','reports','users','system','audit'];
 const controlLink=(href:string,label:string)=>`<a class="control-link" href="${e(href)}">${e(label)}</a>`;
 const controlTable=(headers:string[],rows:string[][])=>`<div class="scroll"><table class="responsive-table"><thead><tr>${headers.map(value=>`<th>${e(value)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(row=>`<tr>${row.map((value,index)=>`<td data-label="${e(headers[index]||'')}">${value}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${headers.length}">No records available.</td></tr>`}</tbody></table></div>`;
 const previewDate=(value:string|null|undefined)=>value?e(new Date(value).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})): 'Not recorded';
 const caseBadge=(value:string)=>`<span class="status-badge">${e(value.replaceAll('_',' '))}</span>`;
+function universityDashboard(){
+ const snapshot=universityStore.snapshot(),overview=snapshot.overview;
+ const metric=(label:string,value:any)=>`<section class="card"><p>${e(label)}</p><div class="stat">${e(value)}</div></section>`;
+ const simple=(title:string,headers:string[],rows:any[][])=>`<section class="card"><h2>${e(title)}</h2>${table(headers,rows.map(row=>row.map(value=>String(value??'—'))))}</section>`;
+ return `<div class="grid">${[
+  ['Active examinations',overview.active],['Grading',overview.grading],['Remediation',overview.remediation],['Queue depth',overview.queueDepth],
+  ['Physical workers',overview.workersActive],['Regression passed',overview.regressionHealthy],['Owner requests',overview.ownerRequestsOpen],['Total examinations',overview.examinations]
+ ].map(([label,value])=>metric(String(label),value)).join('')}</div>
+ <section class="card"><h2>University Overview</h2><p>Raw document → understanding → evidence → canonical accounting → posting/workpapers → reconciliation or clarification → books → deliverable → reverse lineage → sealed Minerva grade.</p><p>Only physical execution evidence changes a capability from UNTESTED. Academy success does not grant production autonomy or professional approval.</p><a class="button" href="/workspace?view=eve-university">Open interactive University evidence</a></section>
+ ${simple('Live Examinations',['Examination','Name','Stage','Result'],snapshot.liveExaminations.map((row:any)=>[row.examinationId,row.name,row.stage,row.result]))}
+ ${simple('Synthetic Customers',['Tenant','Workspace','Classification','Result'],snapshot.syntheticCustomers.map((row:any)=>[row.tenantId,row.workspaceId,row.classification,row.result]))}
+ ${simple('Raw Input Lab',['Examination','Source','Documents','Stage','Result'],snapshot.rawInputLab.map((row:any)=>[row.examinationId,row.sourceType,row.documentCount,row.stage,row.result]))}
+ ${simple('Capability Matrix',['Capability','Name','Status','Physical executions'],snapshot.capabilityMatrix.map((row:any)=>[row.capabilityId,row.name,row.result,row.physicalExecutions]))}
+ ${simple('Failures & Remediation',['Failure','Examination','Stage','Status'],snapshot.failuresRemediation.map((row:any)=>[row.failureId,row.examinationId,row.stage,row.status]))}
+ ${simple('Regression',['Regression','Examination','Result','Hidden holdout'],snapshot.regression.map((row:any)=>[row.regressionId,row.examinationId,row.status,row.hiddenHoldoutId]))}
+ ${simple('Minerva',['Examination','Stage','Result','Updated'],snapshot.minerva.map((row:any)=>[row.examinationId,row.stage,row.result,row.updatedAt]))}
+ ${simple('Workforce',['Worker','Examination','Stage','Status','Started'],snapshot.workforce.map((row:any)=>[row.workerId,row.examinationId,row.stage,row.status,row.startedAt]))}
+ ${simple('Hermes',['Metric','Recorded value'],[['Queue depth',snapshot.hermes.queueDepth],['Active workers',snapshot.hermes.activeWorkers],['Physical executions',snapshot.hermes.physicalExecutions],['Idle reason',snapshot.hermes.idleReason]])}
+ ${simple('Learning / Darwin',['Failure','Root cause','Capability gap','Status'],snapshot.learningDarwin.map((row:any)=>[row.failureId,row.rootCause,row.capabilityGap,row.status]))}
+ ${simple('Curriculum',['Retained cases','Sealed holdouts'],[[snapshot.curriculum.retainedCases,snapshot.curriculum.sealedHoldouts]])}
+ ${simple('Owner Requests',['Request','Agent','Capability','Priority','Status'],snapshot.ownerRequests.map((row:any)=>[row.requestId,row.requestingAgent,row.proposedCapability,row.priority,row.status]))}`;
+}
 function navigation(u:User,token:string){return `${internal(u)?'<a href="/owner">Control center</a><a href="/workspace">Accounting workspace</a>':'<a href="/portal">My organization</a><a href="/portal/support">Help &amp; support</a>'}<a href="/account">My account</a><form class="inline" method="post" action="/auth/logout">${csrf(token)}<button data-eve-action-id="auth.logout">Log out</button></form>`;}
 export function createAccessPortal(store=identityStore){
  const router=express.Router();
@@ -102,7 +125,7 @@ export function createAccessPortal(store=identityStore){
     const parts=req.path.split('/').filter(Boolean).slice(1),section=parts[0]||'overview',resourceId=parts[1]||'',extra=parts[2];
     if(extra||!ownerSections.includes(section)||resourceId&&!['customers','support'].includes(section)){res.sendStatus(404);return;}
     if(['users','audit'].includes(section)&&!admin(user)){fail(res,403,'Platform administrator access required.');return;}
-    const all=readOwnerEngagements(),state=store.read(),ownerNav=ownerSections.filter(s=>admin(user)||!['users','audit'].includes(s)).map(s=>`<a href="/owner/${s}">${e(s==='users'?'Users & access':s==='exceptions'?'Exceptions / review':s)}</a>`).join('');
+    const all=readOwnerEngagements(),state=store.read(),ownerNav=ownerSections.filter(s=>admin(user)||!['users','audit'].includes(s)).map(s=>`<a href="/owner/${s}">${e(s==='users'?'Users & access':s==='exceptions'?'Exceptions / review':s==='university'?'Eve University':s)}</a>`).join('');
     const rows=(rs:any[])=>table(['Company','Workspace','Status','Documents','Eligible facts','Last activity'],rs.map(r=>[r.clientName,r.workspaceId,r.status,r.documentsCount,r.canonicalFactsCount,r.lastActivityAt]));
     const render=(title:string,content:string)=>{res.type('html').send(page(title,`<div class="eyebrow">Owner command center · isolated acceptance</div><h1>${e(title)}</h1><nav class="control-nav">${ownerNav}</nav>${content}`,navigation(user,session.csrf)));};
 
@@ -127,6 +150,7 @@ export function createAccessPortal(store=identityStore){
     if(section==='engagements')content=`<section class="card"><h2>Engagements</h2>${table(['Client','Period','Stage','Documents','Evidence','Review state','Report state','Last update'],all.map(r=>[r.clientName,r.period,r.status,r.documentsCount,r.canonicalFactsCount,'Review required where flagged',r.reports?.[0]?.status||'No report',r.lastActivityAt]))}</section>`;
     if(section==='documents')content=`<section class="card"><h2>Documents</h2>${table(['File','Client','Period','SHA / verification','Extraction state','Uploaded'],all.flatMap(r=>r.documents.map((d:any)=>[d.filename,r.clientName,r.period,d.sha256||'Not recorded',d.extractionState||'Recorded',d.uploadedAt||r.lastActivityAt])))}</section>`;
     if(section==='exceptions')content=`<section class="card"><h2>Exceptions / review</h2>${table(['Client','Issue','Status','Action'],all.flatMap(r=>r.findings.filter((f:any)=>f.status!=='RESOLVED').map((f:any)=>[r.clientName,f.title||f.message,f.status,'Open evidence / request clarification'])))}<p>Resolution remains governed by the existing evidence and professional-review rules.</p></section>`;
+    if(section==='university')content=universityDashboard();
     if(section==='academy')content=`<section class="card"><p>Academy remains operated by the existing Hermes scheduler. This screen reads saved engagement evidence; it does not start another scheduler.</p>${rows(all.filter(r=>r.classification==='ACADEMY'))}<a class="button" href="/workspace?view=eve-academy">Open Academy evidence</a><p>Live Hermes scheduler and browser learning files are retained on Hermes. A remote status feed is not yet connected to this control center.</p></section>`;
     if(section==='agents')content=`<section class="card">${table(['Company','Agent','Status','Model','Execution'],all.flatMap(r=>(r.continuation?.specialistSummary?.jobs||[]).map((j:any)=>[r.clientName,j.agentId,j.status,j.provenance?.actualModel||j.provenance?.model||'Not recorded',j.agentExecutionId])))}<a href="/workspace?view=eve-intelligence">Open agent evidence</a></section>`;
     if(section==='reports')content=`<section class="card"><h2>Reports</h2>${table(['Company','Report','Version','Review state','Formats'],all.flatMap(r=>r.reports.map((p:any)=>[r.clientName,p.reportId,p.version,p.status,Object.keys(p.formats).join(', ')])))}<a class="button" href="/workspace?view=practice-engagements">Open engagement to review and download</a></section>`;

@@ -73,6 +73,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [reportingStandard, setReportingStandard] = useState<'IFRS' | 'US_GAAP' | 'UK_FRS' | 'STATUTORY'>('IFRS');
   const [engagementCurrency, setEngagementCurrency] = useState('USD');
   const [academyExercise, setAcademyExercise] = useState(false);
+  const [academyTenantClassification, setAcademyTenantClassification] = useState<'ACADEMY_SYNTHETIC' | 'ACADEMY_PUBLIC_DATA' | 'INTERNAL_ACCEPTANCE'>('ACADEMY_SYNTHETIC');
   const [savedIntakes, setSavedIntakes] = useState<any[]>([]);
   const [savedIntakeId, setSavedIntakeId] = useState('');
   useEffect(() => {
@@ -91,7 +92,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   useEffect(() => {
     setPhase('SETUP'); setSelectedFiles([]); setError(null); setLastCompletedJob(null);
     setNewEngagementName(''); setNewClientName(''); setTargetWorkspaceId('');
-    setRoutingMode('NEW_ENGAGEMENT'); setAcademyExercise(false);
+    setRoutingMode('NEW_ENGAGEMENT'); setAcademyExercise(false); setAcademyTenantClassification('ACADEMY_SYNTHETIC');
   }, [operatorScope]);
 
   // Sync target workspace if prop changes
@@ -216,6 +217,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
       await submitDocuments(selectedFiles, {
         academyExercise: routingMode === 'NEW_ENGAGEMENT' && academyExercise,
+        academyTenantClassification: routingMode === 'NEW_ENGAGEMENT' && academyExercise ? academyTenantClassification : undefined,
         uploadIntent: routingMode === 'NEW_ENGAGEMENT' ? 'CREATE_NEW_INTAKE' : 'ATTACH_TO_EXISTING_PROJECT',
         targetWorkspaceId: finalTargetWsId,
         requestedWorkspaceName: routingMode === 'NEW_ENGAGEMENT' ? newEngagementName.trim() : undefined,
@@ -466,11 +468,20 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 </div>
 
                 {routingMode === 'NEW_ENGAGEMENT' && (
-                  <label className="flex items-start gap-2 text-xs text-slate-700">
-                    <input type="checkbox" {...actionAttributes('intake.academy')} checked={academyExercise}
-                      onChange={event => setAcademyExercise(event.target.checked)} />
-                    <span>Isolated Academy exercise — synthetic training documents only</span>
-                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-2 text-xs text-slate-700">
+                      <input type="checkbox" {...actionAttributes('intake.academy')} checked={academyExercise}
+                        onChange={event => setAcademyExercise(event.target.checked)} />
+                      <span>Isolated Academy exercise — governed non-production documents only</span>
+                    </label>
+                    {academyExercise && <label className="block text-[11px] font-semibold text-slate-600">Academy classification
+                      <select value={academyTenantClassification} onChange={event => setAcademyTenantClassification(event.target.value as typeof academyTenantClassification)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2 text-xs text-slate-800">
+                        <option value="ACADEMY_SYNTHETIC">Academy synthetic</option>
+                        <option value="ACADEMY_PUBLIC_DATA">Academy public data</option>
+                        <option value="INTERNAL_ACCEPTANCE">Internal acceptance</option>
+                      </select>
+                    </label>}
+                  </div>
                 )}
                 {savedIntakes.length > 0 && <div className="flex flex-wrap gap-2 text-xs">
                   <select aria-label="Saved Academy intake" {...actionAttributes('intake.saved.select')} value={savedIntakeId} onChange={e => setSavedIntakeId(e.target.value)}>

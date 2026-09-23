@@ -35,7 +35,7 @@ try{
  assert.equal((await request('/owner')).status,302);
  assert.equal((await request('/api/portal/engagements')).status,401);
  assert.equal((await request('/owner',first.token)).status,302);
- for(const url of ['/owner','/owner/users','/api/workspaces','/api/review/facts','/api/cpa/engagements/universal','/api/queue/jobs','/api/health','/storage/accounts.json','/operator-login'])assert.equal((await request(url,client.token)).status,403,url);
+ for(const url of ['/owner','/owner/university','/owner/users','/api/workspaces','/api/review/facts','/api/cpa/engagements/universal','/api/queue/jobs','/api/health','/storage/accounts.json','/operator-login'])assert.equal((await request(url,client.token)).status,403,url);
  const response=await request('/api/portal/engagements',client.token);const data=await response.json();assert.deepEqual(data.engagements.map((r:any)=>r.workspaceId),['customer-a']);
  assert.equal((await request('/api/portal/engagements/customer-b',client.token)).status,404);
  assert.equal((await request('/api/portal/engagements/academy',client.token)).status,404);
@@ -43,6 +43,7 @@ try{
  assert.equal((await request('/api/portal/engagements/customer-a',client.token)).status,200);
  assert.equal((await request('/portal',client.token)).status,200);
  assert.equal((await request('/owner',owner.token)).status,200);
+ const university=await request('/owner/university',owner.token);assert.equal(university.status,200);const universityHtml=await university.text();for(const label of ['University Overview','Live Examinations','Synthetic Customers','Raw Input Lab','Capability Matrix','Failures &amp; Remediation','Regression','Minerva','Workforce','Hermes','Learning / Darwin','Curriculum','Owner Requests'])assert.match(universityHtml,new RegExp(label));
  assert.equal((await request('/api/workspaces',owner.token)).status,200);
  const principal=(await(await request('/api/cpa/any',owner.token)).json()).user;assert.equal(principal.role,'OWNER');assert.deepEqual(principal.claims,['INTERNAL_OPERATOR']);
  assert.equal((await request('/auth/revoke-all',owner.token,{method:'POST'})).status,403);

@@ -6,7 +6,7 @@ export const roles = ['OWNER','PLATFORM_ADMIN','INTERNAL_OPERATOR','CPA_REVIEWER
 export type Role = typeof roles[number];
 export interface User { id:string; email:string; role:Role; tenantId:string|null; passwordHash:string; mustChangePassword:boolean; temporaryExpiresAt:number|null; disabled:boolean; createdAt:string; }
 export interface Session { hash:string; userId:string; csrf:string; expiresAt:number; restricted:boolean; createdAt:string; }
-export interface Tenant { id:string; name:string; workspaceIds:string[]; }
+export interface Tenant { id:string; name:string; workspaceIds:string[]; classification?:'PRODUCTION_CUSTOMER'|'ACADEMY_SYNTHETIC'|'ACADEMY_PUBLIC_DATA'|'INTERNAL_ACCEPTANCE'; }
 interface State { version:1; users:User[]; sessions:Session[]; tenants:Tenant[]; attempts:Record<string,{count:number;until:number}>; audit:{at:string;actor:string;event:string;subject:string}[]; }
 export const digest=(s:string)=>crypto.createHash('sha256').update(s).digest('hex');
 export const random=()=>crypto.randomBytes(32).toString('base64url');

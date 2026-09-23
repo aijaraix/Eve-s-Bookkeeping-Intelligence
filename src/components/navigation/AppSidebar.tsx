@@ -97,6 +97,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   const eveNav = [
     { id: 'eve-copilot', label: 'Eve Copilot', icon: Bot },
     { id: 'eve-intelligence', label: 'Intelligence Center', icon: Cpu },
+    { id: 'eve-university', label: 'Eve University', icon: GraduationCap },
     { id: 'eve-academy', label: 'Hermes Academy', icon: GraduationCap }
   ];
 

@@ -106,6 +106,8 @@ export interface CompanyEntity {
 export type Company = CompanyEntity;
 
 export interface Workspace {
+  classification?: 'ACADEMY' | 'CUSTOMER';
+  tenantClassification?: 'PRODUCTION_CUSTOMER' | 'ACADEMY_SYNTHETIC' | 'ACADEMY_PUBLIC_DATA' | 'INTERNAL_ACCEPTANCE';
   id: string;
   name: string;
   code?: string;
@@ -275,6 +277,7 @@ export interface StatementLineItem {
 
 export interface DocumentRecord {
   classification?: 'ACADEMY' | 'CUSTOMER';
+  tenantClassification?: 'PRODUCTION_CUSTOMER' | 'ACADEMY_SYNTHETIC' | 'ACADEMY_PUBLIC_DATA' | 'INTERNAL_ACCEPTANCE';
   id: string;
   workspaceId: string;
   filename: string;
@@ -349,6 +352,8 @@ export interface ProcessingUnitRecord {
 }
 
 export interface IntakeSessionRecord {
+  classification?: 'ACADEMY' | 'CUSTOMER';
+  tenantClassification?: 'PRODUCTION_CUSTOMER' | 'ACADEMY_SYNTHETIC' | 'ACADEMY_PUBLIC_DATA' | 'INTERNAL_ACCEPTANCE';
   requestedWorkspaceName?: string;
   id: string;
   workspaceId?: string;

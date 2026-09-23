@@ -146,6 +146,7 @@ export async function uploadDocuments(params: {
   files: File[];
   requestedWorkspaceName?: string;
   academyExercise?: boolean;
+  academyTenantClassification?: 'ACADEMY_SYNTHETIC' | 'ACADEMY_PUBLIC_DATA' | 'INTERNAL_ACCEPTANCE';
   uploadIntent: 'CREATE_NEW_INTAKE' | 'ATTACH_TO_EXISTING_PROJECT';
   workspaceId?: string;
   userEmail?: string;
@@ -158,6 +159,7 @@ export async function uploadDocuments(params: {
   }
   fd.append('uploadIntent', params.uploadIntent);
   if (params.academyExercise) fd.append('academyExercise', 'true');
+  if (params.academyExercise && params.academyTenantClassification) fd.append('academyTenantClassification', params.academyTenantClassification);
   if (params.uploadIntent === 'CREATE_NEW_INTAKE' && params.requestedWorkspaceName) fd.append('requestedWorkspaceName', params.requestedWorkspaceName);
   if (params.workspaceId) fd.append('workspaceId', params.workspaceId);
   if (params.userEmail) fd.append('userEmail', params.userEmail);

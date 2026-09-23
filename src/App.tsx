@@ -38,6 +38,7 @@ import { RecordedEngagementEvidenceView } from './components/views/engagement/Re
 import { DeliverablesView } from './components/views/engagement/DeliverablesView';
 import { EveIntelligenceCenterView } from './components/views/eve/EveIntelligenceCenterView';
 import { EveAcademyView } from './components/views/eve/EveAcademyView';
+import { EveUniversityView } from './components/views/eve/EveUniversityView';
 import { EveCopilotView } from './components/views/eve/EveCopilotView';
 import { SystemHealthView } from './components/views/admin/SystemHealthView';
 import { FirmBrandingView } from './components/views/admin/FirmBrandingView';
@@ -325,6 +326,8 @@ function EveCpaStudioMain() {
           {activeView === 'eve-academy' && (
             <EveAcademyView onNavigate={setActiveView} />
           )}
+
+          {activeView === 'eve-university' && <EveUniversityView />}
 
           {/* SECTION 4: ADMINISTRATION */}
           {activeView === 'admin-firm' && (

@@ -72,6 +72,7 @@ export class IntakeService {
   public createIntakeSession(params: {
     requestedWorkspaceName?: string;
     classification?: 'ACADEMY' | 'CUSTOMER';
+    tenantClassification?: 'PRODUCTION_CUSTOMER' | 'ACADEMY_SYNTHETIC' | 'ACADEMY_PUBLIC_DATA' | 'INTERNAL_ACCEPTANCE';
     targetProjectId?: string | null;
     userId?: string;
     userEmail?: string;
@@ -92,6 +93,7 @@ export class IntakeService {
       id: intakeId,
       targetProjectId: params.targetProjectId || null,
       classification: params.classification || 'CUSTOMER',
+      tenantClassification: params.tenantClassification || (params.classification === 'ACADEMY' ? 'ACADEMY_SYNTHETIC' : 'PRODUCTION_CUSTOMER'),
       requestedWorkspaceName: params.targetProjectId ? undefined : params.requestedWorkspaceName,
       userId: params.userId || 'usr-default',
       userEmail: params.userEmail || '',
@@ -286,6 +288,7 @@ export class IntakeService {
         id: `ws-${Date.now()}`,
         name: intake.requestedWorkspaceName || primaryEntityName,
         classification: intake.classification || 'CUSTOMER',
+        tenantClassification: intake.tenantClassification || (intake.classification === 'ACADEMY' ? 'ACADEMY_SYNTHETIC' : 'PRODUCTION_CUSTOMER'),
         code: `${cleanCode}-${Math.floor(100 + Math.random() * 900)}`,
         currency: resolvedCurrency,
         country: resolvedCurrency === 'USD' ? 'United States' : 'Consolidated Group',
@@ -342,8 +345,9 @@ export class IntakeService {
         const existing = db.documents.find(d => d.id === doc.id);
         if (existing) {
           existing.workspaceId = wsId;
+          existing.tenantClassification = intake.tenantClassification || (intake.classification === 'ACADEMY' ? 'ACADEMY_SYNTHETIC' : 'PRODUCTION_CUSTOMER');
         } else {
-          db.documents.push({ ...doc, workspaceId: wsId });
+          db.documents.push({ ...doc, workspaceId: wsId, tenantClassification: intake.tenantClassification || (intake.classification === 'ACADEMY' ? 'ACADEMY_SYNTHETIC' : 'PRODUCTION_CUSTOMER') });
         }
       });
     }
