@@ -94,7 +94,7 @@ try {
   const portal = await fetch(`${base}/portal`, { headers: { host: 'eve.test', cookie: customer.cookie } });
   const portalHtml = await portal.text();
   assert.equal(portal.status, 200);
-  for (const expected of ['North Star Synthetic Office', 'vertical-receipt.txt', 'Raw accounting continuation', 'MINERVA_GRADING', 'REVERSE_LINEAGE_VERIFIED', 'Raw Input Accounting Review Package']) {
+  for (const expected of ['North Star Synthetic Office', 'vertical-receipt.txt', 'Raw accounting continuation', 'MINERVA_GRADING', 'Transaction facts', 'Evidence and provenance', 'Workpaper / books', 'DRAFT_NOT_POSTED_TO_PRODUCTION_BOOKS', 'Four-format deliverable', 'Reverse lineage', 'REVERSE_LINEAGE_VERIFIED', 'Raw Input Accounting Review Package']) {
     assert.ok(portalHtml.includes(expected), `customer portal missing ${expected}`);
   }
   const reportUrl = portalHtml.match(/href="([^"]*\/api\/portal\/report[^"]*format=json)"/)?.[1]?.replaceAll('&amp;', '&');
@@ -108,7 +108,7 @@ try {
   const ownerPage = await fetch(`${base}/owner/university`, { headers: { host: 'eve.test', cookie: owner.cookie } });
   const ownerHtml = await ownerPage.text();
   assert.equal(ownerPage.status, 200);
-  for (const expected of ['University Overview', 'North Star Synthetic Office', 'Minerva', 'Workforce', 'Hermes']) assert.ok(ownerHtml.includes(expected), `owner command center missing ${expected}`);
+  for (const expected of ['University Overview', 'North Star Synthetic Office', 'Minerva', 'Workforce', 'Hermes', 'Raw Accounting Case State', 'Transaction facts', 'Evidence and provenance', 'Workpaper / books', 'Four-format deliverable', 'Reverse lineage']) assert.ok(ownerHtml.includes(expected), `owner command center missing ${expected}`);
   assert.equal(continuation.status, 'ACTIVE', 'Minerva must remain queued until real browser and deliverable readback proof is recorded');
   assert.equal(continuation.physicalProof, undefined);
 

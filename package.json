@@ -22,7 +22,8 @@
     "test:raw-input": "node --import tsx server/tests/rawInputTransactionExtraction.test.ts",
     "test:hermes-raw": "node --import tsx server/tests/rawInputHermesContinuation.test.ts"
     ,"test:raw-vertical": "node --import tsx server/tests/rawInputAccountingVerticalSlice.test.ts",
-    "test:raw-live": "node --import tsx server/tests/rawInputLiveServerJourney.test.ts"
+    "test:raw-live": "node --import tsx server/tests/rawInputLiveServerJourney.test.ts",
+    "test:checkpoint4-local": "node --import tsx scripts/checkpoint4-local-browser-acceptance.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

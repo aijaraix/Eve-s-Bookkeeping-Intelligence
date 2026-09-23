@@ -201,6 +201,14 @@ export function operatorAccess(req: Request, res: Response, next: NextFunction):
   if (req.path === '/operator-logout') { operatorLogout(req, res); return; }
 
   if ((req as any).eveIdentity && ['OWNER', 'PLATFORM_ADMIN', 'INTERNAL_OPERATOR'].includes((req as any).eveIdentity.user.role)) { next(); return; }
+  const customerUpload = (req as any).eveCustomerUpload;
+  const customerIdentity = (req as any).eveIdentity;
+  if (req.path === '/api/documents/upload' && req.method === 'POST' && customerUpload && customerIdentity?.user &&
+      customerIdentity.user.tenantId === customerUpload.tenantId &&
+      ['CLIENT_ADMIN', 'CLIENT_USER'].includes(customerIdentity.user.role) &&
+      Array.isArray(customerUpload.workspaceIds) && customerUpload.workspaceIds.length > 0) {
+    next(); return;
+  }
 
   const secret = operatorSecret();
   if (!secret) { res.status(503).json({ error: 'OPERATOR_ACCESS_NOT_CONFIGURED' }); return; }

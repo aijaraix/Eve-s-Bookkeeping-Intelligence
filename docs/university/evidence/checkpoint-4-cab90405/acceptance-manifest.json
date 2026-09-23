@@ -1,0 +1,119 @@
+{
+  "checkpoint": 4,
+  "exactBuild": "cab90405b0a18453488891718509799f8fcfeef0",
+  "runtime": "LOCAL_SAME_NAMESPACE_HTTPS_EXPRESS_CHROMIUM_LOOPBACK_ONLY",
+  "browser": "HeadlessChrome/152.0.7977.0",
+  "syntheticAuth": "PASS",
+  "customerBrowser": "PASS",
+  "ownerBrowser": "PASS",
+  "case": {
+    "continuationId": "raw-cont-6a6bc410-2cd5-469d-8d0c-b17e32fc46f8",
+    "examinationId": "univ-exam-e4758e2e-20cd-4d70-9410-03ae76a4d5e0",
+    "sourceType": "RECEIPT",
+    "workspaceId": "ws-checkpoint4-vertical",
+    "tenantClassification": "ACADEMY_SYNTHETIC"
+  },
+  "transactionFacts": 1,
+  "evidence": "COMPLETE",
+  "canonicalAccounting": "RAW_TRANSACTIONS_CANONICALIZED",
+  "downstreamWorkers": [
+    {
+      "stage": "EVIDENCE_COMPLETION",
+      "workerId": "VERITAS_EVIDENCE_AUDITOR",
+      "status": "COMPLETED",
+      "outcomeCode": "EVIDENCE_COMPLETE",
+      "receiptHash": "7662db4516dbd9ef437f513366429e6486d91077e878ef7c25473bf222333dd7"
+    },
+    {
+      "stage": "CANONICALIZATION",
+      "workerId": "LEDGER_CANONICALIZER",
+      "status": "COMPLETED",
+      "outcomeCode": "RAW_TRANSACTIONS_CANONICALIZED",
+      "receiptHash": "2613d0503c3a72285816eb6b8387d57a0b275f2c1dfa271c37c3210e2070405d"
+    },
+    {
+      "stage": "ACCOUNTING_CLASSIFICATION",
+      "workerId": "LEDGER_ACCOUNTING_CLASSIFIER",
+      "status": "COMPLETED",
+      "outcomeCode": "CLASSIFICATION_COMPLETE",
+      "receiptHash": "648ed198cc2559b687a2295dfca44b76d477f1546ba907b38c8dee4e55e125e1"
+    },
+    {
+      "stage": "POSTING_WORKPAPER",
+      "workerId": "LEDGER_POSTING_WORKPAPER",
+      "status": "COMPLETED",
+      "outcomeCode": "DRAFT_BOOKS_WORKPAPER_CREATED",
+      "receiptHash": "11456d7630efb0c8c06fa0a6479c9d86cd504592fdfe96c6b984d5171ab96d95"
+    },
+    {
+      "stage": "REPORT_DELIVERABLE",
+      "workerId": "LEXICON_DELIVERABLE",
+      "status": "COMPLETED",
+      "outcomeCode": "AI_PREPARED_DELIVERABLE_CREATED",
+      "receiptHash": "3deeadbe75f8bb492bb532422c40c1ee883f28925229b4abb844edcf352532d8"
+    },
+    {
+      "stage": "LINEAGE_VERIFICATION",
+      "workerId": "VERITAS_LINEAGE_AUDITOR",
+      "status": "COMPLETED",
+      "outcomeCode": "REVERSE_LINEAGE_VERIFIED",
+      "receiptHash": "110ff68ee21c1aef50aa485344ed3d82cd5acc46390b7602f7478483295f1b8c"
+    },
+    {
+      "stage": "MINERVA_GRADING",
+      "workerId": "MINERVA_INDEPENDENT_EXAMINER",
+      "status": "COMPLETED",
+      "outcomeCode": "FIVE_DIMENSION_PASS",
+      "receiptHash": "d5afcee4da632e509e597d0d93c6b79f0c248efbc6ff603fc31df1665bbb1aa3"
+    }
+  ],
+  "workpaperBooks": {
+    "workpaperId": "WP-raw-cont-6a6bc410-2cd5-469d-8d0c-b17e32fc46f8",
+    "balanced": true,
+    "postingState": "DRAFT_NOT_POSTED_TO_PRODUCTION_BOOKS"
+  },
+  "deliverable": {
+    "reportId": "RAW-aed0b0767e224182",
+    "version": "v1.0",
+    "formats": [
+      "readback:pdf:dfb0b8e6d8a8cd009d8a0774d8c6a47333943faf4c547d8748b2eab4252f2184",
+      "readback:xlsx:b16ccd9ba2c134e4260e80f0593d18bf8fa52956060493792377f99dafc6cb40",
+      "readback:csv:23193ed314cfb7417325baa128934707598960d33fabe25beae2f89d10f3c636",
+      "readback:json:43e87d9b7156e16a122cac0eadced96163d4f4f7eb3164ca22ea31883b6a70c2"
+    ]
+  },
+  "reverseLineage": {
+    "valid": true,
+    "count": 1
+  },
+  "minervaResult": "PASS",
+  "screenshotCount": 20,
+  "screenshots": [
+    "browser/01-customer-workspace-before-upload.png",
+    "browser/02-customer-upload-accepted.png",
+    "browser/03-customer-documents-and-source.png",
+    "browser/04-customer-processing-and-accounting.png",
+    "browser/05-customer-transaction-facts.png",
+    "browser/06-customer-evidence-provenance.png",
+    "browser/07-customer-workpaper-books.png",
+    "browser/08-customer-four-format-deliverable.png",
+    "browser/09-customer-reverse-lineage.png",
+    "browser/10-customer-exceptions-not-applicable.png",
+    "browser/11-owner-overview.png",
+    "browser/12-owner-customers.png",
+    "browser/13-owner-customer-detail.png",
+    "browser/14-owner-documents.png",
+    "browser/15-owner-exceptions-not-applicable.png",
+    "browser/16-owner-reports.png",
+    "browser/17-owner-academy.png",
+    "browser/18-owner-university-before-grade.png",
+    "browser/19-owner-university-minerva-grade.png",
+    "browser/20-customer-final-accounting-lineage-grade.png"
+  ],
+  "productionTouched": false,
+  "oldK3sCandidateTouched": false,
+  "mainTouched": false,
+  "recoveryBranchTouched": false,
+  "pr31Merged": false,
+  "completedAt": "2026-09-23T18:45:11.877Z"
+}

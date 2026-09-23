@@ -84,4 +84,19 @@ assert.equal(probe({ cookie: fallbackCookie, host: 'example.test', origin: 'http
 delete process.env.PASSWORD;
 assert.equal(probe({}).status, 503);
 
+const { result: customerUploadResult, res: customerUploadResponse } = responseProbe();
+customerUploadResult.next = false;
+const customerUploadRequest: any = {
+  path: '/api/documents/upload', originalUrl: '/api/documents/upload', method: 'POST', query: {},
+  socket: { remoteAddress: '127.0.0.3' }, get: () => undefined,
+  eveIdentity: { user: { role: 'CLIENT_ADMIN', tenantId: 'tenant-a' } },
+  eveCustomerUpload: { tenantId: 'tenant-a', workspaceIds: ['workspace-a'], userId: 'client-a', email: 'client@example.test' },
+};
+operatorAccess(customerUploadRequest, customerUploadResponse, () => { customerUploadResult.next = true; });
+assert.equal(customerUploadResult.next, true);
+customerUploadRequest.eveCustomerUpload.tenantId = 'tenant-b';
+const denied = responseProbe();
+operatorAccess(customerUploadRequest, denied.res, () => { denied.result.next = true; });
+assert.equal(denied.result.status, 503);
+
 console.log('operatorAccess: explicit/derived PIN login, secure session cookie, unauthenticated redirect/API denial, cross-site rejection, health bypass and missing configuration checks passed; no professional principal granted');
