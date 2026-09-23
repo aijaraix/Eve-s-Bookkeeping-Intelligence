@@ -19,7 +19,8 @@
     "build:academy": "esbuild scripts/academy-ui-tick.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/academy-ui-tick.cjs",
     "test:access": "node --import tsx server/tests/accessPortal.test.ts && node --import tsx server/tests/operatorAccess.test.ts",
     "test:university": "node --import tsx server/tests/universityActivation.test.ts",
-    "test:raw-input": "node --import tsx server/tests/rawInputTransactionExtraction.test.ts"
+    "test:raw-input": "node --import tsx server/tests/rawInputTransactionExtraction.test.ts",
+    "test:hermes-raw": "node --import tsx server/tests/rawInputHermesContinuation.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

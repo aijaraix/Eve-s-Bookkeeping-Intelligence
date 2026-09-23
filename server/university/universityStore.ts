@@ -49,6 +49,12 @@ export interface UniversityWorkerExecution {
   startedAt: string | null;
   completedAt: string | null;
   result: string | null;
+  sourceJobId?: string;
+  continuationId?: string;
+  inputRefs?: string[];
+  outputRefs?: string[];
+  executionReceiptHash?: string | null;
+  blockedReason?: string | null;
 }
 
 export interface UniversityFailure {
@@ -254,6 +260,137 @@ export class UniversityStore {
     });
   }
 
+  findExamination(params: { intakeId?: string; workspaceId?: string; examinationId?: string }): UniversityExamination | null {
+    const state = this.read();
+    return state.examinations.find(row =>
+      (params.examinationId && row.examinationId === params.examinationId) ||
+      (params.intakeId && row.intakeId === params.intakeId) ||
+      (params.workspaceId && row.workspaceId === params.workspaceId)
+    ) || null;
+  }
+
+  recordSchedulerDecision(params: { examinationId?: string | null; action: string; reason: string }) {
+    return this.transaction(state => {
+      const decision = {
+        decisionId: `univ-decision-${crypto.randomUUID()}`,
+        examinationId: params.examinationId || null,
+        action: params.action.slice(0, 120),
+        reason: params.reason.slice(0, 1000),
+        createdAt: new Date().toISOString()
+      };
+      state.schedulerDecisions.push(decision);
+      return decision;
+    });
+  }
+
+  queueWorkerExecution(params: {
+    executionId: string;
+    examinationId: string;
+    workerId: string;
+    stage: UniversityStage;
+    sourceJobId?: string;
+    continuationId?: string;
+    inputRefs?: string[];
+  }): UniversityWorkerExecution {
+    return this.transaction(state => {
+      const existing = state.workerExecutions.find(row => row.executionId === params.executionId);
+      if (existing) return existing;
+      const examination = state.examinations.find(row => row.examinationId === params.examinationId);
+      if (!examination) throw new Error('UNIVERSITY_EXAMINATION_NOT_FOUND');
+      const execution: UniversityWorkerExecution = {
+        executionId: params.executionId,
+        examinationId: params.examinationId,
+        workerId: params.workerId,
+        stage: params.stage,
+        status: 'QUEUED',
+        startedAt: null,
+        completedAt: null,
+        result: null,
+        sourceJobId: params.sourceJobId,
+        continuationId: params.continuationId,
+        inputRefs: [...new Set(params.inputRefs || [])],
+        outputRefs: [],
+        executionReceiptHash: null,
+        blockedReason: null
+      };
+      state.workerExecutions.push(execution);
+      examination.stage = params.stage;
+      examination.updatedAt = new Date().toISOString();
+      return execution;
+    });
+  }
+
+  startWorkerExecution(executionId: string): UniversityWorkerExecution {
+    return this.transaction(state => {
+      const execution = state.workerExecutions.find(row => row.executionId === executionId);
+      if (!execution) throw new Error('UNIVERSITY_WORKER_EXECUTION_NOT_FOUND');
+      if (execution.status === 'COMPLETED' || execution.status === 'FAILED' || execution.status === 'BLOCKED') return execution;
+      execution.status = 'RUNNING';
+      execution.startedAt = execution.startedAt || new Date().toISOString();
+      const examination = state.examinations.find(row => row.examinationId === execution.examinationId);
+      if (examination) {
+        examination.stage = execution.stage;
+        examination.updatedAt = new Date().toISOString();
+      }
+      return execution;
+    });
+  }
+
+  finishWorkerExecution(params: {
+    executionId: string;
+    status: 'COMPLETED' | 'FAILED' | 'BLOCKED';
+    result: string;
+    outputRefs?: string[];
+    executionReceiptHash?: string;
+    blockedReason?: string;
+  }): UniversityWorkerExecution {
+    return this.transaction(state => {
+      const execution = state.workerExecutions.find(row => row.executionId === params.executionId);
+      if (!execution) throw new Error('UNIVERSITY_WORKER_EXECUTION_NOT_FOUND');
+      if (!execution.startedAt) throw new Error('UNIVERSITY_PHYSICAL_START_REQUIRED');
+      execution.status = params.status;
+      execution.completedAt = new Date().toISOString();
+      execution.result = params.result.slice(0, 1000);
+      execution.outputRefs = [...new Set(params.outputRefs || [])];
+      execution.executionReceiptHash = params.executionReceiptHash || null;
+      execution.blockedReason = params.blockedReason || null;
+      const examination = state.examinations.find(row => row.examinationId === execution.examinationId);
+      if (examination) examination.updatedAt = execution.completedAt;
+      return execution;
+    });
+  }
+
+  advanceExamination(examinationId: string, stage: UniversityStage, result?: UniversityResult): UniversityExamination {
+    return this.transaction(state => {
+      const examination = state.examinations.find(row => row.examinationId === examinationId);
+      if (!examination) throw new Error('UNIVERSITY_EXAMINATION_NOT_FOUND');
+      examination.stage = stage;
+      if (result) examination.result = result;
+      examination.updatedAt = new Date().toISOString();
+      return examination;
+    });
+  }
+
+  recordFailure(params: { examinationId: string; stage: UniversityStage; rootCause: string; capabilityGap: string }): UniversityFailure {
+    return this.transaction(state => {
+      const existing = state.failures.find(row => row.examinationId === params.examinationId && row.stage === params.stage && row.rootCause === params.rootCause && row.status !== 'CLOSED');
+      if (existing) return existing;
+      const now = new Date().toISOString();
+      const failure: UniversityFailure = {
+        failureId: `univ-failure-${crypto.randomUUID()}`,
+        examinationId: params.examinationId,
+        stage: params.stage,
+        rootCause: params.rootCause.slice(0, 1000),
+        capabilityGap: params.capabilityGap.slice(0, 1000),
+        status: 'OPEN',
+        createdAt: now,
+        updatedAt: now
+      };
+      state.failures.push(failure);
+      return failure;
+    });
+  }
+
   inventoryPurge(classifications: UniversityTenantClassification[]) {
     const requested = [...new Set(classifications)];
     if (requested.includes('PRODUCTION_CUSTOMER')) throw new Error('UNIVERSITY_PURGE_PRODUCTION_REJECTED');
@@ -308,6 +445,7 @@ export class UniversityStore {
     const counts = (values: UniversityResult[]) => Object.fromEntries(values.map(result => [result, state.examinations.filter(row => row.result === result).length]));
     const activeWorkers = state.workerExecutions.filter(row => row.status === 'RUNNING' && row.startedAt && !row.completedAt);
     const queueDepth = state.workerExecutions.filter(row => row.status === 'QUEUED').length;
+    const latestSchedulerDecision = state.schedulerDecisions.at(-1);
     const latestExecutionByWorker = new Map<string, UniversityWorkerExecution>();
     for (const execution of state.workerExecutions.slice().sort((a, b) => String(b.startedAt || '').localeCompare(String(a.startedAt || '')))) {
       if (!latestExecutionByWorker.has(execution.workerId)) latestExecutionByWorker.set(execution.workerId, execution);
@@ -367,7 +505,9 @@ export class UniversityStore {
         activeWorkers: activeWorkers.length,
         physicalExecutions: state.workerExecutions.length,
         decisions: state.schedulerDecisions.slice(-100).reverse(),
-        idleReason: queueDepth === 0 && activeWorkers.length === 0 ? 'NO_ELIGIBLE_RECORDED_UNIVERSITY_WORK' : null
+        idleReason: activeWorkers.length > 0 ? null
+          : queueDepth > 0 ? `QUEUED_WORK_AWAITING_ELIGIBLE_EXECUTOR: ${latestSchedulerDecision?.reason || 'No runnable worker is currently registered.'}`
+            : 'NO_ELIGIBLE_RECORDED_UNIVERSITY_WORK'
       },
       learningDarwin: state.failures.map(row => ({
         failureId: row.failureId,

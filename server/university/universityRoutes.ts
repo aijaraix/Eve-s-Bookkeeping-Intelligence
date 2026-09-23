@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import { UNIVERSITY_TENANT_CLASSIFICATIONS, universityStore, type UniversityTenantClassification } from './universityStore.js';
+import { RAW_CONTINUATION_STAGES, rawInputHermesContinuationService } from '../cpaOrganization/rawInputHermesContinuation.js';
 
 function isInternal(req: Request): boolean {
   const identityRole = (req as any).eveIdentity?.user?.role;
@@ -14,7 +15,29 @@ export function createUniversityRouter(): Router {
     return res.status(403).json({ error: 'UNIVERSITY_INTERNAL_ACCESS_REQUIRED' });
   });
 
-  router.get('/overview', (_req, res) => res.json(universityStore.snapshot()));
+  router.get('/overview', (_req, res) => {
+    const snapshot = universityStore.snapshot();
+    const rawContinuations = rawInputHermesContinuationService.getAllContinuations();
+    return res.json({
+      ...snapshot,
+      hermes: {
+        ...snapshot.hermes,
+        supportedRawStages: RAW_CONTINUATION_STAGES,
+        rawContinuations: rawContinuations.map(continuation => ({
+          continuationId: continuation.continuationId,
+          sourceQueueJobId: continuation.sourceQueueJobId,
+          examinationId: continuation.examinationId,
+          documentKind: continuation.documentKind,
+          status: continuation.status,
+          queued: continuation.executions.filter(execution => execution.status === 'QUEUED').length,
+          running: continuation.executions.filter(execution => execution.status === 'RUNNING').length,
+          physicalExecutions: continuation.executions.filter(execution => Boolean(execution.startedAt)).length,
+          latestStage: continuation.executions.at(-1)?.stage || null,
+          latestOutcome: continuation.executions.filter(execution => Boolean(execution.outcomeCode)).at(-1)?.outcomeCode || null,
+        })),
+      },
+    });
+  });
   router.post('/purge/preview', (req, res) => {
     try {
       const classifications = Array.isArray(req.body?.classifications) ? req.body.classifications : [];

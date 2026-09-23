@@ -23,6 +23,7 @@ import { DeliverableWizardEngine } from "./src/lib/deliverables/wizardEngine";
 import { executeSwarmPipeline } from "./server/swarm/SwarmOrchestrator.js";
 import { backgroundIngestionQueue } from "./server/backgroundQueue.js";
 import { verifiedCustomerContinuationService } from "./server/cpaOrganization/verifiedCustomerContinuationService.js";
+import { rawInputEvidenceWorker, rawInputHermesContinuationService } from "./server/cpaOrganization/rawInputHermesContinuation.js";
 import { deliverableArtifactService } from "./server/cpaOrganization/deliverableArtifactService.js";
 import { runtimeAuthorityManifestManager } from "./server/cpaOrganization/runtimeAuthorityManifest.js";
 import { getLLMGatewayMetrics, getGeminiDiagnosticStatus } from "./server/llmGateway.js";
@@ -632,7 +633,7 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
   // Its processing receipt and source evidence still need durable persistence.
   if (job.result && Array.isArray(job.result.facts)) {
     const ws = db.workspaces.find(w => w.id === job.workspaceId);
-    const isRawInputJob = job.result.facts.some((fact: any) => fact.statementType === 'RAW_INPUT_TRANSACTION');
+    const isRawInputJob = Boolean((job.result as any).rawInput || (job as any).rawInput || job.result.facts.some((fact: any) => fact.statementType === 'RAW_INPUT_TRANSACTION'));
     const resolvedWorkspaceCurrency = String(job.functionalCurrency || ws?.currency || '').trim().toUpperCase();
     if (ws && resolvedWorkspaceCurrency && job.result.facts.length > 0) {
       ws.currency = resolvedWorkspaceCurrency;
@@ -767,8 +768,37 @@ backgroundIngestionQueue.setOnJobCompleted((job) => {
     });
     saveStorage();
     console.log(`[Server] Persisted ${job.result.facts.length} facts and document evidence for background job ${job.id} to workspace ${job.workspaceId}`);
+    if (isRawInputJob) {
+      try {
+        rawInputHermesContinuationService.enqueueCompletedExtraction(job);
+        void sweepRawInputContinuations();
+      } catch (error: any) {
+        console.error(`[RawInputContinuation] Failed to enqueue ${job.id}:`, error?.message || error);
+      }
+    }
   }
 });
+
+let rawInputContinuationSweepRunning = false;
+async function sweepRawInputContinuations(): Promise<void> {
+  if (rawInputContinuationSweepRunning) return;
+  try {
+    if (!runtimeAuthorityManifestManager.isLeader()) return;
+  } catch {
+    return;
+  }
+  rawInputContinuationSweepRunning = true;
+  try {
+    await rawInputHermesContinuationService.dispatchNext({
+      supportedStages: ['EXTRACTION_REMEDIATION', 'EVIDENCE_COMPLETION'],
+      executor: rawInputEvidenceWorker,
+    });
+  } catch (error: any) {
+    console.error('[RawInputContinuation] bounded scheduler pass failed:', error?.message || error);
+  } finally {
+    rawInputContinuationSweepRunning = false;
+  }
+}
 
 // Leader-only continuation sweep for completed HYBRID customer jobs.
 // This never creates a new intake and never re-runs extraction. The continuation
@@ -786,6 +816,8 @@ async function sweepVerifiedCustomerContinuations(): Promise<void> {
   try {
     const jobs = backgroundIngestionQueue.getAllJobs().sort((a, b) => Number(a.classification === 'ACADEMY') - Number(b.classification === 'ACADEMY'));
     for (const job of jobs) {
+      const rawJob = Boolean((job as any).rawInput || (job as any).result?.rawInput || (job as any).result?.facts?.some((fact: any) => fact.statementType === 'RAW_INPUT_TRANSACTION'));
+      if (rawJob) continue;
       if (job.classification === 'ACADEMY' && backgroundIngestionQueue.getAllJobs().some(j => j.classification !== 'ACADEMY' &&
         (['QUEUED', 'PROCESSING', 'WAITING_FOR_LLM', 'WAITING_FOR_AI_CAPACITY', 'RATE_LIMITED', 'RECOVERING'].includes(j.status) ||
         (j.status === 'COMPLETED' && j.engineMode === 'HYBRID_GEMINI_NATIVE' && !verifiedCustomerContinuationService.getState(j.id)?.completedAt)))) continue;
@@ -828,6 +860,8 @@ app.post('/api/academy/ui/retry-lexicon', async (req, res) => {
 
 setTimeout(() => { void sweepVerifiedCustomerContinuations(); }, 5000);
 setInterval(() => { void sweepVerifiedCustomerContinuations(); }, 15000);
+setTimeout(() => { void sweepRawInputContinuations(); }, 3000);
+setInterval(() => { void sweepRawInputContinuations(); }, 5000);
 
 function reprocessWorkspaceExtraction(workspaceId: string) {
   const ws = db.workspaces.find(w => w.id === workspaceId);
