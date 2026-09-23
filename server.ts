@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 55720)
-Total output lines: 5254
-
 import { createAccessPortal } from './server/access/accessPortal.js';
 import "dotenv/config";
 import express from "express";
@@ -1985,7 +1982,1289 @@ export function extractDeterministicFacts(
   } else if (/presented in (us dollars?|usd)/i.test(globalText) || /expressed in (us dollars?|usd)/i.test(globalText) || /figures in us dollars/i.test(globalText)) {
     effectiveCurrency = "USD";
   } else if (/presented in (pounds?|gbp|sterling)/i.test(globalText) || /expressed in (pounds?|gbp)/i.test(globalText) || /figures in pounds/i.test(globalText) || /£/.test(globalText)) {
-    effectiveCurrency = "GB…15720 tokens truncated…jectId,
+    effectiveCurrency = "GBP";
+  } else if (/presented in (swiss francs?|chf)/i.test(globalText) || /\bchf\b/i.test(globalText)) {
+    effectiveCurrency = "CHF";
+  }
+
+  const entityResolution = ForensicEntityResolver.resolveEntityAndScope(
+    fileName,
+    globalText,
+    fileName
+  );
+
+  // 1. Scan Structured Tables with Metric Identity BEFORE Value Normalization
+  if (canonicalDoc.tables && Array.isArray(canonicalDoc.tables)) {
+    for (const tbl of canonicalDoc.tables) {
+      const tableScale = detectScaleHint(tbl.name || '') || globalScale;
+      if (!tbl.rows || !Array.isArray(tbl.rows)) continue;
+
+      for (let r = 0; r < tbl.rows.length; r++) {
+        const row = tbl.rows[r];
+        if (!Array.isArray(row) || row.length < 2) continue;
+        const rowLabel = String(row[0] || '').trim();
+        const rowLabelLower = rowLabel.toLowerCase();
+        if (rowLabel.length < 3) continue;
+
+        for (const metricDef of CANONICAL_METRIC_CONFIGS) {
+          if (foundKeys.has(metricDef.key)) continue;
+
+          // Check exclude patterns first
+          if (metricDef.excludeRowPatterns.some(pat => pat.test(rowLabel))) continue;
+
+          // Check exact match or partial match
+          const isExact = metricDef.exactRowMatches.some(re => re.test(rowLabel));
+          const isPartial = metricDef.partialRowMatches.some(kw => rowLabelLower.includes(kw));
+
+          if (isExact || isPartial) {
+            for (let c = 1; c < row.length; c++) {
+              const cellVal = String(row[c] || '').trim();
+              if (!cellVal || cellVal.length === 0) continue;
+
+              // Reject standalone year numbers (e.g., 2024, 2025)
+              if (/^(202[0-9]|201[0-9])$/.test(cellVal.replace(/,/g, ''))) continue;
+
+              // Reject footnote/Anhang note reference numbers (e.g. "12", "1", "2") when followed by a financial value
+              if (/^\d{1,2}$/.test(cellVal) && c < row.length - 1 && /[\d.,]{3,}/.test(String(row[c + 1] || ''))) continue;
+
+              let parsedNum = parseValWithScale(cellVal, tableScale);
+              if (parsedNum !== null && !isNaN(parsedNum) && parsedNum !== 0) {
+                // Determine Semantic Signs
+                const isParentheses = cellVal.includes('(') && cellVal.includes(')');
+                const isExplicitNegative = cellVal.startsWith('-') || isParentheses;
+                const sourcePresentationSign = isParentheses ? 'parentheses' : (isExplicitNegative ? 'negative' : 'positive');
+
+                let computationalValue = parsedNum;
+                let normalizedSign: 1 | -1 = 1;
+
+                if (metricDef.accountingRole === 'expense') {
+                  computationalValue = -Math.abs(parsedNum);
+                  normalizedSign = -1;
+                } else if (isExplicitNegative) {
+                  computationalValue = -Math.abs(parsedNum);
+                  normalizedSign = -1;
+                }
+
+                // Enforce natural accounting sign protection
+                computationalValue = AccountingSignResolver.enforceNaturalAccountingSign(
+                  metricDef.key,
+                  computationalValue,
+                  rowLabel
+                ) || computationalValue;
+
+                foundKeys.add(metricDef.key);
+
+                const factId = `FCT-DET-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+                const sourceSnippet = `${rowLabel}: ${cellVal} (${tbl.name || metricDef.statementName})`;
+
+                const rawScaleLabel = tableScale === 1000000000 ? 'BILLIONS' : tableScale === 1000000 ? 'MILLIONS' : tableScale === 1000 ? 'THOUSANDS' : 'ONES';
+
+                extractedFacts.push({
+                  id: factId,
+                  fact_id: factId,
+                  document_id: docId,
+                  project_id: workspaceId,
+                  workspaceId: workspaceId,
+                  source_filename: fileName,
+                  page: tbl.pageNumber || 1,
+                  pageNumber: tbl.pageNumber || 1,
+                  section_title: tbl.name || metricDef.statementName,
+                  source_text: sourceSnippet,
+                  sourceText: sourceSnippet,
+                  original_label: rowLabel,
+                  labelOriginal: rowLabel,
+                  normalized_label: metricDef.normalizedLabel,
+                  labelNormalized: metricDef.normalizedLabel,
+                  original_value: cellVal,
+                  valueOriginal: cellVal,
+                  normalized_value: computationalValue,
+                  valueFunctional: String(computationalValue),
+                  currency: effectiveCurrency,
+                  functionalCurrency: effectiveCurrency,
+                  currencyOriginal: effectiveCurrency,
+                  unit_scale: tableScale === 1000000000 ? 'Billions' : tableScale === 1000000 ? 'Millions' : tableScale === 1000 ? 'Thousands' : 'Units',
+                  unitScale: tableScale === 1000000000 ? 'Billions' : tableScale === 1000000 ? 'Millions' : tableScale === 1000 ? 'Thousands' : 'Units',
+                  reporting_period: period,
+                  reportingPeriod: period,
+                  extraction_method: 'Deterministic OCR & Table Parser',
+                  extractionMethod: 'Deterministic OCR & Table Parser',
+                  confidence: 0.98,
+                  validation_status: 'VERIFIED',
+                  status: 'APPROVED',
+                  created_at: new Date().toISOString(),
+
+                  // Phase H.2 & H.3 Explicit Reliability & Lineage Fields
+                  legal_entity: entityResolution.legalEntity,
+                  legalEntity: entityResolution.legalEntity,
+                  reporting_entity: entityResolution.reportingEntity,
+                  reportingEntity: entityResolution.reportingEntity,
+                  parent_entity: entityResolution.parentEntity,
+                  parentEntity: entityResolution.parentEntity,
+                  workspace_entity: entityResolution.workspaceEntity,
+                  workspaceEntity: entityResolution.workspaceEntity,
+                  reporting_scope: entityResolution.reportingScope,
+                  reportingScope: entityResolution.reportingScope,
+                  consolidation_scope: entityResolution.reportingScope,
+                  consolidationScope: entityResolution.reportingScope,
+                  raw_value: cellVal,
+                  raw_currency: effectiveCurrency,
+                  raw_scale: rawScaleLabel,
+                  raw_text: sourceSnippet,
+                  normalized_currency: effectiveCurrency,
+                  normalized_scale: rawScaleLabel,
+                  canonical_metric_id: metricDef.key,
+                  verification_state: 'VERIFIED',
+
+                  // Provenance & Semantic Sign Fields
+                  canonicalMetric: metricDef.key,
+                  normalizedValue: computationalValue,
+                  rawValue: cellVal,
+                  rawText: sourceSnippet,
+                  sourceDocument: fileName,
+                  statementName: tbl.name || metricDef.statementName,
+                  tableName: tbl.name || 'Financial Statement Table',
+                  rowLabel: rowLabel,
+                  columnLabel: `Col ${c}`,
+                  fiscalPeriod: period,
+                  sourcePresentationSign: sourcePresentationSign,
+                  accountingRole: metricDef.accountingRole,
+                  normalizedSign: normalizedSign,
+                  verificationStatus: 'VERIFIED'
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Scan Text Sections with Strict Narrative Context
+  const lines = (globalText || '').split('\n');
+  for (const metricDef of CANONICAL_METRIC_CONFIGS) {
+    if (foundKeys.has(metricDef.key)) continue;
+
+    for (const line of lines) {
+      if (line.length < 5 || line.length > 300) continue;
+      const lineLower = line.toLowerCase();
+
+      if (metricDef.excludeRowPatterns.some(pat => pat.test(line))) continue;
+
+      const matchesKeyword = metricDef.partialRowMatches.some(kw => lineLower.includes(kw));
+      if (!matchesKeyword) continue;
+
+      const hasCurrencyOrScale = /(?:€|\$|£|¥|CHF|JPY|billion|million|thousand|[mbk])/i.test(line);
+      if (!hasCurrencyOrScale) continue;
+
+      // Extract value using parseValWithScale
+      const parsedNum = parseValWithScale(line, globalScale);
+      if (parsedNum !== null && !isNaN(parsedNum) && parsedNum !== 0) {
+        // Reject standalone years like 2024/2025
+        if (/^(202[0-9]|201[0-9])$/.test(String(parsedNum))) continue;
+
+        const isParentheses = line.includes('(') && line.includes(')');
+        const isNegative = line.toLowerCase().includes('loss') || isParentheses;
+        let computationalValue = parsedNum;
+        if (metricDef.accountingRole === 'expense' || isNegative) {
+          computationalValue = -Math.abs(parsedNum);
+        }
+
+        foundKeys.add(metricDef.key);
+        const factId = `FCT-DET-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+        extractedFacts.push({
+          id: factId,
+          fact_id: factId,
+          document_id: docId,
+          project_id: workspaceId,
+          source_filename: fileName,
+          page: 1,
+          pageNumber: 1,
+          section_title: 'Document Narrative Text',
+          source_text: line.trim(),
+          sourceText: line.trim(),
+          original_label: metricDef.normalizedLabel,
+          labelOriginal: metricDef.normalizedLabel,
+          normalized_label: metricDef.normalizedLabel,
+          labelNormalized: metricDef.normalizedLabel,
+          original_value: String(parsedNum),
+          valueOriginal: String(parsedNum),
+          normalized_value: computationalValue,
+          valueFunctional: String(computationalValue),
+          currency: effectiveCurrency,
+          functionalCurrency: effectiveCurrency,
+          currencyOriginal: effectiveCurrency,
+          unit_scale: globalScale === 1000000000 ? 'Billions' : globalScale === 1000000 ? 'Millions' : 'Units',
+          unitScale: globalScale === 1000000000 ? 'Billions' : globalScale === 1000000 ? 'Millions' : 'Units',
+          reporting_period: period,
+          reportingPeriod: period,
+          extraction_method: 'Deterministic Narrative Parser',
+          extractionMethod: 'Deterministic Narrative Parser',
+          confidence: 0.95,
+          validation_status: 'VERIFIED',
+          status: 'APPROVED',
+          created_at: new Date().toISOString(),
+
+          canonicalMetric: metricDef.key,
+          normalizedValue: computationalValue,
+          rawValue: String(parsedNum),
+          rawText: line.trim(),
+          sourceDocument: fileName,
+          statementName: metricDef.statementName,
+          tableName: 'Narrative Text',
+          rowLabel: metricDef.normalizedLabel,
+          columnLabel: period,
+          fiscalPeriod: period,
+          sourcePresentationSign: isParentheses ? 'parentheses' : (computationalValue < 0 ? 'negative' : 'positive'),
+          accountingRole: metricDef.accountingRole,
+          normalizedSign: computationalValue < 0 ? -1 : 1,
+          verificationStatus: 'VERIFIED'
+        });
+        break;
+      }
+    }
+  }
+
+  // 3. Derive Gross Profit if Revenue & Cost of Sales are both verified and Gross Profit was not explicitly reported
+  if (!foundKeys.has('gross_profit') && foundKeys.has('revenue') && foundKeys.has('cost_of_sales')) {
+    const revFact = extractedFacts.find(f => f.canonicalMetric === 'revenue');
+    const cosFact = extractedFacts.find(f => f.canonicalMetric === 'cost_of_sales');
+    if (revFact && cosFact) {
+      const derivedGrossProfit = (revFact.normalizedValue || revFact.normalized_value) + (cosFact.normalizedValue || cosFact.normalized_value);
+      const factId = `FCT-DER-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      extractedFacts.push({
+        id: factId,
+        fact_id: factId,
+        document_id: docId,
+        project_id: workspaceId,
+        source_filename: fileName,
+        page: revFact.pageNumber || 1,
+        pageNumber: revFact.pageNumber || 1,
+        section_title: 'Derived Accounting Identity',
+        source_text: `Gross Profit (€${(derivedGrossProfit/1e9).toFixed(2)}B) derived from Revenue (€${((revFact.normalizedValue||0)/1e9).toFixed(2)}B) and Cost of Sales (€${((cosFact.normalizedValue||0)/1e9).toFixed(2)}B)`,
+        sourceText: `Gross Profit (€${(derivedGrossProfit/1e9).toFixed(2)}B) derived from Revenue (€${((revFact.normalizedValue||0)/1e9).toFixed(2)}B) and Cost of Sales (€${((cosFact.normalizedValue||0)/1e9).toFixed(2)}B)`,
+        original_label: 'Gross Profit (Derived)',
+        labelOriginal: 'Gross Profit (Derived)',
+        normalized_label: 'Gross Profit',
+        labelNormalized: 'Gross Profit',
+        original_value: String(derivedGrossProfit),
+        valueOriginal: String(derivedGrossProfit),
+        normalized_value: derivedGrossProfit,
+        valueFunctional: String(derivedGrossProfit),
+        currency: effectiveCurrency,
+        functionalCurrency: effectiveCurrency,
+        currencyOriginal: effectiveCurrency,
+        unit_scale: 'Units',
+        unitScale: 'Units',
+        reporting_period: period,
+        reportingPeriod: period,
+        extraction_method: 'Derived Accounting Identity (Revenue + Cost of Sales)',
+        extractionMethod: 'Derived Accounting Identity (Revenue + Cost of Sales)',
+        confidence: 0.99,
+        validation_status: 'VERIFIED',
+        status: 'APPROVED',
+        created_at: new Date().toISOString(),
+
+        canonicalMetric: 'gross_profit',
+        normalizedValue: derivedGrossProfit,
+        rawValue: String(derivedGrossProfit),
+        rawText: `Derived: Revenue (${revFact.normalizedValue}) + Cost of Sales (${cosFact.normalizedValue})`,
+        sourceDocument: fileName,
+        statementName: 'Consolidated Income Statement',
+        tableName: 'Derived Identity',
+        rowLabel: 'Gross Profit',
+        columnLabel: period,
+        fiscalPeriod: period,
+        sourcePresentationSign: derivedGrossProfit < 0 ? 'negative' : 'positive',
+        accountingRole: 'profit',
+        normalizedSign: derivedGrossProfit < 0 ? -1 : 1,
+        verificationStatus: 'VERIFIED'
+      });
+    }
+  }
+
+  return extractedFacts;
+}
+
+// Multi-Stage Self-Healing Financial Audit Engine ("Holding Places / Retracing Steps")
+export function executeSelfHealingFinancialAudit(
+  canonicalDoc: any,
+  fileName: string,
+  workspaceId: string,
+  docId: string,
+  currency = "USD",
+  period = "FY 2025",
+  existingFacts: any[] = []
+): any[] {
+  const factsMap = new Map<string, any>();
+
+  const globalText = (canonicalDoc?.markdown || (Array.isArray(canonicalDoc?.sections) ? canonicalDoc.sections.map((s: any) => s?.text || '').join('\n') : '') || '');
+  const globalScale = detectScaleHint(globalText) || 1;
+  const lines = (globalText || '').split('\n');
+
+  let effectiveCurrency = currency;
+  if (/presented in (yen|jpy|japanese yen)/i.test(globalText) || /expressed in (yen|jpy)/i.test(globalText) || /in millions of yen/i.test(globalText) || /yen in millions/i.test(globalText) || /¥/.test(globalText)) {
+    effectiveCurrency = "JPY";
+  } else if (/presented in (euros?|eur)/i.test(globalText) || /expressed in (euros?|eur)/i.test(globalText) || /figures in euros/i.test(globalText) || /€/.test(globalText)) {
+    effectiveCurrency = "EUR";
+  } else if (/presented in (us dollars?|usd)/i.test(globalText) || /expressed in (us dollars?|usd)/i.test(globalText) || /figures in us dollars/i.test(globalText)) {
+    effectiveCurrency = "USD";
+  } else if (/presented in (pounds?|gbp|sterling)/i.test(globalText) || /expressed in (pounds?|gbp)/i.test(globalText) || /figures in pounds/i.test(globalText) || /£/.test(globalText)) {
+    effectiveCurrency = "GBP";
+  } else if (/presented in (swiss francs?|chf)/i.test(globalText) || /chf/i.test(globalText)) {
+    effectiveCurrency = "CHF";
+  }
+
+  // Load existing extracted facts into holding slots with scale/currency auto-correction
+  existingFacts.forEach(f => {
+    const key = f.canonicalMetric || f.normalized_label;
+    if (key) {
+      let val = typeof f.normalizedValue === 'number' ? f.normalizedValue : (typeof f.normalized_value === 'number' ? f.normalized_value : parseFloat(String(f.normalized_value).replace(/,/g, '')));
+      if (!isNaN(val) && val !== 0 && Math.abs(val) < 1000000 && globalScale > 1) {
+        // Fix unscaled truncated numbers (e.g., 118 -> 118,000,000 or 118,500M)
+        const scaleFromOriginal = detectScaleHint(f.original_value || '') || globalScale;
+        val = val * scaleFromOriginal;
+        f.normalized_value = val;
+        f.normalizedValue = val;
+      }
+      f.currency = effectiveCurrency;
+      if (!factsMap.has(key) || Math.abs(val) > Math.abs(factsMap.get(key).normalizedValue || factsMap.get(key).normalized_value || 0)) {
+        factsMap.set(key, f);
+      }
+    }
+  });
+
+  const createFact = (labelNormalized: string, labelOriginal: string, valNum: number, valStr: string, sourceText: string, method: string, canonicalKey?: string, role: any = "profit") => {
+    const key = canonicalKey || labelNormalized.toLowerCase().replace(/ /g, '_');
+    return {
+      id: `FCT-SH-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      fact_id: `FCT-SH-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      document_id: docId,
+      project_id: workspaceId,
+      source_filename: fileName,
+      page: 1,
+      pageNumber: 1,
+      section_title: 'Self-Healing Audit Engine',
+      source_text: sourceText,
+      sourceText: sourceText,
+      original_label: labelOriginal,
+      labelOriginal: labelOriginal,
+      normalized_label: labelNormalized,
+      labelNormalized: labelNormalized,
+      original_value: valStr,
+      valueOriginal: valStr,
+      normalized_value: valNum,
+      valueFunctional: String(valNum),
+      currency: effectiveCurrency,
+      functionalCurrency: effectiveCurrency,
+      currencyOriginal: effectiveCurrency,
+      unit_scale: 'Units',
+      unitScale: 'Units',
+      reporting_period: period,
+      reportingPeriod: period,
+      extraction_method: method,
+      extractionMethod: method,
+      confidence: 0.98,
+      validation_status: 'VERIFIED',
+      status: 'APPROVED',
+      created_at: new Date().toISOString(),
+
+      canonicalMetric: key,
+      normalizedValue: valNum,
+      rawValue: valStr,
+      rawText: sourceText,
+      sourceDocument: fileName,
+      statementName: 'Self-Healing Audit Engine',
+      tableName: 'Inferred / Reconciled Identity',
+      rowLabel: labelOriginal,
+      columnLabel: period,
+      fiscalPeriod: period,
+      sourcePresentationSign: valNum < 0 ? 'negative' : 'positive',
+      accountingRole: role,
+      normalizedSign: valNum < 0 ? -1 : 1,
+      verificationStatus: 'VERIFIED'
+    };
+  };
+
+  // STEP 1: Retrace Pre-Revenue / Zero Revenue
+  if (!factsMap.has("revenue")) {
+    const zeroRevLine = lines.find(l => {
+      const lower = l.toLowerCase();
+      return (lower.includes("no revenues") || lower.includes("no revenue") || lower.includes("zero revenue") || lower.includes("without revenue") || lower.includes("had no revenues") || lower.includes("did not generate revenue") || lower.includes("revenue: $0") || lower.includes("revenues: $0")) &&
+             (lower.includes("period") || lower.includes("ended") || lower.includes("month") || lower.includes("quarter") || lower.includes("year") || lower.includes("three") || lower.includes("six") || lower.includes("twelve") || lower.includes("we had no"));
+    });
+    if (zeroRevLine) {
+      factsMap.set("revenue", createFact("Revenue", "Revenues", 0, "$0", zeroRevLine.trim(), "Self-Healing Pre-Revenue Audit", "revenue", "revenue"));
+    }
+  }
+
+  // STEP 2: Retrace Cost of Sales
+  if (!factsMap.has("cost_of_sales")) {
+    const rev = factsMap.get("revenue");
+    if (rev && (rev.normalizedValue === 0 || rev.normalized_value === 0)) {
+      factsMap.set("cost_of_sales", createFact("Cost of Sales", "Cost of Revenues", 0, "$0", "Inferred $0 Cost of Sales for Pre-Revenue Period", "Self-Healing Inference Engine", "cost_of_sales", "expense"));
+    }
+  }
+
+  // STEP 3: Retrace Gross Profit
+  if (!factsMap.has("gross_profit")) {
+    const rev = factsMap.get("revenue");
+    const cogs = factsMap.get("cost_of_sales");
+    if (rev && cogs) {
+      const revVal = rev.normalizedValue !== undefined ? rev.normalizedValue : parseFloat(rev.normalized_value) || 0;
+      const cogsVal = cogs.normalizedValue !== undefined ? cogs.normalizedValue : parseFloat(cogs.normalized_value) || 0;
+      const gpVal = revVal + cogsVal; // cogsVal is negative computational sign
+      factsMap.set("gross_profit", createFact("Gross Profit", "Gross Profit", gpVal, gpVal === 0 ? "$0" : `$${gpVal.toLocaleString()}`, `Reconciled Gross Profit from Revenue (${rev.original_value || rev.rawValue}) and Cost of Sales (${cogs.original_value || cogs.rawValue})`, "Self-Healing Math Reconciliation", "gross_profit", "profit"));
+    }
+  }
+
+  // STEP 4: Retrace Operating Expenses
+  if (!factsMap.has("Operating Expenses")) {
+    const opexLine = lines.find(l => {
+      const lower = l.toLowerCase();
+      return (lower.includes("operating expenses") || lower.includes("research and development") || lower.includes("general and administrative")) &&
+             /(?:€|\$|£|¥|thousand|million|[0-9]{1,3}(?:,[0-9]{3})+)/i.test(l);
+    });
+    if (opexLine) {
+      let val = parseValWithScale(opexLine, globalScale);
+      if (val !== null && val !== 0) {
+        factsMap.set("Operating Expenses", createFact("Operating Expenses", "Operating Expenses", val, `$${val.toLocaleString()}`, opexLine.trim(), "Self-Healing Narrative Retrace"));
+      }
+    }
+  }
+
+  // STEP 5: Retrace Operating Income / Loss
+  if (!factsMap.has("Operating Income")) {
+    const gp = factsMap.get("Gross Profit");
+    const opex = factsMap.get("Operating Expenses");
+    if (gp && opex) {
+      const opIncVal = (parseFloat(gp.normalized_value) || 0) - (parseFloat(opex.normalized_value) || 0);
+      factsMap.set("Operating Income", createFact("Operating Income", opIncVal < 0 ? "Loss from Operations" : "Operating Income", opIncVal, opIncVal < 0 ? `$(${Math.abs(opIncVal).toLocaleString()})` : `$${opIncVal.toLocaleString()}`, `Reconciled Operating Income from Gross Profit (${gp.original_value}) minus OpEx (${opex.original_value})`, "Self-Healing Math Reconciliation"));
+    } else {
+      const opLine = lines.find(l => {
+        const lower = l.toLowerCase();
+        return (lower.includes("loss from operations") || lower.includes("operating loss") || lower.includes("operating income")) &&
+               /(?:€|\$|£|¥|thousand|million|[0-9]{1,3}(?:,[0-9]{3})+)/i.test(l);
+      });
+      if (opLine) {
+        let val = parseValWithScale(opLine, globalScale);
+        if (val !== null && val !== 0) {
+          if (opLine.toLowerCase().includes("loss") && val > 0) val = -val;
+          factsMap.set("Operating Income", createFact("Operating Income", val < 0 ? "Loss from Operations" : "Operating Income", val, val < 0 ? `$(${Math.abs(val).toLocaleString()})` : `$${val.toLocaleString()}`, opLine.trim(), "Self-Healing Narrative Retrace"));
+        }
+      }
+    }
+  }
+
+  // STEP 6: Retrace Net Income / Loss
+  if (!factsMap.has("Net Income")) {
+    const opInc = factsMap.get("Operating Income");
+    const taxes = factsMap.get("Income Taxes");
+    if (opInc) {
+      const taxVal = taxes ? (parseFloat(taxes.normalized_value) || 0) : 0;
+      const netVal = (parseFloat(opInc.normalized_value) || 0) - taxVal;
+      factsMap.set("Net Income", createFact("Net Income", netVal < 0 ? "Net Loss" : "Net Income", netVal, netVal < 0 ? `$(${Math.abs(netVal).toLocaleString()})` : `$${netVal.toLocaleString()}`, `Reconciled Net Income from Operating Income (${opInc.original_value}) and Taxes (${taxVal})`, "Self-Healing Math Reconciliation"));
+    } else {
+      const netLine = lines.find(l => {
+        const lower = l.toLowerCase();
+        // STAGE 9 & FORENSIC FINDING #2: Reject footnotes like "Non-controlling interest (34)" from overriding consolidated net income
+        if (/non-controlling\s+interest|attributable\s+to\s+non-controlling|joint\s+venture\s+\(\d+\)|footnote/i.test(lower)) {
+          return false;
+        }
+        return (lower.includes("net profit") || lower.includes("net loss") || lower.includes("net income") || lower.includes("profit for the year") || lower.includes("profit for the period")) &&
+               !lower.includes("attributable to") &&
+               /(?:€|\$|£|¥|thousand|million|[0-9]{1,3}(?:,[0-9]{3})+)/i.test(l);
+      });
+      if (netLine) {
+        let val = parseValWithScale(netLine, globalScale);
+        if (val !== null && val !== 0) {
+          if (netLine.toLowerCase().includes("loss") && val > 0) val = -val;
+          factsMap.set("Net Income", createFact("Net Income", val < 0 ? "Net Loss" : "Net Income", val, val < 0 ? `$(${Math.abs(val).toLocaleString()})` : `$${val.toLocaleString()}`, netLine.trim(), "Self-Healing Narrative Retrace"));
+        }
+      }
+    }
+  }
+
+  // STEP 7: Retrace Taxes
+  if (!factsMap.has("Income Taxes")) {
+    factsMap.set("Income Taxes", createFact("Income Taxes", "Provision for Income Taxes", 0, "$0", "Inferred $0 Income Taxes for Period", "Self-Healing Inference Engine"));
+  }
+
+  // STEP 8: Retrace Total Assets (Strict matching only)
+  if (!factsMap.has("Total Assets")) {
+    const astLine = lines.find(l => /^\s*(total\s+assets|balance\s+sheet\s+total)\b/i.test(l) && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
+    if (astLine) {
+      let val = parseValWithScale(astLine, globalScale);
+      if (val !== null && val !== 0 && Math.abs(val) > 1000) {
+        factsMap.set("Total Assets", createFact("Total Assets", "Total Assets", val, `${val.toLocaleString()}`, astLine.trim(), "Self-Healing Narrative Retrace"));
+      }
+    }
+  }
+
+  // STEP 9: Retrace Total Liabilities (Strict matching only)
+  if (!factsMap.has("Total Liabilities")) {
+    const liabLine = lines.find(l => /^\s*(total\s+liabilities)\b/i.test(l) && !l.toLowerCase().includes("and stockholders") && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
+    if (liabLine) {
+      let val = parseValWithScale(liabLine, globalScale);
+      if (val !== null && val !== 0 && Math.abs(val) > 1000) {
+        factsMap.set("Total Liabilities", createFact("Total Liabilities", "Total Liabilities", val, `${val.toLocaleString()}`, liabLine.trim(), "Self-Healing Narrative Retrace"));
+      }
+    }
+  }
+
+  // STEP 10: Retrace Total Equity (Strict matching only if Assets and Liabilities exist and balance)
+  if (!factsMap.has("Total Equity")) {
+    const ast = factsMap.get("Total Assets");
+    const liab = factsMap.get("Total Liabilities");
+    if (ast && liab) {
+      const astVal = parseFloat(ast.normalized_value) || 0;
+      const liabVal = parseFloat(liab.normalized_value) || 0;
+      if (astVal > 0 && liabVal > 0 && astVal > liabVal) {
+        const eqVal = astVal - liabVal;
+        factsMap.set("Total Equity", createFact("Total Equity", "Total Stockholders' Equity", eqVal, `${eqVal.toLocaleString()}`, `Reconciled Total Equity from Assets (${ast.original_value}) minus Liabilities (${liab.original_value})`, "Self-Healing Math Reconciliation"));
+      }
+    }
+  }
+
+  // STEP 11: Retrace Cash (Strict matching only)
+  if (!factsMap.has("Cash")) {
+    const cashLine = lines.find(l => /^\s*(cash\s+and\s+cash\s+equivalents|cash\s+at\s+bank|cash\s+balance)\b/i.test(l) && /(?:€|\$|£|¥|thousand|million|\b\d+\b)/i.test(l));
+    if (cashLine) {
+      let val = parseValWithScale(cashLine, globalScale);
+      if (val !== null && val !== 0 && Math.abs(val) > 1000) {
+        factsMap.set("Cash", createFact("Cash", "Cash and cash equivalents", val, `${val.toLocaleString()}`, cashLine.trim(), "Self-Healing Narrative Retrace"));
+      }
+    }
+  }
+
+  return Array.from(factsMap.values());
+}
+
+// Helper to dynamically extract official corporate entity names using Gemini AI and smart text parsing
+async function extractEntityInfo(preParsedDocs: any[], files: Express.Multer.File[], spokenInstruction: string, driveUrl: string) {
+  const fileNames = files.map(f => f.originalname || f.filename || "").join(", ");
+  
+  let textSnippets = "";
+  for (let i = 0; i < Math.min(preParsedDocs.length, 3); i++) {
+    const p = preParsedDocs[i];
+    try {
+      const canonicalDoc = p.canonicalDoc;
+      const snippetText = canonicalDoc.markdown || (Array.isArray(canonicalDoc.sections) ? canonicalDoc.sections.map((s: any) => s.text || '').join('\n') : '') || '';
+      textSnippets += `\n[File (${p.file.originalname})]: ${snippetText.substring(0, 3000)}`;
+    } catch (err) {
+      console.warn("Failed to extract preview snippet for entity extraction:", err);
+      const file = p.file;
+      if (file.buffer && file.buffer.length > 0) {
+        const sample = file.buffer.toString("utf-8", 0, Math.min(file.buffer.length, 3000));
+        const cleanAscii = sample.replace(/[^\x20-\x7E\n\r\t]/g, " ");
+        textSnippets += `\n[File (${file.originalname})]: ${cleanAscii.substring(0, 800)}`;
+      }
+    }
+  }
+
+  // STEP 1: First-Pass Deterministic Evidence-Priority Forensic Resolution
+  const firstFileName = files[0]?.originalname || "";
+  const forensicRes = ForensicEntityResolver.resolveDocumentEntities(
+    firstFileName,
+    textSnippets,
+    firstFileName
+  );
+
+  let highConfidenceName = "";
+  if (forensicRes.confidenceScore >= 0.50) {
+    highConfidenceName = forensicRes.workspaceEntity;
+  }
+
+  // STEP 2: Gemini AI Analysis if available (6s timeout) for enrichment only
+  let discoveredEntities = forensicRes.referencedEntities.map(re => ({
+    name: re.name,
+    type: re.type,
+    ownershipPercentage: 100
+  }));
+  let externalParties = forensicRes.referencedEntities.filter(re => re.type === "AUDITOR" || re.type === "REGULATOR").map(re => re.name);
+
+  if (ai) {
+    try {
+      const prompt = `You are a Big-4 CPA Lead Auditor AI. Analyze the following uploaded financial files, text snippets, and user instructions to determine:
+1. The OFFICIAL PRIMARY REPORTING CORPORATE ENTITY NAME (e.g. "Unilever PLC", "Volkswagen AG", "Aethelgard Global Dynamics SE").
+2. Any SUBSIDIARY or CONSOLIDATED ENTITIES mentioned in the text.
+3. Any EXTERNAL ORGANIZATIONS / PARTIES mentioned which are NOT part of the corporate group.
+
+FILES UPLOADED: ${fileNames}
+USER INSTRUCTIONS: ${spokenInstruction || "None"}
+DRIVE URL: ${driveUrl || "None"}
+DOCUMENT PREVIEWS: ${textSnippets || "None"}
+
+CRITICAL INSTRUCTIONS:
+- NEVER name the company after generic terms or filename fragments like "README", "Test Instructions", "Invoice", "Statement", "Report", "Entire Ar25", "Unilever And Accounts".
+- Return ONLY a JSON object:
+{
+  "name": "Official Primary Corporate Entity Name",
+  "code": "3 to 4 character stock code / ticker",
+  "currency": "USD or EUR or GBP or JPY or CHF",
+  "country": "Country Name",
+  "discoveredEntities": [
+    { "name": "Subsidiary Company Name", "type": "SUBSIDIARY", "ownershipPercentage": 100 }
+  ],
+  "externalParties": ["FDA", "PwC", "Bank of America"]
+}`;
+
+      const aiPromise = generateAIContent([{ text: prompt }], true).catch(() => null);
+      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 2500));
+      const responseText = await Promise.race([aiPromise, timeoutPromise]);
+
+      if (responseText) {
+        const parsed = JSON.parse(responseText);
+        if (parsed.name && !parsed.name.toLowerCase().includes("readme") && !parsed.name.toLowerCase().includes("test instruction")) {
+          const aiName = parsed.name.trim();
+          // If deterministic text evidence was high confidence (0.80+), keep deterministic legal name, else adopt AI name
+          const finalEntityName = forensicRes.confidenceScore >= 0.85 ? highConfidenceName || aiName : aiName;
+          return {
+            name: finalEntityName,
+            code: (parsed.code || finalEntityName.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "ENT").toUpperCase(),
+            currency: parsed.currency || "EUR",
+            country: parsed.country || "United Kingdom",
+            discoveredEntities: Array.isArray(parsed.discoveredEntities) ? [...discoveredEntities, ...parsed.discoveredEntities] : discoveredEntities,
+            externalParties: Array.isArray(parsed.externalParties) ? [...externalParties, ...parsed.externalParties] : externalParties,
+            entityState: "RESOLVED",
+            evidenceLineage: forensicRes.lineage
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("Gemini entity extraction fallback:", err);
+    }
+  }
+
+  // STEP 3: High-Confidence Deterministic Forensic Evidence Match
+  if (highConfidenceName) {
+    const code = (highConfidenceName.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "PRJ").toUpperCase();
+    return {
+      name: highConfidenceName,
+      code,
+      currency: "EUR",
+      country: "United Kingdom",
+      discoveredEntities,
+      externalParties,
+      entityState: "RESOLVED",
+      evidenceLineage: forensicRes.lineage
+    };
+  }
+
+  // Fallback: Low-confidence evidence yields UNRESOLVED state without fabricating certainty
+  return {
+    name: forensicRes.workspaceEntity,
+    code: (forensicRes.workspaceEntity.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "PRJ").toUpperCase(),
+    currency: "EUR",
+    country: "Unknown",
+    discoveredEntities,
+    externalParties,
+    entityState: "UNRESOLVED",
+    candidateEntities: forensicRes.candidateEntities,
+    evidenceLineage: forensicRes.lineage
+  };
+}
+
+// Re-identify workspace entity endpoint
+app.post("/api/workspaces/:id/reidentify", async (req, res) => {
+  const { id } = req.params;
+  const ws = db.workspaces.find(w => w.id === id);
+  if (!ws) return res.status(404).json({ error: "Workspace not found" });
+
+  const wsDocs = db.documents.filter(d => d.workspaceId === id);
+  const mockFiles = wsDocs.map(d => ({
+    originalname: d.originalName || d.filename,
+    buffer: Buffer.from(d.summary || "")
+  })) as Express.Multer.File[];
+
+  const mockPreParsed = mockFiles.map(file => ({
+    file,
+    canonicalDoc: {
+      markdown: file.buffer.toString(),
+      sections: [{ id: "sec-1", title: "Document text", level: 1, text: file.buffer.toString() }],
+      tables: [],
+      confidence: 0.99
+    }
+  }));
+
+  const extracted = await extractEntityInfo(mockPreParsed, mockFiles, "", "");
+  ws.name = extracted.name;
+  ws.code = extracted.code;
+  ws.currency = extracted.currency;
+  ws.country = extracted.country;
+
+  // Update entity name on documents
+  wsDocs.forEach(d => {
+    d.entityName = extracted.name;
+    d.currency = extracted.currency;
+  });
+
+  saveStorage();
+  res.json({ success: true, workspace: ws, documents: wsDocs });
+});
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024, fieldSize: 100 * 1024 * 1024 } // 100MB direct upload limit
+});
+
+app.post("/api/documents/upload", (req, res) => {
+  req.setTimeout(600000);
+  res.setTimeout(600000);
+
+  const contentType = (req.headers["content-type"] || "").toLowerCase();
+
+  const handleUploadLogic = async (files: Express.Multer.File[]) => {
+    try {
+      // Trigger non-blocking AI health status check in background
+      runAIHealthTest().then(aiHealth => {
+        console.log(`[Document Ingestion] AI Provider Health Status: Native Gemini: ${aiHealth.geminiNative.status}, OpenRouter: ${aiHealth.openRouter.status}`);
+      }).catch(() => {});
+
+      let fileList = files || [];
+      const spokenInstruction = req.body?.description || "";
+      const driveUrl = req.body?.driveUrl || "";
+      let targetWorkspaceId: string | null;
+      try {
+        targetWorkspaceId = resolveExplicitIntakeTarget(req.body?.uploadIntent, req.body?.workspaceId, db.workspaces);
+      } catch (error: any) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (targetWorkspaceId && db.workspaces.find(w => w.id === targetWorkspaceId)?.classification === 'ACADEMY') {
+        return res.status(400).json({ error: 'Academy engagements accept one isolated intake; create a new exercise.' });
+      }
+      if (req.body?.academyExercise === 'true' && (targetWorkspaceId || req.body?.uploadIntent !== 'CREATE_NEW_INTAKE')) {
+        return res.status(400).json({ error: 'Academy exercises require a new isolated engagement.' });
+      }
+      const requestedTenantClassification = String(req.body?.academyTenantClassification || 'ACADEMY_SYNTHETIC') as UniversityTenantClassification;
+      if (req.body?.academyExercise === 'true' && (!UNIVERSITY_TENANT_CLASSIFICATIONS.includes(requestedTenantClassification) || requestedTenantClassification === 'PRODUCTION_CUSTOMER')) {
+        return res.status(400).json({ error: 'Academy tenant classification must be ACADEMY_SYNTHETIC, ACADEMY_PUBLIC_DATA, or INTERNAL_ACCEPTANCE.' });
+      }
+      const confirmAttachToExisting = req.body?.confirmAttachToExisting === "true";
+
+      if (shouldRejectDriveUrlOnlyUpload(fileList.length, driveUrl)) {
+        return res.status(400).json({
+          error: "Google Drive URL ingest is not implemented. Upload the file directly. Refusing to create a URL-string PDF."
+        });
+      }
+
+      if (shouldRejectEmptyUpload(fileList.length, driveUrl)) {
+        return res.status(400).json({
+          error: "No files uploaded. Refusing to synthesize an Audit Working Paper from empty input or spoken text."
+        });
+      }
+
+      // 1. Pre-parse all files ONCE up-front to prevent slow duplicate processing and timeout errors!
+      const preParsedDocs: any[] = [];
+      for (const file of fileList) {
+        const fileInput = {
+          buffer: file.buffer,
+          filename: file.originalname || "document.pdf",
+          originalName: file.originalname || "document.pdf",
+          mimeType: file.mimetype || "application/pdf",
+          size: file.size || (file.buffer ? file.buffer.length : 1024)
+        };
+        const inspection = await fileRouter.inspectFile(fileInput);
+        let canonicalDoc;
+        try {
+          const parsePromise = (async () => {
+            const parserPath = selectParserPath(inspection);
+            if (parserPath === "SPREADSHEET") return await spreadsheetParser.parse(fileInput, inspection);
+            if (parserPath === "OCR") return await ocrParser.parse(fileInput, inspection);
+            return await anyDocParser.parse(fileInput, inspection);
+          })();
+          const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 180000));
+          canonicalDoc = await Promise.race([parsePromise, timeoutPromise]);
+          
+          if (!canonicalDoc) {
+            console.warn(`Pre-parsing ${file.originalname} timed out; storing file and deferring full page inventory to hybrid extraction.`);
+            throw new Error("PREPARSE_DEFERRED");
+          }
+        } catch (parseErr) {
+          console.warn(`Error or timeout pre-parsing ${file.originalname}:`, parseErr);
+          canonicalDoc = {
+            document_id: `DOC-${Math.floor(1000 + Math.random() * 9000)}`,
+            project_id: "PRJ-CURRENT",
+            source: {
+              filename: file.originalname,
+              originalName: file.originalname,
+              format: inspection.detectedType || "pdf",
+              hash: inspection.hash,
+              original_url: null,
+              access_timestamp: new Date().toISOString()
+            },
+            parser: { engine: "deferred", version: "1.0", ocr_used: false, confidence: 0 },
+            metadata: { pages: 0, language: "UNKNOWN", currency: undefined, entityName: undefined, period: undefined, totalWords: 0 },
+            sections: [],
+            tables: [],
+            assets: [],
+            markdown: "",
+            pageManifests: [],
+            sourceBlocks: [],
+            warnings: ["Pre-parse deferred. Full page inventory will be built from the stored file during hybrid extraction."],
+            confidence: 0
+          };
+        }
+        preParsedDocs.push({ file, inspection, canonicalDoc });
+      }
+
+      // AI OCR & Entity Extraction on internal document content/names using pre-parsed docs!
+      const extractedInfo = await extractEntityInfo(preParsedDocs, fileList, spokenInstruction, driveUrl);
+      const extractedCompanyName = extractedInfo.name;
+      const currency = extractedInfo.currency;
+      const country = extractedInfo.country;
+      let cleanCode = (extractedInfo.code || "").replace(/[^a-zA-Z]/g, "").toUpperCase();
+  if (!cleanCode || cleanCode === "NA" || cleanCode === "ENT" || cleanCode.length < 2) {
+    cleanCode = (extractedCompanyName.replace(/[^a-zA-Z]/g, "").substring(0, 4) || "PRJ").toUpperCase();
+  }
+  const generatedCode = cleanCode;
+
+      const rawUploadIntent = req.body?.uploadIntent;
+      const uploadIntent = rawUploadIntent || (confirmAttachToExisting ? 'ATTACH_TO_EXISTING_PROJECT' : null);
+
+      // Find if workspace already exists by ID or by fuzzy brand matching
+      let ws = targetWorkspaceId ? db.workspaces.find(w => w.id === targetWorkspaceId) : null;
+      
+      const normalizeBrandName = (name: string) => {
+        return (name || "")
+          .toLowerCase()
+          .replace(/\b(ag|gmbh|inc|corp|corporation|group|llc|ltd|sa|plc|nv|se|financial services|holding|holdings|solutions|services|bank|motors|automotive)\b/gi, '')
+          .replace(/[^a-z0-9]/g, '')
+          .trim();
+      };
+
+      const extractedBrand = normalizeBrandName(extractedCompanyName);
+
+      const existingMatch = db.workspaces.find(w => {
+        if (w.name.toLowerCase() === extractedCompanyName.toLowerCase()) return true;
+        const wsBrand = normalizeBrandName(w.name);
+        return (extractedBrand.length >= 3 && wsBrand.length >= 3 && (wsBrand.includes(extractedBrand) || extractedBrand.includes(wsBrand)));
+      });
+
+      if (uploadIntent === 'ATTACH_TO_EXISTING_PROJECT') {
+        ws = ws || null; // Exact target was validated before parsing. Never infer a customer by name.
+      } else if (uploadIntent === 'CREATE_NEW_INTAKE') {
+        ws = null; // Defer workspace creation until intake promotion!
+      } else if (!uploadIntent && !targetWorkspaceId && existingMatch) {
+        // If matching project exists and user hasn't specified intent, ask for confirmation!
+        return res.json({
+          requiresConfirmation: true,
+          existingWorkspace: existingMatch,
+          extractedInfo: {
+            name: extractedCompanyName,
+            code: generatedCode,
+            currency,
+            country
+          }
+        });
+      }
+
+      const userEmail = req.body?.userEmail || (req.headers["x-user-email"] as string) || "";
+
+      if (ws) {
+        // Guarantee primary corporate entity exists for ws
+        let primaryEntity = corporateGroupService.getEntitiesForWorkspace(ws.id).find(e => e.entityType === 'PARENT');
+        if (!primaryEntity) {
+          primaryEntity = corporateGroupService.createEntity({
+            workspaceId: ws.id,
+            name: ws.name,
+            legalName: extractedCompanyName || ws.name,
+            jurisdiction: country || ws.country || "United States",
+            reportingCurrency: currency || ws.currency || "USD",
+            entityType: "PARENT",
+            ownershipPercentage: 100,
+            scope: "Consolidated"
+          });
+          ws.primaryEntityId = primaryEntity.id;
+        }
+
+        // Register any discovered subsidiary entities under the SAME workspace
+        if (extractedInfo.discoveredEntities && Array.isArray(extractedInfo.discoveredEntities)) {
+          extractedInfo.discoveredEntities.forEach((sub: any) => {
+            if (sub.name && sub.name.toLowerCase() !== ws.name.toLowerCase()) {
+              const existingSub = corporateGroupService.getEntitiesForWorkspace(ws.id).find(e => e.name.toLowerCase() === sub.name.toLowerCase());
+              if (!existingSub) {
+                const newSub = corporateGroupService.createEntity({
+                  workspaceId: ws.id,
+                  name: sub.name,
+                  legalName: sub.name,
+                  jurisdiction: country || ws.country || "United States",
+                  reportingCurrency: currency || ws.currency || "USD",
+                  entityType: "SUBSIDIARY",
+                  ownershipPercentage: sub.ownershipPercentage || 100,
+                  scope: "Subsidiary"
+                });
+                corporateGroupService.createRelationship({
+                  workspaceId: ws.id,
+                  parentEntityId: primaryEntity!.id,
+                  childEntityId: newSub.id,
+                  relationshipType: "PARENT_OF",
+                  ownershipPercentage: sub.ownershipPercentage || 100,
+                  consolidationMethod: "FULL"
+                });
+              }
+            }
+          });
+        }
+      }
+
+      const newDocs: DocumentRecord[] = [];
+
+      // Process pre-parsed files in PARALLEL using Promise.all
+      const uploadPromises = preParsedDocs.map(async (p) => {
+        const { file, inspection, canonicalDoc } = p;
+        const fileHash = inspection.hash || crypto.createHash('sha256').update(file.buffer || Buffer.from(file.originalname)).digest('hex');
+        const docId = `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        let classification: any = null;
+
+        try {
+          if (!inspection.isSupported) {
+            console.warn("Unsupported or corrupted file during upload:", inspection.unsupportedReason);
+          }
+
+          const existingDoc = ws ? db.documents.find(d => d.workspaceId === ws.id && ((d as any).sha256 === fileHash || (d as any).hash === fileHash)) : null;
+
+          if (existingDoc) {
+            console.log(`[Deduplication] Document "${file.originalname}" (SHA256: ${fileHash}) already uploaded in workspace ${ws?.id}. Re-using document record.`);
+            return {
+              success: true,
+              newDoc: existingDoc,
+              canonicalDoc,
+              factsToAdd: []
+            };
+          }
+
+          const parserDocumentId = String(canonicalDoc?.document_id || '');
+          canonicalDoc.document_id = docId;
+          canonicalDoc.sourceBlocks = (canonicalDoc.sourceBlocks || []).map((block: any) => ({
+            ...block,
+            document_id: docId,
+            source_block_id: parserDocumentId && typeof block.source_block_id === 'string'
+              ? block.source_block_id.replace(parserDocumentId, docId)
+              : block.source_block_id
+          }));
+
+          // Send Canonical Model to Document Intelligence Agent for category classification
+          classification = docIntelligenceAgent.classifyAndExtract(canonicalDoc);
+
+          const storedFile = saveUploadedFile(file.buffer || Buffer.from(""), file.originalname || "document.pdf");
+
+          const newDoc: DocumentRecord = {
+            id: docId,
+            workspaceId: ws ? ws.id : "intake-staged",
+            filename: file.originalname || "file",
+            originalName: file.originalname || "file",
+            mimeType: file.mimetype || inspection.mimeType || "application/pdf",
+            size: storedFile.size,
+            sha256: storedFile.sha256,
+            filePath: storedFile.filePath,
+            status: "Processing",
+            category: classification?.category || "FINANCIAL_REPORT",
+            language: canonicalDoc?.metadata?.language || "UNKNOWN",
+            currency: classification?.reportingCurrency || (ws ? ws.currency : "USD"),
+            entityName: classification?.entityName || (ws ? ws.name : "Pending Entity"),
+            period: classification?.reportingPeriod || undefined,
+            confidence: canonicalDoc?.confidence || 0.98,
+            extractedFactsCount: 0,
+            reviewStatus: "unresolved",
+            createdAt: new Date().toISOString(),
+            summary: spokenInstruction ? `Instruction: ${spokenInstruction}. Registered for Single-Pipeline Ingestion.` : `Parsed physical inventory via AnyDoc (${canonicalDoc?.parser?.engine || 'anydoc'}) & queued for background page extraction.`,
+            pageCount: canonicalDoc?.metadata?.pages || 1,
+            ingestionVersion: "v2.0-immutable",
+            isDuplicate: storedFile.isDuplicate || inspection.isDuplicate || false,
+            engineMode: process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE',
+            tenantClassification: req.body?.academyExercise === 'true' ? requestedTenantClassification : 'PRODUCTION_CUSTOMER'
+          };
+
+          return { success: true, newDoc, canonicalDoc, filePath: storedFile.filePath };
+        } catch (err: any) {
+          console.error(`Error processing file ${file.originalname}:`, err);
+          const failedDoc: DocumentRecord = {
+            id: docId,
+            workspaceId: ws ? ws.id : "intake-staged",
+            filename: file.originalname || "file",
+            originalName: file.originalname || "file",
+            mimeType: file.mimetype || "application/pdf",
+            size: file.size || 0,
+            sha256: fileHash,
+            status: "Failed",
+            category: "OTHER",
+            language: "UNKNOWN",
+            currency: ws ? ws.currency : "EUR",
+            entityName: ws ? ws.name : "Pending Entity",
+            period: classification?.reportingPeriod || undefined,
+            confidence: 0,
+            extractedFactsCount: 0,
+            reviewStatus: "unresolved",
+            createdAt: new Date().toISOString(),
+            summary: `Extraction failed: ${err?.message || "Internal parser error"}. Recorded in UploadManifest.`,
+            pageCount: 1,
+            ingestionVersion: "v2.0-immutable",
+            tenantClassification: req.body?.academyExercise === 'true' ? requestedTenantClassification : 'PRODUCTION_CUSTOMER'
+          };
+          return { success: false, newDoc: failedDoc, error: err?.message || "File parsing failed" };
+        }
+      });
+
+      // Wait for all file parsing to complete in parallel
+      const uploadResults = await Promise.all(uploadPromises);
+
+      // Save processed documents, page manifests, and source blocks
+      for (const result of uploadResults) {
+        if (result.newDoc) {
+          db.documents.unshift(result.newDoc);
+          newDocs.push(result.newDoc);
+        }
+        if (!result.success || !result.newDoc || result.newDoc.status === "Failed") continue;
+
+        // Store Page Manifests
+        if (result.canonicalDoc?.pageManifests && Array.isArray(result.canonicalDoc.pageManifests)) {
+          if (!db.pageManifests) db.pageManifests = [];
+          db.pageManifests.push(...result.canonicalDoc.pageManifests.map((pm: any) => ({ ...pm, document_id: result.newDoc.id })));
+        }
+
+        // Store Source Blocks
+        if (result.canonicalDoc?.sourceBlocks && Array.isArray(result.canonicalDoc.sourceBlocks)) {
+          if (!db.sourceBlocks) db.sourceBlocks = [];
+          db.sourceBlocks.push(...result.canonicalDoc.sourceBlocks.map((sb: any) => ({ ...sb, document_id: result.newDoc.id })));
+        }
+      }
+
+      // Trigger Hermes Asynchronous Background Processing Queue for chunked multi-agent ingestion!
+      const effectiveEngineMode = process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE';
+      const intakeSession = intakeService.createIntakeSession({
+        classification: req.body?.academyExercise === 'true' ? 'ACADEMY' : 'CUSTOMER',
+        tenantClassification: req.body?.academyExercise === 'true' ? requestedTenantClassification : 'PRODUCTION_CUSTOMER',
+        requestedWorkspaceName: uploadIntent === 'CREATE_NEW_INTAKE' && typeof req.body?.requestedWorkspaceName === 'string' ? req.body.requestedWorkspaceName.trim().slice(0, 200) : undefined,
+        targetProjectId: uploadIntent === 'CREATE_NEW_INTAKE' ? null : ws?.id || null,
+        userId: req.body?.userId || "usr-default",
+        userEmail,
+        engineMode: effectiveEngineMode,
+        uploadedFiles: preParsedDocs.map((p, idx) => ({
+          filename: p.file.originalname,
+          originalName: p.file.originalname,
+          sha256: newDocs[idx]?.sha256 || p.inspection?.hash || crypto.createHash('sha256').update(p.file.buffer).digest('hex'),
+          size: p.file.size || 0,
+          mimeType: p.file.mimetype || "application/pdf",
+          documentId: newDocs[idx]?.id || `doc-${Date.now()}-${idx}`,
+          pageCount: p.canonicalDoc?.metadata?.pages || 1
+        })),
+        documentIds: newDocs.map(d => d.id),
+        stagedDocuments: newDocs,
+        stagedPageManifests: preParsedDocs.flatMap(p => p.canonicalDoc?.pageManifests || []),
+        stagedSourceBlocks: preParsedDocs.flatMap(p => p.canonicalDoc?.sourceBlocks || []),
+        stagedFacts: ws ? db.facts.filter(f => f.workspaceId === ws.id) : db.facts.filter(f => newDocs.some(d => d.id === f.documentId)),
+        pagesTotal: preParsedDocs.reduce((acc, p) => acc + (p.canonicalDoc?.metadata?.pages || 1), 0)
+      });
+
+      const customerPriorityJobId = `JOB-INTAKE-${intakeSession.id}`;
+      const createdQueueJobs: any[] = [];
+      preParsedDocs.forEach((p, idx) => {
+        const docRec = newDocs[idx];
+        if (docRec) {
+          (docRec as any).engineMode = effectiveEngineMode;
+          const docText = p.canonicalDoc?.markdown || (Array.isArray(p.canonicalDoc?.sections) ? p.canonicalDoc.sections.map((s: any) => s.text || '').join("\n") : '') || p.file.buffer?.toString("utf-8") || "";
+          const assignedJobId = idx === 0 ? customerPriorityJobId : `JOB-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+          const job = backgroundIngestionQueue.createJob(
+            ws ? ws.id : intakeSession.id,
+            docRec.id,
+            docRec.filename,
+            docText,
+            ws ? ws.currency : currency || "EUR",
+            docRec.filePath,
+            p.canonicalDoc?.pageManifests,
+            p.canonicalDoc?.sourceBlocks,
+            intakeSession.id,
+            effectiveEngineMode,
+            docRec.sha256,
+            assignedJobId,
+            docRec.mimeType || p.file.mimetype
+          );
+          job.classification = intakeSession.classification;
+          docRec.classification = intakeSession.classification;
+          createdQueueJobs.push(job);
+
+          // Register DataCustodyEnvelope for physical document
+          try {
+            informationCustodyEngine.registerIntakeCustodyEnvelope({
+              documentId: docRec.id,
+              filename: docRec.filename,
+              sha256: docRec.sha256 || p.inspection?.hash || "",
+              filePath: docRec.filePath || "",
+              fileSizeBytes: docRec.size || 0,
+              intakeSessionId: intakeSession.id,
+              projectId: ws ? ws.id : intakeSession.id,
+              customerPriorityJobId: assignedJobId
+            });
+          } catch (custodyErr) {
+            console.error(`[Intake Custody] Failed to register custody envelope for doc ${docRec.id}:`, custodyErr);
+          }
+        }
+      });
+
+      // Synchronously verify and persist queue state to disk
+      await backgroundIngestionQueue.performDiskSave();
+
+      if (intakeSession.classification === 'ACADEMY') {
+        universityStore.registerAcademyIntake({
+          intakeId: intakeSession.id,
+          name: intakeSession.requestedWorkspaceName,
+          tenantClassification: intakeSession.tenantClassification as Exclude<UniversityTenantClassification, 'PRODUCTION_CUSTOMER'>,
+          sourceType: newDocs[0]?.category || 'UNCLASSIFIED_RAW_INPUT',
+          documentIds: newDocs.map(document => document.id)
+        });
+      }
+
+      saveStorage();
+      return res.json({
+        success: true,
+        intakeSessionId: intakeSession.id,
+        customerPriorityJobId,
+        queueJobId: customerPriorityJobId,
+        uploadIntent: uploadIntent || 'CREATE_NEW_INTAKE',
+        targetProjectId: ws ? ws.id : null,
+        documentIds: newDocs.map(d => d.id),
+        status: "QUEUED",
+        intakeSession,
+        workspace: ws || null,
+        documents: newDocs,
+        facts: ws ? db.facts.filter(f => f.workspaceId === ws.id) : [],
+        factsCount: ws ? db.facts.filter(f => f.workspaceId === ws.id).length : 0,
+        queueJobs: createdQueueJobs
+      });
+    } catch (routeErr: any) {
+      console.error("Error processing document upload:", routeErr);
+      return res.status(500).json({ error: routeErr?.message || "Failed to process document upload" });
+    }
+  };
+
+  if (contentType.includes("application/json")) {
+    let jsonFiles: Express.Multer.File[] = [];
+    const inputFiles = req.body?.files || req.body?.fileList || [];
+    if (Array.isArray(inputFiles) && inputFiles.length > 0) {
+      jsonFiles = inputFiles.map((f: any) => {
+        let buf = Buffer.from("");
+        if (f.base64) {
+          const cleanB64 = String(f.base64).replace(/^data:[^;]+;base64,/, "");
+          buf = Buffer.from(cleanB64, "base64");
+        } else if (f.text) {
+          buf = Buffer.from(f.text, "utf-8");
+        }
+        return {
+          fieldname: "files",
+          originalname: f.name || f.filename || f.originalname || "Uploaded_Document.pdf",
+          encoding: "7bit",
+          mimetype: f.mimeType || f.type || f.mimetype || "application/pdf",
+          buffer: buf,
+          size: buf.length
+        } as Express.Multer.File;
+      });
+    }
+    return handleUploadLogic(jsonFiles).catch(err => {
+      console.error("Unhandled error in JSON upload logic:", err);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: err?.message || "Failed to process document upload" });
+      }
+    });
+  } else {
+    (upload.any() as any)(req, res, async (err: any) => {
+      if (err) {
+        console.error("Multer upload error:", err);
+        const statusCode = err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FIELD_SIZE' ? 413 : 400;
+        return res.status(statusCode).json({ error: err.message || "File upload error" });
+      }
+      const files = (req.files as Express.Multer.File[]) || [];
+      return handleUploadLogic(files).catch(err => {
+        console.error("Unhandled error in multipart upload logic:", err);
+        if (!res.headersSent) {
+          return res.status(500).json({ error: err?.message || "Failed to process document upload" });
+        }
+      });
+    });
+  }
+});
+
+// Intake Session API Endpoints (Phase H.8 / H.9)
+app.get("/api/intakes/:id/hybrid-trace", (req, res) => {
+  const intakeId = req.params.id;
+  const session = intakeService.getIntakeSession(intakeId);
+  if (!session) return res.status(404).json({ error: `Intake session ${intakeId} not found` });
+
+  const llmMetrics = getLLMGatewayMetrics();
+  const effectiveEngine = session.engineMode || process.env.PDF_EXTRACTION_ENGINE || 'HYBRID_GEMINI_NATIVE';
+  const geminiStatus = getGeminiDiagnosticStatus();
+
+  const sessionFacts = session.stagedFacts || [];
+  const legacyFacts = sessionFacts.filter((f: any) => f.extractionEngine === 'LEGACY_PAGE_SWARM' || f.extractionEngine === 'LEGACY_SWARM');
+  const hybridFacts = sessionFacts.filter((f: any) => f.extractionEngine === 'HYBRID_GEMINI_NATIVE');
+  const deterministicFacts = sessionFacts.filter((f: any) => f.extractionEngine === 'DETERMINISTIC_NATIVE');
+  const canonicalFacts = sessionFacts.filter((f: any) => f.canonicalMetric || f.canonical_metric);
+  const verifiedFacts = sessionFacts.filter((f: any) => f.status === 'approved' || f.confidence > 0.8);
+
+  const allJobs = backgroundIngestionQueue.getAllJobs();
+  const sessionJobs = allJobs.filter(j => j.intakeSessionId === intakeId || session.queueJobIds.includes(j.id));
+  const activeJob = sessionJobs[0];
+
+  res.json({
+    engineMode: effectiveEngine,
+    effectiveEngine,
+    intakeId: session.id,
+    targetProjectId: session.targetProjectId,
+    status: session.status,
+    GeminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    GeminiDiagnosticStatus: geminiStatus,
+    GeminiFileUploadCount: session.uploadedFiles?.length || 0,
+    GeminiFileIds: session.uploadedFiles?.map(f => f.documentId) || [],
+    documents: session.uploadedFiles,
+    physicalPagesTotal: session.pagesTotal,
+    factsExtracted: session.factsFoundCount,
+    legacyFactCount: effectiveEngine === 'HYBRID_GEMINI_NATIVE' ? 0 : legacyFacts.length,
+    hybridFactCount: hybridFacts.length,
+    deterministicFactCount: deterministicFacts.length,
+    canonicalFactCount: canonicalFacts.length,
+    verifiedFactCount: verifiedFacts.length,
+    semanticTasksTotal: activeJob?.semanticTasksTotal || 5,
+    semanticTasksCompleted: activeJob?.semanticTasksCompleted || (session.status === 'COMPLETED' ? 5 : 0),
+    semanticTasksFailed: activeJob?.semanticTasksFailed || 0,
+    semanticTasksWaiting: activeJob?.semanticTasksWaiting || 0,
+    providerRequestsTotal: llmMetrics.requestsTotal,
+    provider429s: llmMetrics.http429Count,
+    providerRetries: llmMetrics.retryCount,
+    readinessState: session.status === 'COMPLETED' ? 'AUDIT_READY' : 'VERIFICATION_IN_PROGRESS',
+    stagedFactsCount: sessionFacts.length
+  });
+});
+
+app.get("/api/intakes/:id/trace", (req, res) => {
+  const intakeId = req.params.id;
+  const session = intakeService.getIntakeSession(intakeId);
+  if (!session) return res.status(404).json({ error: `Intake session ${intakeId} not found` });
+
+  const allJobs = backgroundIngestionQueue.getAllJobs();
+  const sessionJobs = allJobs.filter(j => j.intakeSessionId === intakeId || session.queueJobIds.includes(j.id) || j.workspaceId === intakeId || j.workspaceId === session.targetProjectId);
+
+  const units = sessionJobs.flatMap(j => j.processingUnits || []);
+  const unitsQueued = units.filter(u => u.status === 'QUEUED').length;
+  const unitsProcessing = units.filter(u => u.status === 'PROCESSING').length;
+  const unitsRetryWait = units.filter(u => u.status === 'RETRYING' || u.status === 'RATE_LIMITED' || u.status === 'WAITING_FOR_LLM').length;
+  const unitsCompleted = units.filter(u => u.status === 'COMPLETED' || u.status === 'COMPLETED_NO_FINANCIAL_FACTS' || u.status === 'NO_TEXT').length;
+  const unitsFailed = units.filter(u => u.status === 'FAILED' || u.status === 'FAILED_TERMINAL').length;
+
+  const llmMetrics = getLLMGatewayMetrics();
+  const startTime = session.createdAt;
+  const elapsedTimeSeconds = Math.round((Date.now() - new Date(startTime).getTime()) / 1000);
+
+  const semanticTasks = semanticTaskManager.getTasksForIntake(intakeId);
+  const activeTask = semanticTasks.find(t => t.status === 'RUNNING');
+  const completedTasks = semanticTasks.filter(t => t.status === 'COMPLETED' || t.status === 'COMPLETED_WITH_WARNINGS');
+  const waitingTasks = semanticTasks.filter(t => t.status === 'WAITING_FOR_AI_CAPACITY');
+  const retryTasks = semanticTasks.filter(t => t.status === 'RETRY_SCHEDULED');
+
+  res.json({
+    intakeId: session.id,
+    uploadIntent: session.targetProjectId ? "ATTACH_TO_EXISTING_PROJECT" : "CREATE_NEW_INTAKE",
+    targetProjectId: session.targetProjectId,
     selectedFileCount: session.uploadedFiles.length,
     acceptedFileCount: session.uploadedFiles.length,
     documentIds: session.documentIds,
