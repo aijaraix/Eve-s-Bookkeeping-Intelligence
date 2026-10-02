@@ -4,7 +4,7 @@ This branch is a **documentation/control package**, not the product source branc
 
 ## Source authority
 
-Normal EVE engineering must recover `feature/university-raw-input-activation` from the live Thin Gateway/Internal Forge. At the time of this index, Gateway reports Accepted Head `a784ea62e881f2eadbad60e0ed88b5a846088262`.
+Normal EVE engineering must recover `feature/university-raw-input-activation` from the live Thin Gateway/Internal Forge. At the latest campaign reconciliation, the verified governed product checkpoint is `d4a8e9dbc280021bbc61708201a1b24488bb7e12`; fresh legitimate Gateway truth wins.
 
 GitHub publication may lag. Never replace the Gateway-selected product source with this docs branch.
 
@@ -17,6 +17,8 @@ The accepted product history already contains the foundational University contra
 - [10_BOOKKEEPING_SERVICE_READINESS_MASTER_PROGRAM.md](10_BOOKKEEPING_SERVICE_READINESS_MASTER_PROGRAM.md) — complete product/service-readiness mission, Red/Blue model, curriculum, presentation integrity, learning loop and exit criteria.
 - [11_UNIVERSITY_EXECUTION_BOARD.md](11_UNIVERSITY_EXECUTION_BOARD.md) — phased execution board, first five cases, capability gates, failure taxonomy and 25-case progression.
 - [12_MASTER_WORKER_PROMPT.md](12_MASTER_WORKER_PROMPT.md) — comprehensive prompt for the long-running University lead implementation Worker.
+- [13_CERTIFICATION_TAIL_AND_CASES_6_25_CAMPAIGN.md](13_CERTIFICATION_TAIL_AND_CASES_6_25_CAMPAIGN.md) — remaining HBANK/HPOS/HFX certification tail and governed cases 6–25 campaign structure.
+- [14_ASTRA_LONG_RUN_DIRECTIVE.md](14_ASTRA_LONG_RUN_DIRECTIVE.md) — concise long-run execution directive for the Astra lead Worker.
 
 ## Intended use
 
